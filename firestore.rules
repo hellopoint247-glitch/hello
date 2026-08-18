@@ -1,0 +1,96 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Deconstructive Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Public configurations
+    match /public/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Absolute identity verification helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Flat paths matches to prevent overlapping/nesting rule resolution issues
+
+    // Users
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isOwner(userId);
+    }
+
+    // Customers Collection (Contacts)
+    match /users/{userId}/contacts/{contactId} {
+      allow read: if true;
+      allow create, delete: if isOwner(userId);
+      allow update: if isOwner(userId) || (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['photoUrl', 'updatedAt'])
+      );
+    }
+
+    // Customer Transactions Ledger
+    match /users/{userId}/transactions/{transactionId} {
+      allow read: if true;
+      allow write: if isOwner(userId);
+    }
+
+    // Recharge requests
+    match /users/{userId}/recharge_requests/{requestId} {
+      allow read, write: if true;
+    }
+
+    // Paybill requests
+    match /users/{userId}/paybill_requests/{requestId} {
+      allow read, write: if true;
+    }
+
+    // Chat messages
+    match /users/{userId}/chats/{messageId} {
+      allow read, write: if true;
+    }
+
+    // Cashbook direct entries
+    match /users/{userId}/cashbook/{entryId} {
+      allow read: if true;
+      allow write: if isOwner(userId);
+    }
+
+    // Pay Bill entries
+    match /users/{userId}/paybills/{paybillId} {
+      allow read, write: if true;
+    }
+
+    // Reminders collection
+    match /users/{userId}/reminders/{reminderId} {
+      allow read, write: if true;
+    }
+
+    // Trash Transactions collection
+    match /users/{userId}/trash_transactions/{trashId} {
+      allow read: if true;
+      allow write: if isOwner(userId);
+    }
+
+    // Signup Requests collection for new customer self-registration
+    match /signup_requests/{requestId} {
+      allow read: if true;
+      allow create: if request.resource.data.name is string 
+        && request.resource.data.name.size() <= 200
+        && request.resource.data.phone is string 
+        && request.resource.data.phone.size() <= 20
+        && request.resource.data.status == 'pending';
+      allow update, delete: if isSignedIn();
+    }
+  }
+}

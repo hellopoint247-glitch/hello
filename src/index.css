@@ -1,0 +1,767 @@
+/* Google Fonts are preloaded in index.html for high-performance rendering */
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Hind Siliguri", ui-sans-serif, system-ui, sans-serif;
+  --font-bengali: "Hind Siliguri", sans-serif;
+  --font-mono: "Outfit", ui-monospace, SFMono-Regular, monospace;
+  --color-brand-primary: var(--brand-primary, #6244a6);
+  --color-brand-hover: var(--brand-hover, #5e35b1);
+  --color-brand-light: var(--brand-light, #ede7f6);
+}
+
+:root {
+  --brand-primary: #6244a6;
+  --brand-hover: #5e35b1;
+  --brand-light: #ede7f6;
+}
+
+/* Base resets & styling layout */
+body {
+  font-family: var(--font-sans);
+  background-color: #eaeff5;
+  color: #0f172a;
+  transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease;
+}
+
+/* Ensure smooth theme transitions */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 180ms;
+}
+
+/* =========================================================================
+   DARK MODE COLOR SYSTEM (High Readability, Low Strain Palette)
+   ========================================================================= */
+
+html.dark,
+[data-theme="dark"],
+body.dark,
+.dark #root,
+.dark #main-dashboard,
+.dark #customer-detail-viewport,
+.dark #transaction-form-viewport,
+.dark main#main-content {
+  background-color: #252B33 !important;
+  color: #F1F3F5 !important;
+}
+
+/* Dark Mode Scrollbars */
+.dark ::-webkit-scrollbar-track {
+  background: #252B33;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #46515E;
+  border-radius: 4px;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #5A6778;
+}
+
+/* Dark Mode Header - Dynamic Tinting with User Selected Theme Color */
+.dark #app-header,
+.dark header:not(#unified-auth-viewport *):not(#customer-portal-root *),
+.dark #customer-detail-viewport > header,
+.dark #transaction-form-viewport > header {
+  background-color: var(--brand-dark-header, color-mix(in srgb, var(--brand-primary, #6244a6) 38%, #1c222a)) !important;
+  border-color: var(--brand-dark-border, color-mix(in srgb, var(--brand-primary, #6244a6) 50%, #46515E)) !important;
+  color: #F3F5F7 !important;
+}
+
+.dark #app-header h1,
+.dark #app-header h2,
+.dark #app-header h3,
+.dark #customer-detail-viewport > header h1,
+.dark #customer-detail-viewport > header h2 {
+  color: #F3F5F7 !important;
+}
+
+.dark header:not(#unified-auth-viewport *):not(#customer-portal-root *) p,
+.dark header:not(#unified-auth-viewport *):not(#customer-portal-root *) span:not(.bg-yellow-300):not(.text-yellow-300):not(.bg-red-650):not(.text-white) {
+  color: #C0C7CF;
+}
+
+/* Dark Mode Header Icons */
+.dark header:not(#unified-auth-viewport *):not(#customer-portal-root *) button:not(#btn-submit-tx):not([id*="cash-"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-purple"]) {
+  color: #CBD1D8 !important;
+}
+.dark header:not(#unified-auth-viewport *):not(#customer-portal-root *) button:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Dark Mode Tabs */
+.dark #tabs-header button {
+  color: #C5CBD2 !important;
+}
+.dark #tabs-header button[class*="text-yellow-300"],
+.dark #tabs-header button.active {
+  color: #F4D72C !important;
+}
+.dark #tabs-header span.bg-yellow-300 {
+  background-color: #F4D72C !important;
+}
+
+/* Dark Mode Card Backgrounds & Surfaces (Excluded for Login & Customer Portal) */
+.dark #main-dashboard .bg-white,
+.dark #customer-detail-viewport .bg-white,
+.dark #transaction-form-viewport .bg-white,
+.dark #settings-menu-panel,
+.dark .modal-container .bg-white,
+.dark #notifications-modal > div,
+.dark #paybill-requests-center-modal > div,
+.dark #owner-inbox-modal > div,
+.dark #reminders-modal > div,
+.dark #add-paybill-modal > div,
+.dark #paybill-details-modal > div,
+.dark #bill-confirm-dialog-overlay > div,
+.dark #pin-change-dialog-overlay > div,
+.dark #customer-delete-dialog-overlay > div,
+.dark #cashbook-delete-dialog-overlay > div,
+.dark #recharge-cancel-dialog-overlay > div,
+.dark #delete-confirmation-dialog-overlay > div,
+.dark #zoom-image-overlay > div,
+.dark #backup-modal-overlay > div,
+.dark #bangla-calendar-modal > div,
+.dark #add-contact-modal > div,
+.dark #cashbook-entry-modal > div,
+.dark #cashbook-customer-picker-overlay > div,
+.dark #trash-bin-modal > div,
+.dark #edit-contact-dialog-overlay > div,
+.dark #delete-tx-dialog-overlay > div,
+.dark #clear-entries-dialog-overlay > div,
+.dark div[id$="-dialog-overlay"] > div {
+  background-color: #39424E !important;
+  color: #F1F3F5 !important;
+  border-color: #4A5666 !important;
+}
+
+.dark #main-dashboard .bg-slate-50,
+.dark #main-dashboard .bg-slate-50\/50,
+.dark #main-dashboard .bg-slate-50\/70,
+.dark #main-dashboard .bg-slate-50\/80,
+.dark #main-dashboard .bg-slate-100,
+.dark #main-dashboard .bg-slate-150,
+.dark #main-dashboard .bg-slate-200,
+.dark #main-dashboard .bg-\[\#f8fafc\],
+.dark #customer-detail-viewport .bg-slate-50,
+.dark #customer-detail-viewport .bg-slate-100,
+.dark #customer-detail-viewport .bg-slate-200,
+.dark #transaction-form-viewport .bg-slate-50,
+.dark #transaction-form-viewport .bg-slate-100,
+.dark #transaction-form-viewport .bg-\[\#f8fafc\],
+.dark #notifications-modal .bg-white,
+.dark #notifications-modal .bg-slate-50,
+.dark #notifications-modal .bg-slate-50\/50,
+.dark #paybill-requests-center-modal .bg-white,
+.dark #paybill-requests-center-modal .bg-slate-50,
+.dark #paybill-requests-center-modal .bg-slate-50\/50,
+.dark #owner-inbox-modal .bg-white,
+.dark #owner-inbox-modal .bg-slate-50,
+.dark #reminders-modal .bg-white,
+.dark #reminders-modal .bg-slate-50,
+.dark #reminders-modal .bg-slate-50\/50,
+.dark #add-paybill-modal .bg-slate-50,
+.dark #paybill-details-modal .bg-white,
+.dark #paybill-details-modal .bg-slate-50,
+.dark #paybill-details-modal .bg-slate-50\/40,
+.dark #settings-menu-panel .bg-slate-50,
+.dark #settings-menu-panel .bg-slate-100,
+.dark #backup-modal-overlay .bg-slate-50,
+.dark #backup-modal-overlay .bg-slate-100,
+.dark #backup-modal-overlay .bg-white,
+.dark #bangla-calendar-modal .bg-slate-50,
+.dark #bangla-calendar-modal .bg-slate-100,
+.dark #bangla-calendar-modal .bg-slate-200,
+.dark #bangla-calendar-modal .bg-white,
+.dark #add-contact-modal .bg-slate-50,
+.dark #add-contact-modal .bg-slate-100,
+.dark #cashbook-entry-modal .bg-slate-50,
+.dark #cashbook-entry-modal .bg-slate-100,
+.dark #cashbook-entry-modal .bg-white,
+.dark #cashbook-customer-picker-overlay .bg-slate-50,
+.dark #cashbook-customer-picker-overlay .bg-slate-100,
+.dark #cashbook-customer-picker-overlay .bg-white,
+.dark #trash-bin-modal .bg-slate-50,
+.dark #trash-bin-modal .bg-slate-100,
+.dark #trash-bin-modal .bg-white,
+.dark #edit-contact-dialog-overlay .bg-slate-50,
+.dark #edit-contact-dialog-overlay .bg-slate-100,
+.dark #delete-tx-dialog-overlay .bg-slate-100,
+.dark #clear-entries-dialog-overlay .bg-slate-100,
+.dark #customer-delete-dialog-overlay .bg-slate-100,
+.dark #cashbook-delete-dialog-overlay .bg-slate-100,
+.dark #recharge-cancel-dialog-overlay .bg-slate-100,
+.dark #delete-confirmation-dialog-overlay .bg-slate-100 {
+  background-color: #2D3540 !important;
+  border-color: #46515E !important;
+}
+
+.dark #main-dashboard .bg-purple-50,
+.dark #main-dashboard .bg-purple-50\/20,
+.dark #main-dashboard .bg-purple-50\/40,
+.dark #main-dashboard .bg-brand-light,
+.dark #main-dashboard .bg-indigo-50,
+.dark #customer-detail-viewport .bg-purple-50,
+.dark #transaction-form-viewport .bg-purple-50,
+.dark #notifications-modal .bg-purple-50\/20,
+.dark #notifications-modal .bg-purple-50,
+.dark #reminders-modal .bg-purple-50,
+.dark #backup-modal-overlay .bg-purple-50\/50,
+.dark #backup-modal-overlay .bg-purple-50,
+.dark #cashbook-entry-modal .bg-purple-50,
+.dark #cashbook-customer-picker-overlay .bg-purple-50\/40,
+.dark #edit-contact-dialog-overlay .bg-indigo-50 {
+  background-color: rgba(98, 68, 166, 0.22) !important;
+  border-color: rgba(167, 139, 250, 0.35) !important;
+}
+
+.dark #notifications-modal .bg-blue-50\/20,
+.dark #notifications-modal .bg-blue-50,
+.dark #paybill-requests-center-modal .bg-blue-50 {
+  background-color: rgba(37, 99, 235, 0.22) !important;
+  border-color: rgba(96, 165, 250, 0.35) !important;
+}
+
+.dark #notifications-modal .bg-rose-50\/20,
+.dark #notifications-modal .bg-rose-50,
+.dark #paybill-requests-center-modal .bg-rose-50,
+.dark #pin-change-dialog-overlay .bg-rose-50,
+.dark #customer-delete-dialog-overlay .bg-rose-50,
+.dark #cashbook-delete-dialog-overlay .bg-rose-50,
+.dark #recharge-cancel-dialog-overlay .bg-rose-50,
+.dark #delete-confirmation-dialog-overlay .bg-rose-50,
+.dark #delete-tx-dialog-overlay .bg-rose-50,
+.dark #edit-contact-dialog-overlay .bg-rose-50,
+.dark #cashbook-entry-modal .bg-rose-50,
+.dark #trash-bin-modal .bg-rose-500\/20 {
+  background-color: rgba(225, 29, 72, 0.22) !important;
+  border-color: rgba(251, 113, 133, 0.35) !important;
+}
+
+.dark #notifications-modal .bg-amber-50,
+.dark #paybill-requests-center-modal .bg-amber-50,
+.dark #bill-confirm-dialog-overlay .bg-amber-100,
+.dark #clear-entries-dialog-overlay .bg-amber-50 {
+  background-color: rgba(217, 119, 6, 0.22) !important;
+  border-color: rgba(251, 191, 36, 0.35) !important;
+}
+
+.dark #notifications-modal .bg-emerald-50,
+.dark #paybill-requests-center-modal .bg-emerald-50,
+.dark #bill-confirm-dialog-overlay .bg-emerald-50,
+.dark #net-stats-card .bg-emerald-50,
+.dark #customer-sheet-export-header-btn {
+  background-color: rgba(16, 185, 129, 0.22) !important;
+  border-color: rgba(52, 211, 153, 0.35) !important;
+  color: #6EE7B7 !important;
+}
+
+.dark #customer-sheet-export-header-btn:hover {
+  background-color: rgba(16, 185, 129, 0.32) !important;
+}
+
+.dark #net-stats-card .bg-rose-50 {
+  background-color: rgba(244, 63, 94, 0.22) !important;
+  border-color: rgba(251, 113, 133, 0.35) !important;
+  color: #FDA4AF !important;
+}
+
+.dark #net-stats-card .text-emerald-600 {
+  color: #34D399 !important;
+}
+
+.dark #net-stats-card .text-rose-500 {
+  color: #FB7185 !important;
+}
+
+/* Eye-Friendly Badges in Notifications & Modals */
+.dark #notifications-modal .bg-purple-100,
+.dark #reminders-modal .bg-purple-100 {
+  background-color: rgba(167, 139, 250, 0.28) !important;
+  color: #E9D5FF !important;
+}
+.dark #notifications-modal .bg-blue-100,
+.dark #paybill-requests-center-modal .bg-blue-100 {
+  background-color: rgba(96, 165, 250, 0.28) !important;
+  color: #DBEAFE !important;
+}
+.dark #notifications-modal .bg-red-100,
+.dark #notifications-modal .bg-rose-100,
+.dark #reminders-modal .bg-red-100,
+.dark #paybill-requests-center-modal .bg-rose-100 {
+  background-color: rgba(248, 113, 113, 0.28) !important;
+  color: #FEE2E2 !important;
+}
+
+/* Eye-Friendly Category Title Text */
+.dark #notifications-modal .text-purple-750,
+.dark #notifications-modal .text-purple-705,
+.dark #notifications-modal .text-purple-700,
+.dark #reminders-modal .text-purple-700,
+.dark #reminders-modal .text-purple-950,
+.dark #paybill-details-modal .text-purple-900 {
+  color: #C4B5FD !important;
+}
+.dark #notifications-modal .text-blue-750,
+.dark #notifications-modal .text-blue-700,
+.dark #notifications-modal .text-blue-800,
+.dark #paybill-requests-center-modal .text-blue-700,
+.dark #paybill-requests-center-modal .text-blue-600,
+.dark #bill-confirm-dialog-overlay .text-blue-600 {
+  color: #93C5FD !important;
+}
+.dark #notifications-modal .text-rose-750,
+.dark #notifications-modal .text-rose-700,
+.dark #notifications-modal .text-rose-655,
+.dark #notifications-modal .text-rose-650,
+.dark #notifications-modal .text-red-655,
+.dark #notifications-modal .text-red-650,
+.dark #paybill-requests-center-modal .text-rose-600,
+.dark #paybill-requests-center-modal .text-rose-650 {
+  color: #FDA4AF !important;
+}
+.dark #notifications-modal .text-purple-900 {
+  color: #DDD6FE !important;
+}
+.dark #notifications-modal .text-emerald-650,
+.dark #paybill-requests-center-modal .text-emerald-600,
+.dark #reminders-modal .text-emerald-600,
+.dark #reminders-modal .text-emerald-700,
+.dark #reminders-modal .text-emerald-800,
+.dark #paybill-details-modal .text-emerald-600,
+.dark #paybill-details-modal .text-emerald-800 {
+  color: #6EE7B7 !important;
+}
+
+/* Dark Mode Borders & Dividers */
+.dark #main-dashboard .border-slate-50,
+.dark #main-dashboard .border-slate-100,
+.dark #main-dashboard .border-slate-150,
+.dark #main-dashboard .border-slate-200,
+.dark #main-dashboard .border-slate-250,
+.dark #main-dashboard .border-slate-300,
+.dark #main-dashboard .divide-slate-50,
+.dark #main-dashboard .divide-slate-100,
+.dark #main-dashboard .divide-slate-200,
+.dark #main-dashboard .border-purple-100,
+.dark #main-dashboard .border-purple-200,
+.dark #customer-detail-viewport .border-slate-100,
+.dark #customer-detail-viewport .border-slate-200,
+.dark #customer-detail-viewport .divide-slate-100,
+.dark #transaction-form-viewport .border-slate-100,
+.dark #transaction-form-viewport .border-slate-200,
+.dark #notifications-modal .border-slate-100,
+.dark #notifications-modal .border-slate-150,
+.dark #notifications-modal .border-slate-200,
+.dark #notifications-modal .border-purple-100,
+.dark #notifications-modal .border-blue-100,
+.dark #notifications-modal .border-red-100,
+.dark #paybill-requests-center-modal .border-slate-100,
+.dark #paybill-requests-center-modal .border-slate-200,
+.dark #owner-inbox-modal .border-slate-100,
+.dark #owner-inbox-modal .border-slate-150,
+.dark #reminders-modal .border-slate-100,
+.dark #reminders-modal .border-purple-100,
+.dark #add-paybill-modal .border-slate-100,
+.dark #add-paybill-modal .border-slate-200,
+.dark #paybill-details-modal .border-slate-100,
+.dark #paybill-details-modal .border-slate-150,
+.dark #bill-confirm-dialog-overlay .border-slate-200\/95,
+.dark #settings-menu-panel .border-slate-100,
+.dark #settings-menu-panel .border-slate-200,
+.dark #backup-modal-overlay .border-slate-100,
+.dark #backup-modal-overlay .border-slate-150,
+.dark #bangla-calendar-modal .border-slate-100,
+.dark #bangla-calendar-modal .border-slate-200,
+.dark #add-contact-modal .border-slate-100,
+.dark #add-contact-modal .border-slate-200,
+.dark #cashbook-entry-modal .border-slate-100,
+.dark #cashbook-entry-modal .border-slate-200,
+.dark #cashbook-customer-picker-overlay .border-slate-100,
+.dark #cashbook-customer-picker-overlay .border-slate-200,
+.dark #trash-bin-modal .border-slate-100,
+.dark #trash-bin-modal .border-slate-200,
+.dark #edit-contact-dialog-overlay .border-slate-100,
+.dark #edit-contact-dialog-overlay .border-slate-200,
+.dark #delete-tx-dialog-overlay .border-slate-100,
+.dark #clear-entries-dialog-overlay .border-slate-100,
+.dark #pin-change-dialog-overlay .border-slate-100,
+.dark #pin-change-dialog-overlay .border-slate-200 {
+  border-color: #46515E !important;
+}
+
+/* Dark Mode Card Hover States */
+.dark #main-dashboard .hover\:bg-slate-50:hover,
+.dark #main-dashboard .hover\:bg-slate-100:hover,
+.dark #main-dashboard .hover\:bg-purple-50:hover,
+.dark #customer-detail-viewport .hover\:bg-slate-50:hover,
+.dark #notifications-modal .hover\:bg-slate-50:hover,
+.dark #paybill-requests-center-modal .hover\:bg-slate-50:hover,
+.dark #paybill-requests-center-modal .hover\:bg-slate-100:hover,
+.dark #owner-inbox-modal .hover\:bg-slate-50:hover,
+.dark #reminders-modal .hover\:bg-slate-50:hover,
+.dark #paybill-details-modal .hover\:bg-slate-50:hover,
+.dark #settings-menu-panel .hover\:bg-slate-50:hover,
+.dark #settings-menu-panel .hover\:bg-slate-100:hover,
+.dark #backup-modal-overlay .hover\:bg-slate-50:hover,
+.dark #backup-modal-overlay .hover\:bg-slate-100:hover,
+.dark #cashbook-customer-picker-overlay .hover\:bg-slate-50:hover {
+  background-color: #414B58 !important;
+}
+
+/* Dark Mode Text Hierarchy */
+.dark #main-dashboard .text-slate-800,
+.dark #main-dashboard .text-slate-850,
+.dark #main-dashboard .text-slate-855,
+.dark #main-dashboard .text-slate-900,
+.dark #main-dashboard .text-slate-905,
+.dark #main-dashboard .text-slate-950,
+.dark #main-dashboard .text-black,
+.dark #customer-detail-viewport .text-slate-800,
+.dark #customer-detail-viewport .text-slate-900,
+.dark #transaction-form-viewport .text-slate-800,
+.dark #transaction-form-viewport .text-slate-900,
+.dark #notifications-modal .text-slate-855,
+.dark #notifications-modal .text-slate-850,
+.dark #notifications-modal .text-slate-900,
+.dark #notifications-modal .text-slate-800,
+.dark #paybill-requests-center-modal .text-slate-855,
+.dark #paybill-requests-center-modal .text-slate-900,
+.dark #paybill-requests-center-modal .text-slate-800,
+.dark #owner-inbox-modal .text-slate-855,
+.dark #owner-inbox-modal .text-slate-900,
+.dark #owner-inbox-modal .text-slate-800,
+.dark #reminders-modal .text-slate-900,
+.dark #reminders-modal .text-slate-800,
+.dark #reminders-modal .text-black,
+.dark #add-paybill-modal .text-slate-800,
+.dark #paybill-details-modal .text-slate-800,
+.dark #paybill-details-modal .text-slate-850,
+.dark #bill-confirm-dialog-overlay .text-slate-800,
+.dark #bill-confirm-dialog-overlay .text-slate-900,
+.dark #settings-menu-panel .text-slate-800,
+.dark #settings-menu-panel .text-slate-900,
+.dark #backup-modal-overlay .text-slate-800,
+.dark #backup-modal-overlay .text-slate-900,
+.dark #bangla-calendar-modal .text-slate-800,
+.dark #bangla-calendar-modal .text-slate-900,
+.dark #add-contact-modal .text-slate-800,
+.dark #add-contact-modal .text-slate-900,
+.dark #cashbook-entry-modal .text-slate-800,
+.dark #cashbook-entry-modal .text-slate-900,
+.dark #cashbook-customer-picker-overlay .text-slate-800,
+.dark #cashbook-customer-picker-overlay .text-slate-850,
+.dark #trash-bin-modal .text-slate-800,
+.dark #trash-bin-modal .text-slate-900,
+.dark #edit-contact-dialog-overlay .text-slate-800,
+.dark #edit-contact-dialog-overlay .text-slate-900,
+.dark #delete-tx-dialog-overlay .text-slate-800,
+.dark #clear-entries-dialog-overlay .text-slate-800,
+.dark #pin-change-dialog-overlay .text-slate-800,
+.dark #pin-change-dialog-overlay .text-slate-900 {
+  color: #F1F3F5 !important;
+}
+
+.dark #main-dashboard .text-slate-700,
+.dark #main-dashboard .text-slate-655,
+.dark #main-dashboard .text-slate-650,
+.dark #main-dashboard .text-slate-600,
+.dark #main-dashboard .text-slate-550,
+.dark #main-dashboard .text-slate-500,
+.dark #customer-detail-viewport .text-slate-600,
+.dark #customer-detail-viewport .text-slate-700,
+.dark #transaction-form-viewport .text-slate-600,
+.dark #notifications-modal .text-slate-700,
+.dark #notifications-modal .text-slate-655,
+.dark #notifications-modal .text-slate-650,
+.dark #notifications-modal .text-slate-600,
+.dark #paybill-requests-center-modal .text-slate-700,
+.dark #paybill-requests-center-modal .text-slate-650,
+.dark #paybill-requests-center-modal .text-slate-600,
+.dark #owner-inbox-modal .text-slate-700,
+.dark #owner-inbox-modal .text-slate-600,
+.dark #reminders-modal .text-slate-700,
+.dark #reminders-modal .text-slate-600,
+.dark #paybill-details-modal .text-slate-700,
+.dark #paybill-details-modal .text-slate-705,
+.dark #bill-confirm-dialog-overlay .text-slate-650,
+.dark #settings-menu-panel .text-slate-600,
+.dark #settings-menu-panel .text-slate-700,
+.dark #backup-modal-overlay .text-slate-500,
+.dark #backup-modal-overlay .text-slate-600,
+.dark #backup-modal-overlay .text-slate-700,
+.dark #bangla-calendar-modal .text-slate-600,
+.dark #bangla-calendar-modal .text-slate-700,
+.dark #add-contact-modal .text-slate-600,
+.dark #add-contact-modal .text-slate-700,
+.dark #cashbook-entry-modal .text-slate-500,
+.dark #cashbook-entry-modal .text-slate-600,
+.dark #trash-bin-modal .text-slate-600,
+.dark #trash-bin-modal .text-slate-700,
+.dark #edit-contact-dialog-overlay .text-slate-500,
+.dark #edit-contact-dialog-overlay .text-slate-700,
+.dark #delete-tx-dialog-overlay .text-slate-500,
+.dark #delete-tx-dialog-overlay .text-slate-700,
+.dark #clear-entries-dialog-overlay .text-slate-500,
+.dark #clear-entries-dialog-overlay .text-slate-700,
+.dark #pin-change-dialog-overlay .text-slate-500,
+.dark #pin-change-dialog-overlay .text-slate-600 {
+  color: #C5CBD2 !important;
+}
+
+.dark #main-dashboard .text-slate-450,
+.dark #main-dashboard .text-slate-455,
+.dark #main-dashboard .text-slate-400,
+.dark #main-dashboard .text-slate-350,
+.dark #customer-detail-viewport .text-slate-400,
+.dark #transaction-form-viewport .text-slate-400,
+.dark #notifications-modal .text-slate-500,
+.dark #notifications-modal .text-slate-400,
+.dark #notifications-modal .text-slate-350,
+.dark #paybill-requests-center-modal .text-slate-500,
+.dark #paybill-requests-center-modal .text-slate-400,
+.dark #paybill-requests-center-modal .text-slate-350,
+.dark #owner-inbox-modal .text-slate-500,
+.dark #owner-inbox-modal .text-slate-400,
+.dark #reminders-modal .text-slate-500,
+.dark #reminders-modal .text-slate-400,
+.dark #paybill-details-modal .text-slate-400,
+.dark #paybill-details-modal .text-slate-450,
+.dark #settings-menu-panel .text-slate-400,
+.dark #settings-menu-panel .text-slate-500,
+.dark #backup-modal-overlay .text-slate-400,
+.dark #bangla-calendar-modal .text-slate-400,
+.dark #bangla-calendar-modal .text-slate-500,
+.dark #add-contact-modal .text-slate-400,
+.dark #cashbook-entry-modal .text-slate-400,
+.dark #cashbook-customer-picker-overlay .text-slate-400,
+.dark #trash-bin-modal .text-slate-400,
+.dark #edit-contact-dialog-overlay .text-slate-400,
+.dark #pin-change-dialog-overlay .text-slate-400 {
+  color: #B8C0C9 !important;
+}
+
+/* Accent Brand Color dynamically adapting */
+.dark .text-brand-primary {
+  color: #F4D72C !important;
+}
+
+/* High Contrast Transaction Amounts in Dark Mode */
+.dark .text-emerald-300,
+.dark .text-emerald-400 {
+  color: #4ade80 !important;
+}
+
+.dark .text-rose-300,
+.dark .text-rose-400 {
+  color: #fb7185 !important;
+}
+
+/* Inputs, Textareas, Date Pickers in Dark Mode (Excluded for Login & Customer Portal) */
+.dark #main-dashboard input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not(.bg-transparent),
+.dark #main-dashboard textarea:not(.bg-transparent),
+.dark #main-dashboard select,
+.dark #customer-detail-viewport input:not(.bg-transparent),
+.dark #transaction-form-viewport input:not(.bg-transparent),
+.dark #transaction-form-viewport textarea:not(.bg-transparent),
+.dark #transaction-form-viewport select,
+.dark #reminders-modal input,
+.dark #add-paybill-modal input,
+.dark #pin-change-dialog-overlay input,
+.dark #add-contact-modal input,
+.dark #cashbook-entry-modal input,
+.dark #cashbook-customer-picker-overlay input,
+.dark #edit-contact-dialog-overlay input {
+  background-color: #2D3540 !important;
+  color: #F1F3F5 !important;
+  border-color: #46515E !important;
+}
+
+.dark .bg-transparent,
+.dark input.bg-transparent,
+.dark textarea.bg-transparent {
+  background-color: transparent !important;
+}
+
+.dark #main-dashboard input::placeholder,
+.dark #main-dashboard textarea::placeholder,
+.dark #customer-detail-viewport input::placeholder,
+.dark #transaction-form-viewport input::placeholder {
+  color: #929BA6 !important;
+}
+
+/* Strict Light Mode Preservation for Login & Customer Portal */
+#unified-auth-viewport,
+#customer-portal-root {
+  background-color: #f1f3f9 !important;
+  color: #0f172a !important;
+}
+#unified-auth-viewport .bg-white,
+#customer-portal-root .bg-white {
+  background-color: #ffffff !important;
+}
+#unified-auth-viewport .bg-slate-50,
+#customer-portal-root .bg-slate-50 {
+  background-color: #f8fafc !important;
+}
+#unified-auth-viewport .bg-slate-100,
+#customer-portal-root .bg-slate-100 {
+  background-color: #f1f5f9 !important;
+}
+#unified-auth-viewport .text-slate-800,
+#unified-auth-viewport .text-slate-805,
+#unified-auth-viewport .text-slate-900,
+#customer-portal-root .text-slate-800,
+#customer-portal-root .text-slate-900 {
+  color: #0f172a !important;
+}
+#unified-auth-viewport .text-slate-600,
+#customer-portal-root .text-slate-600,
+#unified-auth-viewport .text-slate-700,
+#customer-portal-root .text-slate-700 {
+  color: #334155 !important;
+}
+#unified-auth-viewport input,
+#customer-portal-root input {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Ensure monospace tabular numeric layout */
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Webkit Scrollbar Custom Adjustments */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd3e2;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9fa9bb;
+}
+
+/* Printing overlays for browser "Save as PDF" feature */
+@media print {
+  /* Hide standard screen viewport components */
+  #main-dashboard-root,
+  #customer-detail-viewport,
+  #add-contact-fab,
+  header,
+  footer,
+  aside,
+  button,
+  input,
+  .print-hidden,
+  #settings-panel,
+  #search-controls {
+    display: none !important;
+  }
+
+  /* Unhide the print report element explicitly */
+  .print\:block {
+    display: block !important;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt;
+  }
+}
+
+/* Custom Alert & Bell animations for Reminders */
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(15deg); }
+  30% { transform: rotate(-15deg); }
+  45% { transform: rotate(10deg); }
+  60% { transform: rotate(-10deg); }
+  75% { transform: rotate(4deg); }
+  85% { transform: rotate(-4deg); }
+}
+.animate-wiggle {
+  animation: wiggle 0.8s ease-in-out infinite;
+}
+
+@keyframes bellGlow {
+  0%, 100% { 
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.8);
+    background-color: rgba(245, 158, 11, 0.3);
+  }
+  50% { 
+    box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
+    background-color: rgba(239, 68, 68, 0.9);
+  }
+}
+.animate-bell-glow {
+  animation: bellGlow 1.2s infinite;
+}
+
+@keyframes colorCycle {
+  0% { color: #fb7185; } /* rose-400 */
+  25% { color: #38bdf8; } /* sky-400 */
+  50% { color: #34d399; } /* emerald-450 */
+  75% { color: #fbbf24; } /* amber-400 */
+  100% { color: #fb7185; } /* rose-400 */
+}
+.animate-color-cycle {
+  animation: colorCycle 6s ease-in-out infinite;
+}
+
+/* Safari and iOS mobile optimizations */
+button, 
+a, 
+input, 
+select, 
+textarea,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Enable elastic scrolling on iOS */
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Selection disable for slicker interaction */
+.select-none {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Enable text selection inside typing forms */
+input, 
+textarea,
+select {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
+/* Fix safe area padding for iPhone notch / home indicator */
+.safe-pb {
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+.safe-pt {
+  padding-top: env(safe-area-inset-top, 16px);
+}
+
+/* 
+   SECURITY COMPLIANCE: SOLID LOGIN VIEWPORT 
+   Ensure the login viewport is completely solid and opaque so no background ledger figures can show through
+*/
+#unified-auth-viewport {
+  background-color: #f8fafc !important; /* Solid Slate-50 */
+  color: #0f172a !important;
+  z-index: 99999 !important;
+}
+

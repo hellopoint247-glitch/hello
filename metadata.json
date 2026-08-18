@@ -1,0 +1,6 @@
+{
+  "name": "Hello Point",
+  "description": "একটি নিরাপদ ও ক্লাউড-সংরক্ষিত ডিজিটাল হিসাব খাতা এবং ক্যাশবুক অ্যাপ্লিকেশন যা দিয়ে কাস্টমারদের বকেয়া এবং ব্যবসার দৈনিক লেনদেন সহজে ট্র্যাক করা যায়।",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="192" height="192">
+  <!-- Gradient definitions -->
+  <defs>
+    <radialGradient id="purpleGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#4c1d95" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c3aed" />
+      <stop offset="50%" stop-color="#6244a6" />
+      <stop offset="100%" stop-color="#4c1d95" />
+    </linearGradient>
+    <linearGradient id="pMark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#f5f3ff" />
+    </linearGradient>
+    <linearGradient id="goldAccent" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#eab308" />
+      <stop offset="100%" stop-color="#fef08a" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.3" />
+    </filter>
+  </defs>
+
+  <!-- Background base with elegant squircle -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+
+  <!-- Subtle abstract background grid nodes for safe space -->
+  <g opacity="0.06">
+    <circle cx="96" cy="96" r="4" fill="#ffffff" />
+    <circle cx="256" cy="96" r="4" fill="#ffffff" />
+    <circle cx="416" cy="96" r="4" fill="#ffffff" />
+    <circle cx="96" cy="256" r="4" fill="#ffffff" />
+    <circle cx="256" cy="256" r="4" fill="#ffffff" />
+    <circle cx="416" cy="256" r="4" fill="#ffffff" />
+    <circle cx="96" cy="416" r="4" fill="#ffffff" />
+    <circle cx="256" cy="416" r="4" fill="#ffffff" />
+    <circle cx="416" cy="416" r="4" fill="#ffffff" />
+    <line x1="96" y1="96" x2="416" y2="96" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="8 8" />
+    <line x1="96" y1="256" x2="416" y2="256" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="8 8" />
+    <line x1="96" y1="416" x2="416" y2="416" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="8 8" />
+    <line x1="96" y1="96" x2="96" y2="416" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="8 8" />
+    <line x1="256" y1="96" x2="256" y2="416" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="8 8" />
+    <line x1="416" y1="96" x2="416" y2="416" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="8 8" />
+  </g>
+
+  <!-- Ambient light glow behind the main mark -->
+  <circle cx="256" cy="256" r="180" fill="url(#purpleGlow)" />
+
+  <!-- The "Hello Point" Emblem (P-letter integrated with checkmark and dollar/taka ledger graph symbol) -->
+  <g filter="url(#shadow)">
+    <!-- Base "P" upright pillar -->
+    <rect x="180" y="140" width="40" height="232" rx="12" fill="url(#pMark)" />
+    
+    <!-- "P" outer loop -->
+    <path d="M 180 140
+             C 270 140, 310 180, 310 230
+             C 310 280, 270 320, 180 320" 
+          fill="none" stroke="url(#pMark)" stroke-width="40" stroke-linecap="round" stroke-linejoin="round" />
+          
+    <!-- Dynamic glowing tick mark representing "Point" and successful cash transactions -->
+    <path d="M 240 280
+             L 285 330
+             L 375 220" 
+          fill="none" stroke="url(#goldAccent)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- Sleek glowing pointer dot "Point" -->
+  <circle cx="375" cy="220" r="12" fill="#ffffff" />
+</svg>

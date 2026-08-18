@@ -1,0 +1,197 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile metadata",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "Customer contact record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "type": { "type": "string", "enum": ["customer"] },
+        "photoUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "type"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Ledger entry for a customer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "contactId": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["GAVE", "GOT"] },
+        "note": { "type": "string" },
+        "billNo": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "attachFile": { "type": "string" },
+        "signature": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "contactId", "amount", "type", "date"]
+    },
+    "Cashbook": {
+      "title": "Cashbook",
+      "description": "Direct cash-in/cash-out journal entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["IN", "OUT"] },
+        "note": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "amount", "type", "date"]
+    },
+    "PayBill": {
+      "title": "PayBill",
+      "description": "Utility or custom pay bill ledger record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "billerNumber": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "billerDetails": { "type": "string" },
+        "secondDate": { "type": "string" },
+        "note": { "type": "string" },
+        "isPaid": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "billerNumber", "amount", "date", "billerDetails", "isPaid"]
+    },
+    "Reminder": {
+      "title": "Reminder",
+      "description": "Activity record, alerts, & dynamic custom alarms",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "datetime": { "type": "string" },
+        "isCompleted": { "type": "boolean" },
+        "isTriggered": { "type": "boolean" }
+      },
+      "required": ["id", "text", "datetime", "isCompleted", "isTriggered"]
+    },
+    "SignUpRequest": {
+      "title": "SignUpRequest",
+      "description": "Customer sign up pending approval request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "phone", "status"]
+    },
+    "RechargeRequest": {
+      "title": "RechargeRequest",
+      "description": "Customer custom mobile recharge transaction request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "contactId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "rechargePhone": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string", "enum": ["bkash", "nagad", "flexiload"] },
+        "status": { "type": "string", "enum": ["pending", "completed", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "contactId", "customerName", "rechargePhone", "amount", "method", "status"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Chat message between customer and proprietor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "contactId": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["owner", "customer"] },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "readByOwner": { "type": "boolean" },
+        "readByCustomer": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "contactId", "senderRole", "senderName", "text", "readByOwner", "readByCustomer", "createdAt"]
+    },
+    "PayBillRequest": {
+      "title": "PayBillRequest",
+      "description": "Customer custom utility/paybill transaction request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "contactId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "billerNumber": { "type": "string" },
+        "amount": { "type": "number" },
+        "billerDetails": { "type": "string" },
+        "secondDate": { "type": "string" },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "contactId", "customerName", "billerNumber", "amount", "billerDetails", "secondDate", "phone", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User settings"
+    },
+    "/users/{userId}/contacts/{contactId}": {
+      "schema": "Contact",
+      "description": "Contacts list"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Ledger transactions"
+    },
+    "/users/{userId}/recharge_requests/{requestId}": {
+      "schema": "RechargeRequest",
+      "description": "Recharge requests collection"
+    },
+    "/users/{userId}/paybill_requests/{requestId}": {
+      "schema": "PayBillRequest",
+      "description": "Paybill requests collection"
+    },
+    "/users/{userId}/chats/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Chat messages collection"
+    },
+    "/users/{userId}/cashbook/{entryId}": {
+      "schema": "Cashbook",
+      "description": "Cashbook ledger entry"
+    },
+    "/users/{userId}/paybills/{paybillId}": {
+      "schema": "PayBill",
+      "description": "Pay Bill ledger entries"
+    },
+    "/users/{userId}/reminders/{reminderId}": {
+      "schema": "Reminder",
+      "description": "Dynamic user action reminders & notifications"
+    },
+    "/signup_requests/{requestId}": {
+      "schema": "SignUpRequest",
+      "description": "Pending customer registration requests for owner approval"
+    }
+  }
+}

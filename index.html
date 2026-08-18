@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#6244a6" />
+    <!-- Apple Web App support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Hello Point" />
+    <link rel="apple-touch-icon" href="/icon-192.svg" />
+    <!-- Web App Manifest link -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Google Fonts Optimization for Ultra-Fast Loading -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+    <title>Hello Point - Digital Cashbook</title>
+    <!-- Prevent Flash of Wrong Theme (FOWT) by resolving theme immediately -->
+    <script>
+      (function() {
+        try {
+          var mode = localStorage.getItem('hellopoint_theme_mode') || 'system';
+          var isDark = false;
+          if (mode === 'dark') {
+            isDark = true;
+          } else if (mode === 'system') {
+            isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          }
+          var root = document.documentElement;
+          if (isDark) {
+            root.classList.add('dark');
+            root.setAttribute('data-theme', 'dark');
+          } else {
+            root.classList.remove('dark');
+            root.setAttribute('data-theme', 'light');
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- Register Service Worker safely, ignoring sandbox/iframe errors -->
+    <script>
+      try {
+        if ('serviceWorker' in navigator) {
+          window.addEventListener('load', () => {
+            try {
+              navigator.serviceWorker.register('/sw.js')
+                .then(reg => console.debug('Service Worker registered:', reg.scope))
+                .catch(err => console.warn('Service worker registration failed (blocked by sandbox iframe):', err));
+            } catch (innerError) {
+              console.warn('Service worker error in load event:', innerError);
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('Service worker check blocked or unsupported:', err);
+      }
+    </script>
+  </body>
+</html>
+
