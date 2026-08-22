@@ -51,12 +51,15 @@ import {
   AlertCircle,
   Lightbulb,
   Sun,
-  Moon
+  Moon,
+  ShoppingBag
 } from 'lucide-react';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest } from '../types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ } from '../types';
 import { ThemeMode } from '../utils/theme';
 import { ChatBox } from './ChatBox';
-import { getContactSummary } from '../utils/storage';
+import { ShopManagementModal } from './ShopManagementModal';
+import ChatAutoReplySettingsModal from './ChatAutoReplySettingsModal';
+import { getContactSummary, loadQuickFaqs, saveQuickFaqs } from '../utils/storage';
 import BanglaCalendar from './BanglaCalendar';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -116,11 +119,18 @@ interface MainDashboardProps {
   onCancelPayBillRequest?: (req: PayBillRequest) => void;
   chatMessages?: ChatMessage[];
   onSendChatMessage?: (contactId: string, text: string, senderRole: 'owner' | 'customer', senderName: string) => void;
+  onDeleteChatMessage?: (messageId: string) => void;
+  onDeleteChatThread?: (contactId: string) => void;
   onMarkChatsAsRead?: (contactId: string, role: 'owner' | 'customer') => void;
   trashCount?: number;
   onOpenTrashModal?: () => void;
   themeMode?: ThemeMode;
   onChangeThemeMode?: (mode: ThemeMode) => void;
+  products?: Product[];
+  onSaveProduct?: (product: Product) => void;
+  onDeleteProduct?: (productId: string) => void;
+  quickFaqs?: ChatQuickFAQ[];
+  onSaveQuickFaqs?: (faqs: ChatQuickFAQ[]) => void;
 }
 
 interface Reminder {
@@ -181,12 +191,28 @@ export function MainDashboard({
   onCancelPayBillRequest,
   chatMessages = [],
   onSendChatMessage,
+  onDeleteChatMessage,
+  onDeleteChatThread,
   onMarkChatsAsRead,
   trashCount = 0,
   onOpenTrashModal,
   themeMode = 'system',
-  onChangeThemeMode
+  onChangeThemeMode,
+  products = [],
+  onSaveProduct,
+  onDeleteProduct,
+  quickFaqs,
+  onSaveQuickFaqs
 }: MainDashboardProps) {
+  // Bilingual localization state
+  const [localLang, setLocalLang] = useState<'bn' | 'en'>(() => (localStorage.getItem('hellopoint_lang') as 'bn' | 'en') || 'bn');
+  const lang = propLang || localLang;
+  const setLang = (l: 'bn' | 'en') => {
+    localStorage.setItem('hellopoint_lang', l);
+    if (propSetLang) propSetLang(l);
+    setLocalLang(l);
+  };
+
   // Reminders state management
   const [reminders, setReminders] = useState<Reminder[]>(() => {
     try {
@@ -217,8 +243,28 @@ export function MainDashboard({
   };
 
   const [showOwnerInboxModal, setShowOwnerInboxModal] = useState(false);
+  const [showChatSettingsModal, setShowChatSettingsModal] = useState(false);
+  const [localQuickFaqs, setLocalQuickFaqs] = useState<ChatQuickFAQ[]>(() => quickFaqs || loadQuickFaqs());
+
+  useEffect(() => {
+    if (quickFaqs && quickFaqs.length > 0) {
+      setLocalQuickFaqs(quickFaqs);
+    }
+  }, [quickFaqs]);
+
+  const handleSaveFaqs = (updated: ChatQuickFAQ[]) => {
+    setLocalQuickFaqs(updated);
+    if (onSaveQuickFaqs) {
+      onSaveQuickFaqs(updated);
+    } else {
+      saveQuickFaqs(updated);
+    }
+  };
+
   const [selectedChatContactId, setSelectedChatContactId] = useState<string | null>(null);
+  const [chatThreadToDelete, setChatThreadToDelete] = useState<{ id: string; name: string } | null>(null);
   const [searchChatQuery, setSearchChatQuery] = useState('');
+  const [showShopManagementModal, setShowShopManagementModal] = useState(false);
 
   const unreadChatsCount = useMemo(() => {
     return (chatMessages || []).filter(m => m.senderRole === 'customer' && !m.readByOwner).length;
@@ -230,8 +276,26 @@ export function MainDashboard({
 
   const activeChatContacts = useMemo(() => {
     const contactIds = Array.from(new Set((chatMessages || []).map(m => m.contactId)));
-    return contacts.filter(c => contactIds.includes(c.id));
-  }, [chatMessages, contacts]);
+    return contactIds.map(id => {
+      const existing = contacts.find(c => c.id === id);
+      const threadCustomerMsgs = (chatMessages || []).filter(m => m.contactId === id && m.senderRole === 'customer');
+      const latestCustomerMsg = threadCustomerMsgs[threadCustomerMsgs.length - 1];
+      const lastMsg = (chatMessages || []).slice().reverse().find(m => m.contactId === id);
+
+      const resolvedName = existing?.name || latestCustomerMsg?.senderName || lastMsg?.senderName || (lang === 'bn' ? 'অনলাইন ভিজিটর' : 'Online Visitor');
+      const resolvedPhone = existing?.phone || latestCustomerMsg?.senderPhone || lastMsg?.senderPhone || '';
+
+      return {
+        id,
+        name: resolvedName,
+        phone: resolvedPhone,
+        type: 'customer' as const,
+        photoUrl: existing?.photoUrl,
+        createdAt: lastMsg?.createdAt || new Date().toISOString(),
+        updatedAt: lastMsg?.createdAt || new Date().toISOString()
+      };
+    });
+  }, [chatMessages, contacts, lang]);
 
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showPaybillRequestsModal, setShowPaybillRequestsModal] = useState(false);
@@ -705,15 +769,6 @@ export function MainDashboard({
       setShowPinChangeModal(false);
       setPinChangeSuccess('');
     }, 1500);
-  };
-
-  // Bilingual localization state
-  const [localLang, setLocalLang] = useState<'bn' | 'en'>(() => (localStorage.getItem('hellopoint_lang') as 'bn' | 'en') || 'bn');
-  const lang = propLang || localLang;
-  const setLang = (l: 'bn' | 'en') => {
-    localStorage.setItem('hellopoint_lang', l);
-    if (propSetLang) propSetLang(l);
-    setLocalLang(l);
   };
 
   // Convert numbers to Bengali numerals if language is set to bn
@@ -1928,23 +1983,25 @@ export function MainDashboard({
                   </span>
                 </button>
 
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setShowBackupModal(true);
-                    setShowSettingsMenu(false);
-                    setImportStatus({ type: null, message: '' });
-                  }}
-                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-[10px] font-black text-purple-850 transition-all cursor-pointer uppercase select-none shadow-tiny"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Database className="w-3.5 h-3.5 text-purple-600 animate-pulse" />
-                    {lang === 'bn' ? 'ডাটা ব্যাকআপ ও রিস্টোর' : 'Backup & Restore'}
-                  </span>
-                  <span className="bg-purple-600 text-white font-mono px-1.5 py-0.5 rounded-lg text-[8px] tracking-wide font-black">
-                    SAFE
-                  </span>
-                </button>
+                {/* Owner Shop Products Catalog Management */}
+                {onSaveProduct && onDeleteProduct && (
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setShowShopManagementModal(true);
+                      setShowSettingsMenu(false);
+                    }}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[10px] font-black text-emerald-850 transition-all cursor-pointer uppercase select-none shadow-tiny"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <ShoppingBag className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                      {lang === 'bn' ? 'অনলাইন শপ প্রডাক্ট ম্যানেজ' : 'Manage Shop Products'}
+                    </span>
+                    <span className="bg-emerald-600 text-white font-mono px-1.5 py-0.5 rounded-lg text-[8px] tracking-wide font-black">
+                      {products.length}
+                    </span>
+                  </button>
+                )}
 
                 <button 
                   type="button"
@@ -2894,12 +2951,23 @@ export function MainDashboard({
                   {lang === 'bn' ? 'গ্রাহক চ্যাট লিষ্ট' : 'Customer Messages'}
                 </h3>
               </div>
-              <button 
-                onClick={() => setShowOwnerInboxModal(false)}
-                className="bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-500 hover:text-slate-700 p-1.5 rounded-full transition-all cursor-pointer"
-              >
-                <X className="w-4.5 h-4.5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowChatSettingsModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 font-extrabold text-[11px] transition-all cursor-pointer shadow-2xs active:scale-95"
+                  title={lang === 'bn' ? 'অটো রিপ্লাই ও রেডিমেড চ্যাট সেটিংস' : 'Auto-reply & Canned responses settings'}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-purple-700" />
+                  <span>{lang === 'bn' ? 'চ্যাট সেটিংস' : 'Chat Settings'}</span>
+                </button>
+                <button 
+                  onClick={() => setShowOwnerInboxModal(false)}
+                  className="bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-500 hover:text-slate-700 p-1.5 rounded-full transition-all cursor-pointer"
+                >
+                  <X className="w-4.5 h-4.5" />
+                </button>
+              </div>
             </div>
 
             {/* Sub-label */}
@@ -3017,7 +3085,14 @@ export function MainDashboard({
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex justify-between items-center select-none">
-                                <h4 className="text-xs font-extrabold text-slate-800 truncate leading-none">{c.name}</h4>
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <h4 className="text-xs font-extrabold text-slate-800 truncate leading-none">{c.name}</h4>
+                                  {c.phone && (
+                                    <span className="font-mono text-[9px] font-bold text-purple-700 bg-purple-100/70 border border-purple-200/80 px-1.5 py-0.2 rounded shrink-0">
+                                      {c.phone}
+                                    </span>
+                                  )}
+                                </div>
                                 {lastMsg && (
                                   <span className="text-[8px] font-bold text-slate-400 shrink-0 ml-1">
                                     {(() => {
@@ -3037,11 +3112,26 @@ export function MainDashboard({
                             </div>
                           </div>
                           
-                          {unread > 0 && (
-                            <span className="min-w-4.5 h-4.5 rounded-full bg-red-650 text-white text-[8.5px] font-black flex items-center justify-center px-1 shrink-0 ml-2 animate-pulse">
-                              {unread}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1 shrink-0 ml-2">
+                            {unread > 0 && (
+                              <span className="min-w-4.5 h-4.5 rounded-full bg-red-650 text-white text-[8.5px] font-black flex items-center justify-center px-1 animate-pulse">
+                                {unread}
+                              </span>
+                            )}
+                            {onDeleteChatThread && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setChatThreadToDelete({ id: c.id, name: c.name });
+                                }}
+                                className="p-1.5 text-slate-350 hover:text-rose-500 rounded-lg hover:bg-slate-100 transition-all cursor-pointer"
+                                title={lang === 'bn' ? 'চ্যাট থ্রেড মুছুন' : 'Delete Chat Thread'}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       );
                     })
@@ -3062,14 +3152,66 @@ export function MainDashboard({
             senderRole="owner"
             senderName={user?.displayName || "প্রোপাইটার (HelloPoint)"}
             onSendMessage={onSendChatMessage || (() => {})}
+            onDeleteMessage={onDeleteChatMessage}
+            onDeleteThread={onDeleteChatThread}
             onMarkAsRead={onMarkChatsAsRead || (() => {})}
             onClose={() => setSelectedChatContactId(null)}
             lang={lang}
-            contactName={contacts.find(c => c.id === selectedChatContactId)?.name || 'গ্রাহক'}
+            contactName={(() => {
+              const existing = contacts.find(c => c.id === selectedChatContactId);
+              if (existing) {
+                return `${existing.name}${existing.phone ? ` (${existing.phone})` : ''}`;
+              }
+              const active = activeChatContacts.find(c => c.id === selectedChatContactId);
+              if (active) {
+                return `${active.name}${active.phone ? ` (${active.phone})` : ''}`;
+              }
+              return lang === 'bn' ? 'অনলাইন গ্রাহক' : 'Online Customer';
+            })()}
             themeColor={themeColor}
           />
         )}
       </AnimatePresence>
+
+      {/* CONFIRMATION DIALOG FOR DELETING ENTIRE CHAT THREAD */}
+      {chatThreadToDelete && (
+        <div id="chat-thread-delete-modal" className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[999999] font-sans select-none">
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-2xl p-5 w-full max-w-xs text-center transform scale-100 transition-all">
+            <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center mx-auto mb-3.5 text-rose-500 animate-bounce">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="text-sm font-black text-slate-800 leading-tight">
+              {lang === 'bn' ? 'চ্যাট মুছে ফেলার নিশ্চিতকরণ' : 'Confirm Delete Chat'}
+            </h3>
+            <p className="text-[11px] font-bold text-slate-500 mt-2 leading-relaxed">
+              {lang === 'bn' 
+                ? `আপনি কি সত্যি "${chatThreadToDelete.name}"-এর পুরো চ্যাট কথোপকথন মুছে ফেলতে চান?` 
+                : `Delete entire chat history with "${chatThreadToDelete.name}"?`}
+            </p>
+            <div className="flex gap-2.5 mt-5">
+              <button
+                type="button"
+                onClick={() => setChatThreadToDelete(null)}
+                className="flex-1 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
+              >
+                {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteChatThread) {
+                    onDeleteChatThread(chatThreadToDelete.id);
+                  }
+                  setChatThreadToDelete(null);
+                }}
+                className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition-all cursor-pointer shadow-sm"
+              >
+                {lang === 'bn' ? 'হ্যাঁ, মুছুন' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showNotificationsModal && (
         <div id="notifications-modal" className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fade-in print:hidden select-none font-sans">
@@ -4907,6 +5049,30 @@ export function MainDashboard({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* OWNER SHOP MANAGEMENT MODAL */}
+      {onSaveProduct && onDeleteProduct && (
+        <ShopManagementModal 
+          isOpen={showShopManagementModal}
+          onClose={() => setShowShopManagementModal(false)}
+          lang={lang}
+          products={products}
+          onSaveProduct={onSaveProduct}
+          onDeleteProduct={onDeleteProduct}
+          currency={currency}
+          themeColor={themeColor}
+        />
+      )}
+
+      {/* CHAT AUTO-REPLY & CANNED FAQS SETTINGS MODAL */}
+      <ChatAutoReplySettingsModal 
+        isOpen={showChatSettingsModal}
+        onClose={() => setShowChatSettingsModal(false)}
+        lang={lang}
+        quickFaqs={quickFaqs || localQuickFaqs}
+        onSaveQuickFaqs={handleSaveFaqs}
+        themeColor={themeColor}
+      />
 
     </div>
   );

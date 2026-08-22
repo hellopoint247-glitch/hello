@@ -109,9 +109,33 @@ export interface ChatMessage {
   contactId: string;
   senderRole: 'owner' | 'customer';
   senderName: string;
+  senderPhone?: string;
   text: string;
   readByOwner: boolean;
   readByCustomer: boolean;
   createdAt: string;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  price: number;
+  originalPrice?: number;
+  description: string;
+  category?: string;
+  imageUrl?: string;
+  images?: string[]; // Up to 4 product photos
+  inStock: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ChatQuickFAQ {
+  id: string;
+  question: string;
+  answer: string;
+  active: boolean;
+  icon?: string;
+  createdAt?: string;
 }
 

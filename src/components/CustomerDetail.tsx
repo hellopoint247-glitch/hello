@@ -45,6 +45,7 @@ interface CustomerDetailProps {
   onUpdateContactInfo?: (contactId: string, name: string, phone: string) => void;
   chatMessages?: ChatMessage[];
   onSendChatMessage?: (contactId: string, text: string, senderRole: 'owner' | 'customer', senderName: string) => void;
+  onDeleteChatMessage?: (messageId: string) => void;
   onMarkChatsAsRead?: (contactId: string, role: 'owner' | 'customer') => void;
 }
 
@@ -61,6 +62,7 @@ export function CustomerDetail({
   onUpdateContactInfo,
   chatMessages = [],
   onSendChatMessage,
+  onDeleteChatMessage,
   onMarkChatsAsRead
 }: CustomerDetailProps) {
   const [searchTxQuery, setSearchTxQuery] = useState('');
@@ -1110,7 +1112,7 @@ export function CustomerDetail({
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  placeholder="যেমন: রহিম আলী"
+                  placeholder="নাম লিখুন"
                   className="w-full bg-slate-50 hover:bg-slate-100/70 focus:bg-white text-slate-800 rounded-xl py-2 px-3.5 text-xs font-bold border border-slate-200 focus:border-slate-300 outline-none transition-all placeholder:text-slate-400/70"
                   maxLength={50}
                 />
@@ -1124,7 +1126,7 @@ export function CustomerDetail({
                   type="text"
                   value={editPhone}
                   onChange={(e) => setEditPhone(e.target.value)}
-                  placeholder="যেমন: ০১xxxxxxxxx"
+                  placeholder="01XXXXXXXXX"
                   className="w-full bg-slate-50 hover:bg-slate-100/70 focus:bg-white text-slate-800 rounded-xl py-2 px-3.5 text-xs font-bold border border-slate-200 focus:border-slate-300 outline-none transition-all placeholder:text-slate-400/70"
                   maxLength={17}
                 />
@@ -1186,6 +1188,7 @@ export function CustomerDetail({
             senderRole="owner"
             senderName="প্রোপাইটার (HelloPoint)"
             onSendMessage={onSendChatMessage || (() => {})}
+            onDeleteMessage={onDeleteChatMessage}
             onMarkAsRead={onMarkChatsAsRead || (() => {})}
             onClose={() => setShowChatBox(false)}
             contactName={contact.name}

@@ -150,6 +150,39 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "contactId", "customerName", "billerNumber", "amount", "billerDetails", "secondDate", "phone", "status", "createdAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Store item/product for customer online shop",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "originalPrice": { "type": "number" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "images": { "type": "array" },
+        "inStock": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "price", "description", "inStock", "createdAt"]
+    },
+    "ChatQuickFAQ": {
+      "title": "ChatQuickFAQ",
+      "description": "Pre-made FAQs and automated instant reply templates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "question": { "type": "string" },
+        "answer": { "type": "string" },
+        "active": { "type": "boolean" },
+        "icon": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "question", "answer", "active"]
     }
   },
   "firestore": {
@@ -188,6 +221,14 @@
     "/users/{userId}/reminders/{reminderId}": {
       "schema": "Reminder",
       "description": "Dynamic user action reminders & notifications"
+    },
+    "/users/{userId}/products/{productId}": {
+      "schema": "Product",
+      "description": "Shop products collection"
+    },
+    "/users/{userId}/quick_faqs/{faqId}": {
+      "schema": "ChatQuickFAQ",
+      "description": "Chat quick FAQs & automated replies"
     },
     "/signup_requests/{requestId}": {
       "schema": "SignUpRequest",

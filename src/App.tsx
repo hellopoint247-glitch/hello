@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { safeLocalStorage as localStorage } from './utils/safeStorage';
 import { motion, AnimatePresence } from 'motion/react';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, TrashTransaction } from './types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, TrashTransaction, Product, ChatQuickFAQ } from './types';
 import { 
   loadContacts, 
   saveContacts, 
@@ -18,6 +18,10 @@ import {
   savePayBills,
   loadTrashTransactions,
   saveTrashTransactions,
+  loadProducts,
+  saveProducts,
+  loadQuickFaqs,
+  saveQuickFaqs,
   getCurrency,
   saveCurrency
 } from './utils/storage';
@@ -94,6 +98,8 @@ export default function App() {
   const [cashbook, setCashbook] = useState<CashbookEntry[]>([]);
   const [paybills, setPayBills] = useState<PayBillEntry[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => loadProducts());
+  const [quickFaqs, setQuickFaqs] = useState<ChatQuickFAQ[]>(() => loadQuickFaqs());
   const [currency, setCurrencyState] = useState('৳');
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [deletedCategories, setDeletedCategories] = useState<string[]>([]);
@@ -644,6 +650,36 @@ export default function App() {
       handleFirestoreError(error, OperationType.GET, `users/${activeUid}/trash_transactions`);
     });
 
+    const qProducts = collection(db, 'users', activeUid, 'products');
+    const unsubProducts = onSnapshot(qProducts, (snapshot) => {
+      const list: Product[] = [];
+      snapshot.forEach((snapDoc) => {
+        const data = snapDoc.data() as Product;
+        list.push({ ...data, id: data.id || snapDoc.id });
+      });
+      if (list.length > 0) {
+        setProducts(list);
+        saveProducts(list);
+      }
+    }, (error) => {
+      console.error('Failed to subscribe to products:', error);
+    });
+
+    const qQuickFaqs = collection(db, 'users', activeUid, 'quick_faqs');
+    const unsubQuickFaqs = onSnapshot(qQuickFaqs, (snapshot) => {
+      const list: ChatQuickFAQ[] = [];
+      snapshot.forEach((snapDoc) => {
+        const data = snapDoc.data() as ChatQuickFAQ;
+        list.push({ ...data, id: data.id || snapDoc.id });
+      });
+      if (list.length > 0) {
+        setQuickFaqs(list);
+        saveQuickFaqs(list);
+      }
+    }, (error) => {
+      console.error('Failed to subscribe to quick_faqs:', error);
+    });
+
     return () => {
       unsubContacts();
       unsubTransactions();
@@ -654,6 +690,8 @@ export default function App() {
       unsubPaybillRequests();
       unsubChats();
       unsubTrash();
+      unsubProducts();
+      unsubQuickFaqs();
     };
   }, [user, ownerUid, authLoading, sessionRole, loggedInCustomerId]);
 
@@ -884,6 +922,15 @@ export default function App() {
 
   const handleRegisterRequest = async (name: string, phone: string, photoUrl?: string): Promise<{ success: boolean; isAlreadyPending?: boolean; message: string }> => {
     try {
+      if (!photoUrl || !photoUrl.trim()) {
+        return {
+          success: false,
+          message: lang === 'bn' 
+            ? 'নতুন অ্যাকাউন্ট খোলার জন্য ছবি যুক্ত করা বাধ্যতামূলক।' 
+            : 'Photo is mandatory for creating a new account.'
+        };
+      }
+
       const cleanNum = (s: string): string => {
         if (!s) return '';
         const bnNums = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
@@ -1463,16 +1510,20 @@ export default function App() {
     }
   };
 
-  const handleSendChatMessage = async (contactId: string, text: string, senderRole: 'owner' | 'customer', senderName: string) => {
-    const activeUid = user?.uid || ownerUid;
-    if (!activeUid) return;
-
+  const handleSendChatMessage = async (
+    contactId: string, 
+    text: string, 
+    senderRole: 'owner' | 'customer' = 'customer', 
+    senderName: string = 'Customer',
+    senderPhone?: string
+  ) => {
     const messageId = 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
     const newMessage: ChatMessage = {
       id: messageId,
       contactId,
       senderRole,
       senderName,
+      ...(senderPhone ? { senderPhone } : {}),
       text: text.trim(),
       readByOwner: senderRole === 'owner',
       readByCustomer: senderRole === 'customer',
@@ -1482,11 +1533,107 @@ export default function App() {
     const updatedMessages = [...chatMessages, newMessage];
     setChatMessages(updatedMessages);
     localStorage.setItem('hellopoint_chat_messages', JSON.stringify(updatedMessages));
+    window.dispatchEvent(new Event('storage'));
 
-    try {
-      await setDoc(doc(db, 'users', activeUid, 'chats', messageId), cleanForFirestore(newMessage));
-    } catch (err) {
-      console.error('Failed to send chat message:', err);
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        await setDoc(doc(db, 'users', activeUid, 'chats', messageId), cleanForFirestore(newMessage));
+      } catch (err) {
+        console.error('Failed to send chat message:', err);
+      }
+    }
+  };
+
+  const handleDeleteChatMessage = async (messageId: string) => {
+    const updatedMessages = chatMessages.filter(m => m.id !== messageId);
+    setChatMessages(updatedMessages);
+    localStorage.setItem('hellopoint_chat_messages', JSON.stringify(updatedMessages));
+    window.dispatchEvent(new Event('storage'));
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        await deleteDoc(doc(db, 'users', activeUid, 'chats', messageId));
+      } catch (err) {
+        console.error('Failed to delete chat message:', err);
+      }
+    }
+  };
+
+  const handleDeleteChatThread = async (contactId: string) => {
+    const messagesToDelete = chatMessages.filter(m => m.contactId === contactId);
+    const updatedMessages = chatMessages.filter(m => m.contactId !== contactId);
+    setChatMessages(updatedMessages);
+    localStorage.setItem('hellopoint_chat_messages', JSON.stringify(updatedMessages));
+    window.dispatchEvent(new Event('storage'));
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        for (const msg of messagesToDelete) {
+          await deleteDoc(doc(db, 'users', activeUid, 'chats', msg.id));
+        }
+      } catch (err) {
+        console.error('Failed to delete chat thread:', err);
+      }
+    }
+  };
+
+  const handleSaveProduct = async (product: Product) => {
+    setProducts(prev => {
+      const existingIndex = prev.findIndex(p => p.id === product.id);
+      let updated: Product[];
+      if (existingIndex >= 0) {
+        updated = [...prev];
+        updated[existingIndex] = { ...product, updatedAt: new Date().toISOString() };
+      } else {
+        updated = [product, ...prev];
+      }
+      saveProducts(updated);
+      return updated;
+    });
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        await setDoc(doc(db, 'users', activeUid, 'products', product.id), cleanForFirestore(product));
+      } catch (err) {
+        console.error('Failed to sync product to Firestore:', err);
+      }
+    }
+  };
+
+  const handleDeleteProduct = async (productId: string) => {
+    setProducts(prev => {
+      const updated = prev.filter(p => p.id !== productId);
+      saveProducts(updated);
+      return updated;
+    });
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        await deleteDoc(doc(db, 'users', activeUid, 'products', productId));
+      } catch (err) {
+        console.error('Failed to delete product from Firestore:', err);
+      }
+    }
+  };
+
+  const handleSaveQuickFaqs = async (faqs: ChatQuickFAQ[]) => {
+    setQuickFaqs(faqs);
+    saveQuickFaqs(faqs);
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        for (const faq of faqs) {
+          await setDoc(doc(db, 'users', activeUid, 'quick_faqs', faq.id), cleanForFirestore(faq), { merge: true });
+        }
+      } catch (err) {
+        console.error('Failed to sync quick faqs to Firestore:', err);
+      }
     }
   };
 
@@ -2114,11 +2261,18 @@ export default function App() {
               onCancelPayBillRequest={handleCancelPayBillRequest}
               chatMessages={chatMessages}
               onSendChatMessage={handleSendChatMessage}
+              onDeleteChatMessage={handleDeleteChatMessage}
+              onDeleteChatThread={handleDeleteChatThread}
               onMarkChatsAsRead={handleMarkChatsAsRead}
               trashCount={trashTransactions.length}
               onOpenTrashModal={() => setIsTrashModalOpen(true)}
               themeMode={themeMode}
               onChangeThemeMode={handleUpdateThemeMode}
+              products={products}
+              onSaveProduct={handleSaveProduct}
+              onDeleteProduct={handleDeleteProduct}
+              quickFaqs={quickFaqs}
+              onSaveQuickFaqs={handleSaveQuickFaqs}
             />
           </motion.div>
         )}
@@ -2147,6 +2301,7 @@ export default function App() {
               onUpdateContactInfo={handleUpdateContactInfo}
               chatMessages={chatMessages}
               onSendChatMessage={handleSendChatMessage}
+              onDeleteChatMessage={handleDeleteChatMessage}
               onMarkChatsAsRead={handleMarkChatsAsRead}
             />
           </motion.div>
@@ -2235,6 +2390,14 @@ export default function App() {
           user={user}
           onRegisterRequest={handleRegisterRequest}
           setLang={setLang}
+          products={products}
+          chatMessages={chatMessages}
+          onSendChatMessage={handleSendChatMessage}
+          onDeleteChatMessage={handleDeleteChatMessage}
+          currency={currency}
+          themeColor={themeColor}
+          shopStatus={shopStatus}
+          quickFaqs={quickFaqs}
         />
       )}
 

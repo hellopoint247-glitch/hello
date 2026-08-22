@@ -82,6 +82,18 @@ service cloud.firestore {
       allow write: if isOwner(userId);
     }
 
+    // Products (Shop management & Online Store)
+    match /users/{userId}/products/{productId} {
+      allow read: if true;
+      allow write: if isOwner(userId);
+    }
+
+    // Quick FAQs & Live chat auto reply rules
+    match /users/{userId}/quick_faqs/{faqId} {
+      allow read: if true;
+      allow write: if isOwner(userId);
+    }
+
     // Signup Requests collection for new customer self-registration
     match /signup_requests/{requestId} {
       allow read: if true;

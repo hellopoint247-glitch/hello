@@ -9,7 +9,7 @@ export interface VersionLog {
 
 export const APP_CURRENT_VERSION = "v2.5.0";
 export const APP_PREVIOUS_VERSION = "v2.4.0";
-export const APP_PROPRIETOR_NAME = "মাহবুব হাসান পাবেল";
+export const APP_PROPRIETOR_NAME = "Mahbub Hasan";
 
 export const APP_VERSION_HISTORY: VersionLog[] = [
   {

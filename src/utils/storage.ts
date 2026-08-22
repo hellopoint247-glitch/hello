@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Contact, Transaction, CashbookEntry, PayBillEntry, TrashTransaction } from '../types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, TrashTransaction, Product, ChatQuickFAQ } from '../types';
 import { safeLocalStorage as localStorage } from './safeStorage';
 
 const CONTACTS_KEY = 'hellopoint_contacts';
@@ -12,6 +12,82 @@ const CASHBOOK_KEY = 'hellopoint_cashbook';
 const PAYBILLS_KEY = 'hellopoint_paybills';
 const CURRENCY_KEY = 'hellopoint_currency';
 const TRASH_KEY = 'hellopoint_trash_transactions';
+const PRODUCTS_KEY = 'hellopoint_products';
+const QUICK_FAQS_KEY = 'hellopoint_quick_faqs';
+
+export const DEFAULT_QUICK_FAQS: ChatQuickFAQ[] = [
+  {
+    id: 'faq-1',
+    question: 'দোকান কখন খোলা থাকে?',
+    answer: 'আমাদের দোকান প্রতিদিন সকাল ৮:০০ টা থেকে রাত ১০:০০ টা পর্যন্ত নিয়মিত খোলা থাকে। আপনার যেকোনো প্রয়োজনে যোগাযোগ করতে পারেন।',
+    active: true,
+    icon: '🕒',
+    createdAt: '2026-05-30T10:00:00Z'
+  },
+  {
+    id: 'faq-2',
+    question: 'বিকাশ/নগদ ক্যাশআউট চার্জ কত?',
+    answer: 'আমাদের দোকানে বিকাশ ও নগদ ক্যাশআউট চার্জ অ্যাপ চার্জ অনুযায়ী অত্যন্ত সাশ্রয়ী রাখা হয়। সরাসরি দোকানে এসে সেবা নিতে পারেন।',
+    active: true,
+    icon: '💳',
+    createdAt: '2026-05-30T10:05:00Z'
+  },
+  {
+    id: 'faq-3',
+    question: 'অনলাইন শপের পণ্য ডেলিভারি সুবিধা আছে কি?',
+    answer: 'হ্যাঁ, আমাদের শপের পণ্য অর্ডার করলে দ্রুততম সময়ে হোম ডেলিভারি ও হ্যান্ড-টু-হ্যান্ড ডেলিভারি সুবিধা প্রদান করা হয়।',
+    active: true,
+    icon: '🛍️',
+    createdAt: '2026-05-30T10:10:00Z'
+  }
+];
+
+export const DEFAULT_PRODUCTS: Product[] = [
+  {
+    id: 'prod-1',
+    name: 'ফাস্ট চার্জিং টাইপ-সি ক্যাবল (65W Fast Cable)',
+    price: 180,
+    originalPrice: 250,
+    description: 'উচ্চমানের ব্রেইডেড টাইপ-সি ক্যাবল, সুপার ফাস্ট চার্জিং এবং হাই স্পিড ডাটা ট্রান্সফার সাপোর্ট করে।',
+    category: 'অ্যাক্সেসরিজ',
+    imageUrl: 'https://images.unsplash.com/photo-1544816155-12df9643f363?w=500&auto=format&fit=crop&q=60',
+    inStock: true,
+    createdAt: '2026-05-30T10:00:00Z'
+  },
+  {
+    id: 'prod-2',
+    name: 'অরিজিনাল পাওয়ার ব্যাংক (10000mAh Power Bank)',
+    price: 850,
+    originalPrice: 1100,
+    description: 'ডুয়াল ইউএসবি আউটপুট সহ দীর্ঘস্থায়ী ব্যাটারি ব্যাকআপ, ট্রাভেল ফ্রেন্ডলি ও নিরাপদ।',
+    category: 'গ্যাজেট',
+    imageUrl: 'https://images.unsplash.com/photo-1609592424368-e6b8c9d2fbe5?w=500&auto=format&fit=crop&q=60',
+    inStock: true,
+    createdAt: '2026-05-30T11:00:00Z'
+  },
+  {
+    id: 'prod-3',
+    name: 'ওয়্যারলেস ব্লুটুথ এয়ারবাডস (TWS Earbuds)',
+    price: 550,
+    originalPrice: 750,
+    description: 'ক্রিস্টাল ক্লিয়ার সাউন্ড কোয়ালিটি এবং ডিপ বাস, নয়েজ ক্যান্সেলেশন ও স্মার্ট টাচ কন্ট্রোল।',
+    category: 'অডিও',
+    imageUrl: 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=500&auto=format&fit=crop&q=60',
+    inStock: true,
+    createdAt: '2026-05-30T12:00:00Z'
+  },
+  {
+    id: 'prod-4',
+    name: 'প্রিমিয়াম স্মার্টওয়াচ (Smart Fitness Watch)',
+    price: 1250,
+    originalPrice: 1600,
+    description: 'হার্ট রেট মনিটর, স্টেপ কাউন্টার, নোটিফিকেশন অ্যালার্ট এবং ওয়াটার রেজিস্ট্যান্ট বডি।',
+    category: 'স্মার্ট ওয়াচ',
+    imageUrl: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=60',
+    inStock: true,
+    createdAt: '2026-05-30T13:00:00Z'
+  }
+];
 
 // Pre-populated default pay bill entries to represent user's layout on first load
 const DEFAULT_PAYBILLS: PayBillEntry[] = [
@@ -240,6 +316,44 @@ export function loadTrashTransactions(): TrashTransaction[] {
 
 export function saveTrashTransactions(items: TrashTransaction[]): void {
   localStorage.setItem(TRASH_KEY, JSON.stringify(items));
+}
+
+export function loadProducts(): Product[] {
+  if (typeof window === 'undefined') return DEFAULT_PRODUCTS;
+  const raw = localStorage.getItem(PRODUCTS_KEY);
+  if (!raw) {
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(DEFAULT_PRODUCTS));
+    return DEFAULT_PRODUCTS;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_PRODUCTS;
+  } catch (e) {
+    return DEFAULT_PRODUCTS;
+  }
+}
+
+export function saveProducts(products: Product[]): void {
+  localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+}
+
+export function loadQuickFaqs(): ChatQuickFAQ[] {
+  if (typeof window === 'undefined') return DEFAULT_QUICK_FAQS;
+  const raw = localStorage.getItem(QUICK_FAQS_KEY);
+  if (!raw) {
+    localStorage.setItem(QUICK_FAQS_KEY, JSON.stringify(DEFAULT_QUICK_FAQS));
+    return DEFAULT_QUICK_FAQS;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_QUICK_FAQS;
+  } catch (e) {
+    return DEFAULT_QUICK_FAQS;
+  }
+}
+
+export function saveQuickFaqs(faqs: ChatQuickFAQ[]): void {
+  localStorage.setItem(QUICK_FAQS_KEY, JSON.stringify(faqs));
 }
 
 // Calculate summary statistics for custom list/suppliers
