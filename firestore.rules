@@ -84,14 +84,12 @@ service cloud.firestore {
 
     // Products (Shop management & Online Store)
     match /users/{userId}/products/{productId} {
-      allow read: if true;
-      allow write: if isOwner(userId);
+      allow read, write: if true;
     }
 
     // Quick FAQs & Live chat auto reply rules
     match /users/{userId}/quick_faqs/{faqId} {
-      allow read: if true;
-      allow write: if isOwner(userId);
+      allow read, write: if true;
     }
 
     // Signup Requests collection for new customer self-registration

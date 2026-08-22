@@ -657,10 +657,13 @@ export default function App() {
         const data = snapDoc.data() as Product;
         list.push({ ...data, id: data.id || snapDoc.id });
       });
-      if (list.length > 0) {
-        setProducts(list);
-        saveProducts(list);
-      }
+      list.sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+      setProducts(list);
+      saveProducts(list);
     }, (error) => {
       console.error('Failed to subscribe to products:', error);
     });
@@ -672,10 +675,8 @@ export default function App() {
         const data = snapDoc.data() as ChatQuickFAQ;
         list.push({ ...data, id: data.id || snapDoc.id });
       });
-      if (list.length > 0) {
-        setQuickFaqs(list);
-        saveQuickFaqs(list);
-      }
+      setQuickFaqs(list);
+      saveQuickFaqs(list);
     }, (error) => {
       console.error('Failed to subscribe to quick_faqs:', error);
     });
@@ -718,6 +719,26 @@ export default function App() {
     const interval = setInterval(cleanupExpiredChats, 60000);
     return () => clearInterval(interval);
   }, [user, ownerUid]);
+
+  // Real-time cross-tab synchronization listener
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setProducts(loadProducts());
+      setQuickFaqs(loadQuickFaqs());
+      const savedChats = localStorage.getItem('hellopoint_chat_messages');
+      if (savedChats) {
+        try {
+          const parsed = JSON.parse(savedChats);
+          if (Array.isArray(parsed)) {
+            setChatMessages(parsed);
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   // Offline fallback loader for categories when first loading or offline
   useEffect(() => {
@@ -1305,12 +1326,16 @@ export default function App() {
       const offlineTransactions = loadTransactions();
       const offlineCashbook = loadCashbook();
       const offlinePayBills = loadPayBills();
+      const offlineProducts = loadProducts();
+      const offlineQuickFaqs = loadQuickFaqs();
 
       const hasOfflineData = 
         offlineContacts.length > 0 || 
         offlineTransactions.length > 0 || 
         offlineCashbook.length > 0 ||
-        offlinePayBills.length > 0;
+        offlinePayBills.length > 0 ||
+        offlineProducts.length > 0 ||
+        offlineQuickFaqs.length > 0;
       if (!hasOfflineData) return;
 
       const migrationToken = `hellopoint_synced_${uid}`;
@@ -1331,10 +1356,16 @@ export default function App() {
       for (const pb of offlinePayBills) {
         await setDoc(doc(db, 'users', uid, 'paybills', pb.id), cleanForFirestore(pb));
       }
+      for (const prod of offlineProducts) {
+        await setDoc(doc(db, 'users', uid, 'products', prod.id), cleanForFirestore(prod));
+      }
+      for (const faq of offlineQuickFaqs) {
+        await setDoc(doc(db, 'users', uid, 'quick_faqs', faq.id), cleanForFirestore(faq));
+      }
 
       // Mark migration as successful to prevent double syncs
       localStorage.setItem(migrationToken, 'true');
-      console.log('Synchronized off-grid transactions to Hello Point database cloud.');
+      console.log('Synchronized off-grid transactions and products to Hello Point database cloud.');
     } catch (err) {
       console.error('Account ledger migration warning:', err);
     }
@@ -1581,23 +1612,29 @@ export default function App() {
   };
 
   const handleSaveProduct = async (product: Product) => {
+    const formattedProduct: Product = {
+      ...product,
+      updatedAt: new Date().toISOString(),
+      createdAt: product.createdAt || new Date().toISOString()
+    };
+
     setProducts(prev => {
-      const existingIndex = prev.findIndex(p => p.id === product.id);
+      const existingIndex = prev.findIndex(p => p.id === formattedProduct.id);
       let updated: Product[];
       if (existingIndex >= 0) {
         updated = [...prev];
-        updated[existingIndex] = { ...product, updatedAt: new Date().toISOString() };
+        updated[existingIndex] = formattedProduct;
       } else {
-        updated = [product, ...prev];
+        updated = [formattedProduct, ...prev];
       }
       saveProducts(updated);
       return updated;
     });
 
-    const activeUid = user?.uid || ownerUid;
+    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid');
     if (activeUid) {
       try {
-        await setDoc(doc(db, 'users', activeUid, 'products', product.id), cleanForFirestore(product));
+        await setDoc(doc(db, 'users', activeUid, 'products', formattedProduct.id), cleanForFirestore(formattedProduct));
       } catch (err) {
         console.error('Failed to sync product to Firestore:', err);
       }
@@ -1611,7 +1648,7 @@ export default function App() {
       return updated;
     });
 
-    const activeUid = user?.uid || ownerUid;
+    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid');
     if (activeUid) {
       try {
         await deleteDoc(doc(db, 'users', activeUid, 'products', productId));
@@ -1625,7 +1662,7 @@ export default function App() {
     setQuickFaqs(faqs);
     saveQuickFaqs(faqs);
 
-    const activeUid = user?.uid || ownerUid;
+    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid');
     if (activeUid) {
       try {
         for (const faq of faqs) {
@@ -2398,6 +2435,7 @@ export default function App() {
           themeColor={themeColor}
           shopStatus={shopStatus}
           quickFaqs={quickFaqs}
+          onMarkChatsAsRead={handleMarkChatsAsRead}
         />
       )}
 

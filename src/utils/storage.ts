@@ -321,39 +321,45 @@ export function saveTrashTransactions(items: TrashTransaction[]): void {
 export function loadProducts(): Product[] {
   if (typeof window === 'undefined') return DEFAULT_PRODUCTS;
   const raw = localStorage.getItem(PRODUCTS_KEY);
-  if (!raw) {
+  if (raw === null || raw === undefined) {
     localStorage.setItem(PRODUCTS_KEY, JSON.stringify(DEFAULT_PRODUCTS));
     return DEFAULT_PRODUCTS;
   }
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_PRODUCTS;
+    return Array.isArray(parsed) ? parsed : DEFAULT_PRODUCTS;
   } catch (e) {
     return DEFAULT_PRODUCTS;
   }
 }
 
 export function saveProducts(products: Product[]): void {
-  localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+    window.dispatchEvent(new Event('storage'));
+  }
 }
 
 export function loadQuickFaqs(): ChatQuickFAQ[] {
   if (typeof window === 'undefined') return DEFAULT_QUICK_FAQS;
   const raw = localStorage.getItem(QUICK_FAQS_KEY);
-  if (!raw) {
+  if (raw === null || raw === undefined) {
     localStorage.setItem(QUICK_FAQS_KEY, JSON.stringify(DEFAULT_QUICK_FAQS));
     return DEFAULT_QUICK_FAQS;
   }
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_QUICK_FAQS;
+    return Array.isArray(parsed) ? parsed : DEFAULT_QUICK_FAQS;
   } catch (e) {
     return DEFAULT_QUICK_FAQS;
   }
 }
 
 export function saveQuickFaqs(faqs: ChatQuickFAQ[]): void {
-  localStorage.setItem(QUICK_FAQS_KEY, JSON.stringify(faqs));
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(QUICK_FAQS_KEY, JSON.stringify(faqs));
+    window.dispatchEvent(new Event('storage'));
+  }
 }
 
 // Calculate summary statistics for custom list/suppliers

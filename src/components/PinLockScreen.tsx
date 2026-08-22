@@ -23,6 +23,7 @@ interface PinLockScreenProps {
   themeColor?: string;
   shopStatus?: 'open' | 'closed';
   quickFaqs?: ChatQuickFAQ[];
+  onMarkChatsAsRead?: (contactId: string, role: 'owner' | 'customer') => void;
 }
 
 export function PinLockScreen({ 
@@ -41,7 +42,8 @@ export function PinLockScreen({
   currency = '৳',
   themeColor = '#6244a6',
   shopStatus: propShopStatus,
-  quickFaqs
+  quickFaqs,
+  onMarkChatsAsRead
 }: PinLockScreenProps) {
   const [pin, setPin] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
@@ -819,6 +821,7 @@ export function PinLockScreen({
         initialVisitorName={chatInitialName}
         initialVisitorPhone={chatInitialPhone}
         quickFaqs={quickFaqs}
+        onMarkChatsAsRead={onMarkChatsAsRead}
         onRequestOpenRegisterModal={() => {
           setShowLiveChatModal(false);
           setShowRegisterModal(true);
