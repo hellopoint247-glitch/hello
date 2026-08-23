@@ -122,8 +122,6 @@ interface MainDashboardProps {
   onDeleteChatMessage?: (messageId: string) => void;
   onDeleteChatThread?: (contactId: string) => void;
   onMarkChatsAsRead?: (contactId: string, role: 'owner' | 'customer') => void;
-  trashCount?: number;
-  onOpenTrashModal?: () => void;
   themeMode?: ThemeMode;
   onChangeThemeMode?: (mode: ThemeMode) => void;
   products?: Product[];
@@ -194,8 +192,6 @@ export function MainDashboard({
   onDeleteChatMessage,
   onDeleteChatThread,
   onMarkChatsAsRead,
-  trashCount = 0,
-  onOpenTrashModal,
   themeMode = 'system',
   onChangeThemeMode,
   products = [],
@@ -1621,20 +1617,6 @@ export function MainDashboard({
                   {pendingPaybillRequestsCount}
                 </span>
               )}
-            </motion.button>
-
-            {/* The Trash / Recycle Bin Trigger Button */}
-            <motion.button 
-              id="header-trash-trigger"
-              onClick={onOpenTrashModal}
-              whileHover={{ scale: 1.15 }}
-              whileTap={{ scale: 0.90 }}
-              className="bg-white/10 hover:bg-white/20 p-1.5 rounded-full transition-all focus:outline-none relative cursor-pointer"
-              title={lang === 'bn' ? 'ট্র্যাশ (Trash)' : 'Trash'}
-            >
-              <Trash2 className={`w-5 h-5 transition-colors ${
-                trashCount > 0 ? 'text-rose-400 fill-rose-500/20' : 'text-yellow-300'
-              }`} />
             </motion.button>
 
             {/* The Vertical Three-Dot Menu Button requested by user */}

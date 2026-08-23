@@ -29,13 +29,6 @@ export interface Transaction {
   cashbookEntryId?: string; // Optional link to a cashbook entry
 }
 
-export interface TrashTransaction {
-  id: string;
-  originalTx: Transaction;
-  deletedAt: string; // ISO date string
-  linkedCashbookEntry?: CashbookEntry;
-}
-
 export interface CashbookEntry {
   id: string;
   amount: number;

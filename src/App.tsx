@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { safeLocalStorage as localStorage } from './utils/safeStorage';
 import { motion, AnimatePresence } from 'motion/react';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, TrashTransaction, Product, ChatQuickFAQ } from './types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ } from './types';
 import { 
   loadContacts, 
   saveContacts, 
@@ -16,8 +16,6 @@ import {
   saveCashbook,
   loadPayBills,
   savePayBills,
-  loadTrashTransactions,
-  saveTrashTransactions,
   loadProducts,
   saveProducts,
   loadQuickFaqs,
@@ -31,7 +29,6 @@ import { TransactionForm } from './components/TransactionForm';
 import { CashbookForm } from './components/CashbookForm';
 import { PinLockScreen } from './components/PinLockScreen';
 import { CustomerPortal } from './components/CustomerPortal';
-import { TrashBinModal } from './components/TrashBinModal';
 import { ThemeMode, getSavedThemeMode, saveThemeMode, applyTheme } from './utils/theme';
 
 // Firebase core integration imports
@@ -92,9 +89,6 @@ export default function App() {
   // Application database hooks
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [trashTransactions, setTrashTransactions] = useState<TrashTransaction[]>([]);
-  const [isTrashModalOpen, setIsTrashModalOpen] = useState(false);
-  const [trashToast, setTrashToast] = useState<{ message: string; trashItem: TrashTransaction } | null>(null);
   const [cashbook, setCashbook] = useState<CashbookEntry[]>([]);
   const [paybills, setPayBills] = useState<PayBillEntry[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -420,7 +414,6 @@ export default function App() {
       const offlineContacts = loadContacts();
       setContacts(offlineContacts);
       setTransactions(loadTransactions());
-      setTrashTransactions(loadTrashTransactions());
       setCashbook(loadCashbook());
       setPayBills(loadPayBills());
       try {
@@ -617,39 +610,6 @@ export default function App() {
       console.error('Failed to subscribe to chats:', error);
     });
 
-    const qTrash = collection(db, 'users', activeUid, 'trash_transactions');
-    const unsubTrash = onSnapshot(qTrash, (snapshot) => {
-      const list: TrashTransaction[] = [];
-      const expiredItems: TrashTransaction[] = [];
-      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-      const now = Date.now();
-
-      snapshot.forEach((snapDoc) => {
-        const data = snapDoc.data() as TrashTransaction;
-        const itemId = data.id || snapDoc.id;
-        const item = { ...data, id: itemId };
-        const deletedTime = new Date(data.deletedAt).getTime();
-
-        if (!isNaN(deletedTime) && (now - deletedTime) > THIRTY_DAYS_MS) {
-          expiredItems.push(item);
-        } else {
-          list.push(item);
-        }
-      });
-
-      setTrashTransactions(list.sort((a, b) => b.deletedAt.localeCompare(a.deletedAt)));
-      saveTrashTransactions(list);
-
-      // Auto-purge items older than 30 days
-      if (expiredItems.length > 0 && activeUid) {
-        expiredItems.forEach((item) => {
-          deleteDoc(doc(db, 'users', activeUid, 'trash_transactions', item.id)).catch(() => {});
-        });
-      }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, `users/${activeUid}/trash_transactions`);
-    });
-
     const qProducts = collection(db, 'users', activeUid, 'products');
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
       const list: Product[] = [];
@@ -690,7 +650,6 @@ export default function App() {
       unsubRecharges();
       unsubPaybillRequests();
       unsubChats();
-      unsubTrash();
       unsubProducts();
       unsubQuickFaqs();
     };
@@ -1793,20 +1752,10 @@ export default function App() {
     if (!txToDelete) return;
 
     const linkedCbId = txToDelete.cashbookEntryId;
-    const linkedCb = cashbook.find(c => c.id === linkedCbId);
-
-    const trashItem: TrashTransaction = {
-      id: 'trash-' + txToDelete.id,
-      originalTx: txToDelete,
-      deletedAt: new Date().toISOString(),
-      linkedCashbookEntry: linkedCb
-    };
-
     const activeUid = user?.uid || ownerUid;
 
     if (user && activeUid && transactionId) {
       try {
-        await setDoc(doc(db, 'users', activeUid, 'trash_transactions', trashItem.id), cleanForFirestore(trashItem));
         await deleteDoc(doc(db, 'users', activeUid, 'transactions', transactionId));
         if (linkedCbId) {
           await deleteDoc(doc(db, 'users', activeUid, 'cashbook', linkedCbId));
@@ -1815,10 +1764,6 @@ export default function App() {
         handleFirestoreError(err, OperationType.DELETE, `users/${activeUid}/transactions/${transactionId}`);
       }
     } else if (transactionId) {
-      const updatedTrash = [trashItem, ...trashTransactions];
-      setTrashTransactions(updatedTrash);
-      saveTrashTransactions(updatedTrash);
-
       const updatedTxs = transactions.filter(t => t.id !== transactionId);
       setTransactions(updatedTxs);
       saveTransactions(updatedTxs);
@@ -1830,78 +1775,10 @@ export default function App() {
       }
     }
 
-    setTrashToast({
-      message: '🗑️ লেনদেনটি ট্র্যাশ বিনে সরানো হয়েছে (৩০ দিন পর অটো ডিলিট হবে)',
-      trashItem
-    });
-    setTimeout(() => {
-      setTrashToast(null);
-    }, 6000);
-
     if (contactId) {
       setScreen({ type: 'contact_detail', contactId });
     } else {
       setScreen({ type: 'dashboard' });
-    }
-  };
-
-  const handleRestoreFromTrash = async (trashItem: TrashTransaction) => {
-    const activeUid = user?.uid || ownerUid;
-    if (user && activeUid) {
-      try {
-        await setDoc(doc(db, 'users', activeUid, 'transactions', trashItem.originalTx.id), cleanForFirestore(trashItem.originalTx));
-        if (trashItem.linkedCashbookEntry) {
-          await setDoc(doc(db, 'users', activeUid, 'cashbook', trashItem.linkedCashbookEntry.id), cleanForFirestore(trashItem.linkedCashbookEntry));
-        }
-        await deleteDoc(doc(db, 'users', activeUid, 'trash_transactions', trashItem.id));
-      } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `users/${activeUid}/transactions/${trashItem.originalTx.id}`);
-      }
-    } else {
-      const updatedTxs = [trashItem.originalTx, ...transactions];
-      setTransactions(updatedTxs);
-      saveTransactions(updatedTxs);
-
-      if (trashItem.linkedCashbookEntry) {
-        const updatedCb = [trashItem.linkedCashbookEntry, ...cashbook];
-        setCashbook(updatedCb);
-        saveCashbook(updatedCb);
-      }
-
-      const updatedTrash = trashTransactions.filter(t => t.id !== trashItem.id);
-      setTrashTransactions(updatedTrash);
-      saveTrashTransactions(updatedTrash);
-    }
-  };
-
-  const handlePermanentDeleteFromTrash = async (trashId: string) => {
-    const activeUid = user?.uid || ownerUid;
-    if (user && activeUid) {
-      try {
-        await deleteDoc(doc(db, 'users', activeUid, 'trash_transactions', trashId));
-      } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, `users/${activeUid}/trash_transactions/${trashId}`);
-      }
-    } else {
-      const updated = trashTransactions.filter(t => t.id !== trashId);
-      setTrashTransactions(updated);
-      saveTrashTransactions(updated);
-    }
-  };
-
-  const handleEmptyTrash = async () => {
-    const activeUid = user?.uid || ownerUid;
-    if (user && activeUid) {
-      try {
-        for (const item of trashTransactions) {
-          await deleteDoc(doc(db, 'users', activeUid, 'trash_transactions', item.id));
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    } else {
-      setTrashTransactions([]);
-      saveTrashTransactions([]);
     }
   };
 
@@ -2301,8 +2178,6 @@ export default function App() {
               onDeleteChatMessage={handleDeleteChatMessage}
               onDeleteChatThread={handleDeleteChatThread}
               onMarkChatsAsRead={handleMarkChatsAsRead}
-              trashCount={trashTransactions.length}
-              onOpenTrashModal={() => setIsTrashModalOpen(true)}
               themeMode={themeMode}
               onChangeThemeMode={handleUpdateThemeMode}
               products={products}
@@ -2438,44 +2313,6 @@ export default function App() {
           onMarkChatsAsRead={handleMarkChatsAsRead}
         />
       )}
-
-      {/* TRASH / RECYCLE BIN MODAL */}
-      <TrashBinModal 
-        isOpen={isTrashModalOpen}
-        onClose={() => setIsTrashModalOpen(false)}
-        trashItems={trashTransactions}
-        contacts={contacts}
-        onRestoreItem={handleRestoreFromTrash}
-        onPermanentDeleteItem={handlePermanentDeleteFromTrash}
-        onEmptyTrash={handleEmptyTrash}
-        currency={currency}
-      />
-
-      {/* TRASH DELETION FEEDBACK TOAST WITH UNDO BUTTON */}
-      <AnimatePresence>
-        {trashToast && (
-          <motion.div 
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            transition={{ duration: 0.2 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-700/80 max-w-sm w-[90%]"
-          >
-            <div className="text-xs font-bold flex-1">
-              {trashToast.message}
-            </div>
-            <button 
-              onClick={() => {
-                handleRestoreFromTrash(trashToast.trashItem);
-                setTrashToast(null);
-              }}
-              className="bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-extrabold text-xs px-3 py-1.5 rounded-xl transition-all shadow-md shrink-0 cursor-pointer"
-            >
-              আনডু (Undo)
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
     </div>
   );

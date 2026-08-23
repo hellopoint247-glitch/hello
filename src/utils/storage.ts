@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Contact, Transaction, CashbookEntry, PayBillEntry, TrashTransaction, Product, ChatQuickFAQ } from '../types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, Product, ChatQuickFAQ } from '../types';
 import { safeLocalStorage as localStorage } from './safeStorage';
 
 const CONTACTS_KEY = 'hellopoint_contacts';
@@ -11,7 +11,6 @@ const TRANSACTIONS_KEY = 'hellopoint_transactions';
 const CASHBOOK_KEY = 'hellopoint_cashbook';
 const PAYBILLS_KEY = 'hellopoint_paybills';
 const CURRENCY_KEY = 'hellopoint_currency';
-const TRASH_KEY = 'hellopoint_trash_transactions';
 const PRODUCTS_KEY = 'hellopoint_products';
 const QUICK_FAQS_KEY = 'hellopoint_quick_faqs';
 
@@ -301,21 +300,6 @@ export function loadPayBills(): PayBillEntry[] {
 
 export function savePayBills(entries: PayBillEntry[]): void {
   localStorage.setItem(PAYBILLS_KEY, JSON.stringify(entries));
-}
-
-export function loadTrashTransactions(): TrashTransaction[] {
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(TRASH_KEY);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    return [];
-  }
-}
-
-export function saveTrashTransactions(items: TrashTransaction[]): void {
-  localStorage.setItem(TRASH_KEY, JSON.stringify(items));
 }
 
 export function loadProducts(): Product[] {

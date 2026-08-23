@@ -23,16 +23,18 @@ interface VisitorShopModalProps {
   onOrderInquiry: (product: Product, customerName: string, customerPhone: string, note?: string) => void;
 }
 
-// Product Card Auto-Rotating Multi-Image Carousel
+// Product Card Auto-Rotating Multi-Image Carousel with side slide transition
 function ProductCardImage({
   images,
   imageUrl,
   name,
+  productId,
   onClick
 }: {
   images?: string[];
   imageUrl?: string;
   name: string;
+  productId?: string;
   onClick: () => void;
 }) {
   const allImages = useMemo(() => {
@@ -43,13 +45,32 @@ function ProductCardImage({
 
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  // Stagger the initial start per product so they don't slide simultaneously
+  const initialDelay = useMemo(() => {
+    if (!productId) return 0;
+    let hash = 0;
+    for (let i = 0; i < productId.length; i++) {
+      hash = (hash * 31 + productId.charCodeAt(i)) % 3000;
+    }
+    return hash;
+  }, [productId]);
+
   useEffect(() => {
     if (allImages.length <= 1) return;
-    const interval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % allImages.length);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [allImages.length]);
+
+    let intervalId: any;
+    const timeoutId = setTimeout(() => {
+      // 5500ms duration for comfortable viewing
+      intervalId = setInterval(() => {
+        setCurrentIndex((prev) => (prev + 1) % allImages.length);
+      }, 5500);
+    }, initialDelay);
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [allImages.length, initialDelay]);
 
   return (
     <div 
@@ -57,12 +78,22 @@ function ProductCardImage({
       onClick={onClick}
     >
       {allImages.length > 0 ? (
-        <img
-          src={allImages[currentIndex]}
-          alt={name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-in-out"
-          referrerPolicy="no-referrer"
-        />
+        <AnimatePresence initial={false} mode="popLayout">
+          <motion.img
+            key={`${currentIndex}-${allImages[currentIndex]}`}
+            src={allImages[currentIndex]}
+            alt={name}
+            initial={{ x: '100%', opacity: 0.8 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: '-100%', opacity: 0.8 }}
+            transition={{ 
+              x: { type: "spring", stiffness: 260, damping: 28 },
+              opacity: { duration: 0.3 }
+            }}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-in-out"
+            referrerPolicy="no-referrer"
+          />
+        </AnimatePresence>
       ) : (
         <ShoppingBag className="w-7 h-7 text-slate-300" />
       )}
@@ -333,6 +364,7 @@ export function VisitorShopModal({
                         images={product.images}
                         imageUrl={product.imageUrl}
                         name={product.name}
+                        productId={product.id}
                         onClick={() => {
                           setSelectedProduct(product);
                           setDetailImageIndex(0);

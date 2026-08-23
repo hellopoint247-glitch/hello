@@ -76,12 +76,6 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // Trash Transactions collection
-    match /users/{userId}/trash_transactions/{trashId} {
-      allow read: if true;
-      allow write: if isOwner(userId);
-    }
-
     // Products (Shop management & Online Store)
     match /users/{userId}/products/{productId} {
       allow read, write: if true;
