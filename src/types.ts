@@ -52,6 +52,7 @@ export interface PayBillEntry {
   createdAt: string;
   paidAt?: string;
   paidInfo?: string;
+  paidAccount?: string; // Bank Name or Account Last digits (e.g., "বিকাশ - ০১৭১২...", "City Bank")
   contactId?: string; // Optional link to a customer/supplier
 }
 

@@ -13,6 +13,9 @@ const PAYBILLS_KEY = 'hellopoint_paybills';
 const CURRENCY_KEY = 'hellopoint_currency';
 const PRODUCTS_KEY = 'hellopoint_products';
 const QUICK_FAQS_KEY = 'hellopoint_quick_faqs';
+const PAYBILL_ACCOUNTS_KEY = 'hellopoint_paybill_accounts';
+
+export const DEFAULT_PAYBILL_ACCOUNTS: string[] = [];
 
 export const DEFAULT_QUICK_FAQS: ChatQuickFAQ[] = [
   {
@@ -344,6 +347,58 @@ export function saveQuickFaqs(faqs: ChatQuickFAQ[]): void {
     localStorage.setItem(QUICK_FAQS_KEY, JSON.stringify(faqs));
     window.dispatchEvent(new Event('storage'));
   }
+}
+
+const LEGACY_PRESET_TAGS = [
+  'বিকাশ (bkash)',
+  'নগদ (nagad)',
+  'রকেট (rocket)',
+  'উপায় (upay)',
+  'ইসলামী ব্যাংক',
+  'সিটি ব্যাংক',
+  'ডাচ বাংলা ব্যাংক',
+  'bkash',
+  'nagad',
+  'rocket',
+  'upay'
+];
+
+export function loadSavedPayBillAccounts(): string[] {
+  if (typeof window === 'undefined') return [];
+  const raw = localStorage.getItem(PAYBILL_ACCOUNTS_KEY);
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // Clean out any legacy pre-filled default tags
+    return parsed.filter((item: string) => {
+      if (typeof item !== 'string') return false;
+      const lower = item.trim().toLowerCase();
+      return !LEGACY_PRESET_TAGS.includes(lower);
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
+export function saveSavedPayBillAccounts(accounts: string[]): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(PAYBILL_ACCOUNTS_KEY, JSON.stringify(accounts));
+  }
+}
+
+export function addSavedPayBillAccount(account: string): string[] {
+  const clean = account.trim();
+  if (!clean) return loadSavedPayBillAccounts();
+  const current = loadSavedPayBillAccounts();
+  if (!current.some(a => a.toLowerCase() === clean.toLowerCase())) {
+    const updated = [clean, ...current];
+    saveSavedPayBillAccounts(updated);
+    return updated;
+  }
+  return current;
 }
 
 // Calculate summary statistics for custom list/suppliers

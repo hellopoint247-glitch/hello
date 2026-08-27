@@ -52,14 +52,19 @@ import {
   Lightbulb,
   Sun,
   Moon,
-  ShoppingBag
+  ShoppingBag,
+  Building2,
+  Landmark,
+  Tag,
+  ChevronUp,
+  Hash
 } from 'lucide-react';
 import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ } from '../types';
 import { ThemeMode } from '../utils/theme';
 import { ChatBox } from './ChatBox';
 import { ShopManagementModal } from './ShopManagementModal';
 import ChatAutoReplySettingsModal from './ChatAutoReplySettingsModal';
-import { getContactSummary, loadQuickFaqs, saveQuickFaqs } from '../utils/storage';
+import { getContactSummary, loadQuickFaqs, saveQuickFaqs, loadSavedPayBillAccounts, addSavedPayBillAccount } from '../utils/storage';
 import BanglaCalendar from './BanglaCalendar';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -536,16 +541,33 @@ export function MainDashboard({
   const [showPaidInfoModal, setShowPaidInfoModal] = useState(false);
   const [activePaidInfoPb, setActivePaidInfoPb] = useState<PayBillEntry | null>(null);
   const [paidInfoText, setPaidInfoText] = useState('');
+  const [paidAccountText, setPaidAccountText] = useState('');
+  const [savedPayBillAccounts, setSavedPayBillAccounts] = useState<string[]>(() => loadSavedPayBillAccounts());
+  const [selectedAccountFilter, setSelectedAccountFilter] = useState<string | null>(null);
+  const [showMonthAccountCard, setShowMonthAccountCard] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('hellopoint_show_month_account_card');
+      return saved !== null ? saved === 'true' : true;
+    }
+    return true;
+  });
 
   const handleSavePaidInfo = () => {
     if (!activePaidInfoPb) return;
+    const cleanAcc = paidAccountText.trim();
+    if (cleanAcc) {
+      const updated = addSavedPayBillAccount(cleanAcc);
+      setSavedPayBillAccounts(updated);
+    }
     onSavePayBill({
       ...activePaidInfoPb,
-      paidInfo: paidInfoText.trim()
+      paidInfo: paidInfoText.trim() || undefined,
+      paidAccount: cleanAcc || undefined
     });
     setShowPaidInfoModal(false);
     setActivePaidInfoPb(null);
     setPaidInfoText('');
+    setPaidAccountText('');
   };
   
   // Pay Bill dynamic forms fields
@@ -1077,6 +1099,8 @@ export function MainDashboard({
       isPaid: editingPayBill ? editingPayBill.isPaid : false,
       createdAt: editingPayBill ? editingPayBill.createdAt : new Date().toISOString(),
       paidAt: editingPayBill?.paidAt,
+      paidInfo: editingPayBill?.paidInfo,
+      paidAccount: editingPayBill?.paidAccount,
       contactId: pbContactId || undefined
     };
 
@@ -1222,22 +1246,72 @@ export function MainDashboard({
     }));
   }, [selectedMonthPaybills]);
 
+  // Combine stored tags + existing paybill accounts for instant 1-tap re-use (filtering out legacy preset templates)
+  const allAvailableAccountTags = useMemo(() => {
+    const legacyPresets = ['bkash', 'nagad', 'rocket', 'upay', 'বিকাশ', 'নগদ', 'রকেট', 'উপায়', 'ইসলামী ব্যাংক', 'সিটি ব্যাংক', 'ডাচ বাংলা ব্যাংক'];
+    const list: string[] = [];
+
+    [...savedPayBillAccounts].forEach(acc => {
+      const clean = acc.trim();
+      if (clean && !legacyPresets.some(p => clean.toLowerCase() === p.toLowerCase()) && !list.some(item => item.toLowerCase() === clean.toLowerCase())) {
+        list.push(clean);
+      }
+    });
+
+    (paybills || []).forEach(pb => {
+      if (pb.paidAccount && pb.paidAccount.trim()) {
+        const clean = pb.paidAccount.trim();
+        if (!legacyPresets.some(p => clean.toLowerCase() === p.toLowerCase()) && !list.some(item => item.toLowerCase() === clean.toLowerCase())) {
+          list.push(clean);
+        }
+      }
+    });
+    return list;
+  }, [savedPayBillAccounts, paybills]);
+
+  // Monthly account breakdown statistics for the currently selected month (only for bills with a specified last number)
+  const monthlyAccountStats = useMemo(() => {
+    const map = new Map<string, { count: number; totalAmount: number; accountName: string }>();
+    
+    selectedMonthPaybills.filter(p => p.isPaid && p.paidAccount && p.paidAccount.trim()).forEach(pb => {
+      const acc = pb.paidAccount!.trim();
+      const existing = map.get(acc) || { count: 0, totalAmount: 0, accountName: acc };
+      existing.count += 1;
+      existing.totalAmount += pb.amount;
+      map.set(acc, existing);
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [selectedMonthPaybills]);
+
   // Memoized filtered and sorted pay bills list to avoid O(N log N) filtering/sorting on every single render/tick
   const filteredAndSortedPaybills = useMemo(() => {
     return monthBillsWithSerials
-      .filter(({ pb }) => 
-        pb.billerNumber.includes(payBillSearch) ||
-        pb.billerDetails.toLowerCase().includes(payBillSearch.toLowerCase()) ||
-        (pb.note && pb.note.toLowerCase().includes(payBillSearch.toLowerCase())) ||
-        (pb.paidInfo && pb.paidInfo.toLowerCase().includes(payBillSearch.toLowerCase()))
-      )
+      .filter(({ pb }) => {
+        if (selectedAccountFilter) {
+          const acc = pb.paidAccount ? pb.paidAccount.trim() : '';
+          if (acc !== selectedAccountFilter) {
+            return false;
+          }
+        }
+
+        if (!payBillSearch) return true;
+        const search = payBillSearch.toLowerCase();
+        return (
+          pb.billerNumber.includes(search) ||
+          pb.billerDetails.toLowerCase().includes(search) ||
+          (pb.note && pb.note.toLowerCase().includes(search)) ||
+          (pb.paidInfo && pb.paidInfo.toLowerCase().includes(search)) ||
+          (pb.paidAccount && pb.paidAccount.toLowerCase().includes(search))
+        );
+      })
       .sort((a, b) => {
         if (a.pb.isPaid === b.pb.isPaid) {
           return b.monthSerialNo - a.monthSerialNo; // newest serial first
         }
         return a.pb.isPaid ? 1 : -1; // unpaid (false) first, then paid (true)
       });
-  }, [monthBillsWithSerials, payBillSearch]);
+  }, [monthBillsWithSerials, payBillSearch, selectedAccountFilter, lang]);
 
   const exportCustomersToGoogleSheet = () => {
     try {
@@ -1374,7 +1448,8 @@ export function MainDashboard({
           `টাকার পরিমাণ (${currency})`,
           'পরিশোধের তারিখ',
           'অবস্থা',
-          'পেমেন্ট তথ্য',
+          'পেমেন্ট ট্রানজেকশন আইডি',
+          'লাস্ট নাম্বার',
           'নোট/মেমো',
           'সংরক্ষিত তারিখ',
           'তৈরির সময়'
@@ -1390,7 +1465,8 @@ export function MainDashboard({
           `Amount (${currency})`,
           'Due Date/Time',
           'Status',
-          'Payment Info (Paid Info)',
+          'Payment TrxID',
+          'Last Number',
           'Note/Memo',
           'Reserved Date',
           'Created Time'
@@ -1412,6 +1488,7 @@ export function MainDashboard({
         }
 
         const paidInfoStr = pb.paidInfo || '';
+        const paidAccountStr = pb.paidAccount || '';
         const noteStr = pb.note || '';
         const secondDateStr = pb.secondDate || '';
         const createdAtStr = pb.createdAt || '';
@@ -1424,6 +1501,7 @@ export function MainDashboard({
           `"${secondDateStr}"`,
           `"${statusStr}"`,
           `"${paidInfoStr}"`,
+          `"${paidAccountStr}"`,
           `"${noteStr}"`,
           `"${pb.date}"`,
           `"${createdAtStr}"`
@@ -2405,59 +2483,171 @@ export function MainDashboard({
               </div>
             </div>
 
-            {/* 2. 6-Month Selector Header Bar (COMPACT & 1 ROW: BELOW BALANCE) */}
-            <div className="bg-white rounded-xl p-1.5 shadow-tiny border border-slate-100">
-              <div className="flex items-center justify-between px-1 mb-1">
-                <span className="text-[9.5px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                  <CalendarIcon className="w-3 h-3 text-brand-primary" />
-                  {lang === 'bn' ? 'মাস নির্বাচন করুন (গত ৬ মাস):' : 'Select Month (Last 6 Months):'}
-                </span>
-                {selectedPayBillMonth !== currentMonthKey && (
-                  <button 
-                    onClick={() => setSelectedPayBillMonth(currentMonthKey)}
-                    className="text-[8.5px] font-extrabold text-brand-primary bg-purple-50 hover:bg-purple-100 px-1.5 py-0.5 rounded-full transition-all cursor-pointer flex items-center gap-0.5"
-                  >
-                    <span>{lang === 'bn' ? 'বর্তমান মাস' : 'Current Month'}</span>
-                  </button>
-                )}
-              </div>
+            {/* 2. Combined 6-Month Selector & Last Number Breakdown Card with Hide/Show */}
+            <div className="bg-white rounded-xl shadow-tiny border border-slate-100 overflow-hidden" id="month-and-last-number-card">
+              {/* Header Bar with Current Month indicator and Hide/Show Button */}
+              <div className="p-2 sm:p-2.5 flex items-center justify-between gap-2 border-b border-slate-100/80 bg-slate-50/50">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <CalendarIcon className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+                  <span className="text-[10px] sm:text-[10.5px] font-black text-slate-700 uppercase tracking-wider truncate">
+                    {lang === 'bn' ? 'মাস ও লাস্ট নাম্বার হিসাব' : 'Month & Last Number Stats'}
+                  </span>
+                  {selectedAccountFilter && (
+                    <span className="text-[8.5px] font-bold px-1.5 py-0.2 bg-purple-100 text-purple-800 rounded-md border border-purple-200 shrink-0 truncate max-w-[100px]">
+                      {selectedAccountFilter}
+                    </span>
+                  )}
+                </div>
 
-              {/* Exactly 1 single line layout with grid-cols-6 */}
-              <div className="grid grid-cols-6 gap-1">
-                {recent6Months.map(({ monthKey, monthLabel, isCurrent }) => {
-                  const isSelected = selectedPayBillMonth === monthKey;
-                  const countForMonth = paybills.filter(p => getPayBillMonthKey(p) === monthKey).length;
-
-                  // Extract month name (first word) to keep card compact
-                  const monthNameOnly = monthLabel.split(' ')[0] || monthLabel;
-
-                  return (
+                <div className="flex items-center gap-1 shrink-0">
+                  {selectedAccountFilter && (
                     <button
-                      key={monthKey}
-                      onClick={() => setSelectedPayBillMonth(monthKey)}
-                      className={`py-1 px-0.5 sm:px-1 rounded-lg text-center transition-all cursor-pointer flex flex-col items-center justify-center border leading-none min-h-[36px] ${
-                        isSelected
-                          ? 'bg-brand-primary text-white border-brand-primary shadow-xs font-black'
-                          : 'bg-slate-50 border-slate-200/80 text-slate-700 hover:bg-purple-50 hover:border-purple-200 hover:text-brand-primary font-bold'
-                      }`}
+                      onClick={() => setSelectedAccountFilter(null)}
+                      className="text-[8px] sm:text-[8.5px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-1.5 py-0.5 rounded border border-rose-200 transition-all cursor-pointer flex items-center gap-0.5"
+                      title={lang === 'bn' ? 'ফিল্টার মুছুন' : 'Clear filter'}
                     >
-                      <div className="flex items-center justify-center gap-0.5 w-full">
-                        <span className="truncate text-[9.5px] sm:text-[10px] tracking-tight">{monthNameOnly}</span>
-                        {isCurrent && (
-                          <span className={`text-[7px] px-0.5 rounded font-black shrink-0 ${
-                            isSelected ? 'bg-yellow-300 text-slate-900' : 'bg-brand-primary text-white'
-                          }`}>
-                            ●
-                          </span>
-                        )}
-                      </div>
-                      <span className={`text-[8.5px] font-mono mt-0.5 ${isSelected ? 'text-white/90 font-bold' : 'text-slate-400 font-semibold'}`}>
-                        {countForMonth} {lang === 'bn' ? 'টি' : 'bills'}
-                      </span>
+                      <span>{lang === 'bn' ? 'সব দেখুন' : 'Show All'}</span>
+                      <X className="w-2.5 h-2.5" />
                     </button>
-                  );
-                })}
+                  )}
+                  {selectedPayBillMonth !== currentMonthKey && (
+                    <button 
+                      onClick={() => {
+                        setSelectedPayBillMonth(currentMonthKey);
+                        setSelectedAccountFilter(null);
+                      }}
+                      className="text-[8.5px] font-extrabold text-brand-primary bg-purple-50 hover:bg-purple-100 px-1.5 py-0.5 rounded-full transition-all cursor-pointer"
+                    >
+                      {lang === 'bn' ? 'বর্তমান মাস' : 'Current'}
+                    </button>
+                  )}
+                  {/* Hide / Show Toggle Button */}
+                  <button
+                    onClick={() => {
+                      const next = !showMonthAccountCard;
+                      setShowMonthAccountCard(next);
+                      if (typeof window !== 'undefined') {
+                        localStorage.setItem('hellopoint_show_month_account_card', String(next));
+                      }
+                    }}
+                    className="text-[8.5px] sm:text-[9px] font-bold px-2 py-0.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-650 transition-all cursor-pointer flex items-center gap-1 shadow-2xs"
+                  >
+                    <span>{showMonthAccountCard ? (lang === 'bn' ? 'হাইড' : 'Hide') : (lang === 'bn' ? 'শো' : 'Show')}</span>
+                    {showMonthAccountCard ? <ChevronUp className="w-3 h-3 text-slate-500" /> : <ChevronDown className="w-3 h-3 text-slate-500" />}
+                  </button>
+                </div>
               </div>
+
+              {/* Collapsible Content: Month grid + Last number breakdown */}
+              {showMonthAccountCard && (
+                <div className="p-2 sm:p-2.5 space-y-2.5 animate-fade-in">
+                  {/* Row A: 6 Months Selector */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                        {lang === 'bn' ? 'মাস নির্বাচন (গত ৬ মাস):' : 'Select Month (Last 6 Months):'}
+                      </span>
+                      <span className="text-[8.5px] font-bold text-slate-500 font-mono">
+                        {selectedMonthPaybills.length} {lang === 'bn' ? 'টি বিল মোট' : 'total bills'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-6 gap-1">
+                      {recent6Months.map(({ monthKey, monthLabel, isCurrent }) => {
+                        const isSelected = selectedPayBillMonth === monthKey;
+                        const countForMonth = paybills.filter(p => getPayBillMonthKey(p) === monthKey).length;
+                        const monthNameOnly = monthLabel.split(' ')[0] || monthLabel;
+
+                        return (
+                          <button
+                            key={monthKey}
+                            onClick={() => {
+                              setSelectedPayBillMonth(monthKey);
+                              setSelectedAccountFilter(null);
+                            }}
+                            className={`py-1 px-0.5 sm:px-1 rounded-lg text-center transition-all cursor-pointer flex flex-col items-center justify-center border leading-none min-h-[36px] ${
+                              isSelected
+                                ? 'bg-brand-primary text-white border-brand-primary shadow-xs font-black'
+                                : 'bg-slate-50 border-slate-200/80 text-slate-700 hover:bg-purple-50 hover:border-purple-200 hover:text-brand-primary font-bold'
+                            }`}
+                          >
+                            <div className="flex items-center justify-center gap-0.5 w-full">
+                              <span className="truncate text-[9.5px] sm:text-[10px] tracking-tight">{monthNameOnly}</span>
+                              {isCurrent && (
+                                <span className={`text-[7px] px-0.5 rounded font-black shrink-0 ${
+                                  isSelected ? 'bg-yellow-300 text-slate-900' : 'bg-brand-primary text-white'
+                                }`}>
+                                  ●
+                                </span>
+                              )}
+                            </div>
+                            <span className={`text-[8.5px] font-mono mt-0.5 ${isSelected ? 'text-white/90 font-bold' : 'text-slate-400 font-semibold'}`}>
+                              {countForMonth} {lang === 'bn' ? 'টি' : 'bills'}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Row B: Last Number Breakdown for Selected Month */}
+                  <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                        <Hash className="w-3 h-3 text-purple-600" />
+                        {lang === 'bn' ? 'লাস্ট নাম্বার অনুযায়ী পরিশোধিত বিল:' : 'Paid Bills by Last Number:'}
+                      </span>
+                      <span className="text-[8px] font-extrabold px-1.5 py-0.5 bg-purple-50 text-brand-primary rounded-md border border-purple-100 font-mono">
+                        {selectedMonthPaybills.filter(p => p.isPaid).length} {lang === 'bn' ? 'টি পেইড' : 'paid'}
+                      </span>
+                    </div>
+
+                    {monthlyAccountStats.length === 0 ? (
+                      <div className="py-1.5 px-2 bg-slate-50/70 rounded-lg border border-slate-150/70 text-center text-slate-400 text-[9px] font-bold">
+                        {lang === 'bn' ? 'এই মাসে এখনও কোনো লাস্ট নাম্বার দিয়ে পরিশোধিত বিলের হিসাব নেই।' : 'No paid bills with last numbers for this month yet.'}
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-0.5 scrollbar-thin">
+                        {monthlyAccountStats.map((item) => {
+                          const isFilterActive = selectedAccountFilter === item.accountName;
+                          return (
+                            <button
+                              key={item.accountName}
+                              onClick={() => {
+                                setSelectedAccountFilter(isFilterActive ? null : item.accountName);
+                              }}
+                              className={`py-1 px-2 rounded-lg border text-left transition-all cursor-pointer flex items-center gap-1.5 ${
+                                isFilterActive 
+                                  ? 'bg-purple-650 text-white border-purple-700 shadow-xs'
+                                  : 'bg-slate-50 hover:bg-purple-50/80 border-slate-200 text-slate-800'
+                              }`}
+                              title={lang === 'bn' ? `${item.accountName} এর বিলগুলো ফিল্টার করতে ক্লিক করুন` : `Click to filter bills for ${item.accountName}`}
+                            >
+                              <div className="flex flex-col min-w-0">
+                                <span className={`text-[9.5px] font-black truncate max-w-[120px] sm:max-w-[160px] ${
+                                  isFilterActive ? 'text-white' : 'text-slate-800'
+                                }`}>
+                                  {item.accountName}
+                                </span>
+                                <span className={`text-[8.5px] font-mono font-bold leading-tight ${
+                                  isFilterActive ? 'text-purple-150' : 'text-emerald-600'
+                                }`}>
+                                  {currency} {item.totalAmount.toFixed(2)}
+                                </span>
+                              </div>
+                              <span className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded-full font-mono shrink-0 ${
+                                isFilterActive ? 'bg-white text-purple-700' : 'bg-purple-100 text-purple-800'
+                              }`}>
+                                {item.count} {lang === 'bn' ? 'টি' : ''}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 3. Actions Bar for Pay Bill: Search, Google Sheet Export, Add Entry */}
@@ -2539,6 +2729,7 @@ export function MainDashboard({
                       onClick={() => {
                         setActivePayBillDetails(pb);
                         setPaidInfoText(pb.paidInfo || '');
+                        setPaidAccountText(pb.paidAccount || '');
                       }}
                       className={`bg-white rounded-xl border flex flex-col transition-all shadow-tiny border-slate-200 hover:border-purple-300 cursor-pointer select-none overflow-hidden max-h-[44px] justify-center ${pClass}`}
                     >
@@ -4314,19 +4505,59 @@ export function MainDashboard({
               {/* Paid Status & Inputs */}
               <div className="border-t border-slate-100 pt-3">
                 {activePayBillDetails.isPaid ? (
-                  <div className="p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100/65 space-y-1.5 text-left">
-                    <span className="text-[8.5px] font-black text-emerald-600 uppercase tracking-wider block">
-                      ✅ {lang === 'bn' ? 'টাকা পরিশোধ ভেরিফাইড' : 'PAYMENT VERIFIED'}
-                    </span>
-                    <p className="text-[10px] text-emerald-800 font-bold">
-                      {lang === 'bn' ? 'তারিখ:' : 'Date:'} <span className="font-mono">{activePayBillDetails.paidAt || 'N/A'}</span>
-                    </p>
-                    {activePayBillDetails.paidInfo && (
-                      <div className="bg-white/80 p-2 rounded-lg border border-emerald-150 select-text">
-                        <span className="text-[8px] font-black text-slate-400 block uppercase mb-0.5">{lang === 'bn' ? 'বিকাশ ট্রানজেকশন আইডি:' : 'bKash TrxID / Paid Info:'}</span>
-                        <p className="font-mono font-black text-brand-hover text-xs leading-none">{activePayBillDetails.paidInfo}</p>
-                      </div>
-                    )}
+                  <div className="p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100/65 space-y-2 text-left">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[8.5px] font-black text-emerald-600 uppercase tracking-wider block">
+                        ✅ {lang === 'bn' ? 'টাকা পরিশোধ ভেরিফাইড' : 'PAYMENT VERIFIED'}
+                      </span>
+                      <p className="text-[10px] text-emerald-800 font-bold">
+                        {lang === 'bn' ? 'তারিখ:' : 'Date:'} <span className="font-mono">{activePayBillDetails.paidAt || 'N/A'}</span>
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {activePayBillDetails.paidInfo && (
+                        <div className="bg-white/90 p-2 rounded-lg border border-emerald-150 select-text">
+                          <span className="text-[8px] font-black text-slate-400 block uppercase mb-0.5">
+                            {lang === 'bn' ? 'বিকাশ ট্রানজেকশন আইডি:' : 'bKash TrxID / Paid Info:'}
+                          </span>
+                          <div className="flex items-center justify-between gap-1">
+                            <p className="font-mono font-black text-brand-hover text-xs leading-none truncate">
+                              {activePayBillDetails.paidInfo}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyText(activePayBillDetails.paidInfo || '', `${activePayBillDetails.id}-trx`)}
+                              className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 shrink-0 cursor-pointer"
+                              title="Copy TrxID"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {activePayBillDetails.paidAccount && (
+                        <div className="bg-white/90 p-2 rounded-lg border border-purple-150 select-text">
+                          <span className="text-[8px] font-black text-purple-600 block uppercase mb-0.5 flex items-center gap-1">
+                            #️⃣ {lang === 'bn' ? 'লাস্ট নাম্বার:' : 'Last Number:'}
+                          </span>
+                          <div className="flex items-center justify-between gap-1">
+                            <p className="font-mono font-black text-purple-900 text-xs leading-none truncate">
+                              {activePayBillDetails.paidAccount}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyText(activePayBillDetails.paidAccount || '', `${activePayBillDetails.id}-acc`)}
+                              className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 shrink-0 cursor-pointer"
+                              title="Copy Account"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                     
                     {/* Toggle to Unpaid Option inside the modal as well */}
                     <button
@@ -4335,10 +4566,12 @@ export function MainDashboard({
                           ...activePayBillDetails,
                           isPaid: false,
                           paidAt: undefined,
-                          paidInfo: undefined
+                          paidInfo: undefined,
+                          paidAccount: undefined
                         });
                         setActivePayBillDetails(null);
                         setPaidInfoText('');
+                        setPaidAccountText('');
                       }}
                       className="mt-2 w-full text-center text-[9px] font-extrabold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded border border-amber-200 cursor-pointer uppercase transition-all"
                     >
@@ -4349,10 +4582,11 @@ export function MainDashboard({
                   <div className="bg-slate-50/50 p-2.5 rounded-xl border border-rose-100 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-[8.5px] font-black text-rose-500 uppercase tracking-wider block">
-                        ⏳ {lang === 'bn' ? 'বিকাশ আইডি ও পেমেন্ট এন্ট্রি' : 'bKash ID & Payment Entry'}
+                        ⏳ {lang === 'bn' ? 'পেমেন্ট ও লাস্ট নাম্বার এন্ট্রি' : 'Payment & Last Number Entry'}
                       </span>
                     </div>
 
+                    {/* 1. Trx ID input */}
                     <div className="space-y-1">
                       <label className="text-[9px] font-black text-slate-450 block uppercase leading-none">
                         {lang === 'bn' ? 'বিকাশ ট্রানজেকশন আইডি লিখুন' : 'Enter bKash Trx ID'}
@@ -4361,23 +4595,71 @@ export function MainDashboard({
                         type="text"
                         value={paidInfoText}
                         onChange={(e) => setPaidInfoText(e.target.value)}
-                        placeholder={lang === 'bn' ? 'উদা: TrxID- XY9992' : 'e.g. TrxID- XY9992'}
                         className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-brand-primary font-mono font-bold"
                       />
+                    </div>
+
+                    {/* 2. Last Number input */}
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-450 block uppercase leading-none">
+                        {lang === 'bn' ? 'লাস্ট নাম্বার লিখুন' : 'Last Number'}
+                      </label>
+                      <input
+                        type="text"
+                        value={paidAccountText}
+                        onChange={(e) => setPaidAccountText(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-brand-primary font-bold text-purple-900"
+                      />
+
+                      {/* Saved Tags for instant 1-tap reuse without typing (only shown if user previously saved tags) */}
+                      {allAvailableAccountTags.length > 0 && (
+                        <div className="space-y-1 pt-0.5">
+                          <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pr-0.5 scrollbar-thin">
+                            {allAvailableAccountTags.map((tag) => {
+                              const isSelected = paidAccountText.trim().toLowerCase() === tag.trim().toLowerCase();
+                              return (
+                                <button
+                                  key={tag}
+                                  type="button"
+                                  onClick={() => {
+                                    setPaidAccountText(isSelected ? '' : tag);
+                                  }}
+                                  className={`text-[8.5px] px-2 py-0.5 rounded-md font-bold transition-all cursor-pointer border ${
+                                    isSelected
+                                      ? 'bg-purple-650 text-white border-purple-700 shadow-xs'
+                                      : 'bg-white text-slate-700 border-slate-200 hover:border-purple-300 hover:text-brand-primary'
+                                  }`}
+                                >
+                                  {isSelected ? '✓ ' : ''}{tag}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <button
                       onClick={() => {
                         const today = new Date();
                         const paidAtStr = today.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+                        
+                        const cleanAcc = paidAccountText.trim();
+                        if (cleanAcc) {
+                          const updated = addSavedPayBillAccount(cleanAcc);
+                          setSavedPayBillAccounts(updated);
+                        }
+
                         onSavePayBill({
                           ...activePayBillDetails,
                           isPaid: true,
                           paidAt: paidAtStr,
-                          paidInfo: paidInfoText.trim() || undefined
+                          paidInfo: paidInfoText.trim() || undefined,
+                          paidAccount: cleanAcc || undefined
                         });
                         setActivePayBillDetails(null);
                         setPaidInfoText('');
+                        setPaidAccountText('');
                       }}
                       className="w-full py-2 bg-brand-hover hover:bg-brand-primary text-white rounded-lg font-black text-xs shadow-md shadow-brand-hover/20 hover:scale-98 transition-all cursor-pointer flex items-center justify-center gap-1"
                     >
