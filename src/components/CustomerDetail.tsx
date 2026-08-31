@@ -690,7 +690,7 @@ export function CustomerDetail({
             </span>
           </div>
 
-          <div id="ledger-rows-wrapper" className={isDesktopMode ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2" : "space-y-1"}>
+          <div id="ledger-rows-wrapper" className="space-y-1 sm:space-y-1.5 w-full flex flex-col">
             {txsWithRunningBalance.length === 0 ? (
               <div className="text-center py-6 bg-white rounded-lg border border-slate-100 shadow-tiny text-slate-400 text-[9.5px] font-bold col-span-full">
                 কোনো লেনদেনের এন্ট্রি পাওয়া যায়নি।
@@ -797,12 +797,12 @@ export function CustomerDetail({
                               <span className="text-slate-400 dark:text-slate-400 font-normal">(</span>
                               <span className={`font-black font-mono ${
                                 t.runningBalance < 0 
-                                  ? 'text-rose-600 dark:text-rose-400' 
+                                  ? 'text-emerald-600 dark:text-emerald-400' 
                                   : t.runningBalance > 0
-                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  ? 'text-rose-600 dark:text-rose-400'
                                   : 'text-slate-600 dark:text-slate-400'
                               }`}>
-                                {t.runningBalance > 0 ? '+' : t.runningBalance < 0 ? '-' : ''}
+                                {t.runningBalance < 0 ? '+' : t.runningBalance > 0 ? '-' : ''}
                                 {currency}{Math.abs(t.runningBalance).toFixed(1)}
                               </span>
                               <span className="text-slate-400 dark:text-slate-400 font-normal">)</span>
@@ -826,9 +826,9 @@ export function CustomerDetail({
                           {/* Left Details block */}
                           <div className="space-y-1">
                             <p className="font-bold">
-                              ⚖️ <span className="text-slate-400">লেনদেন পরবর্তী ব্যালেন্স (জের):</span> <span className={`font-mono font-extrabold ${t.runningBalance < 0 ? 'text-rose-600' : t.runningBalance > 0 ? 'text-emerald-700' : 'text-slate-500'}`}>
+                              ⚖️ <span className="text-slate-400">লেনদেন পরবর্তী ব্যালেন্স (জের):</span> <span className={`font-mono font-extrabold ${t.runningBalance > 0 ? 'text-rose-600 dark:text-rose-400' : t.runningBalance < 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>
                                 {currency}{Math.abs(t.runningBalance).toFixed(2)}
-                                {t.runningBalance < 0 ? ' (বাকি/Payable)' : t.runningBalance > 0 ? ' (পাবেন/Receivable)' : ' (সমতা/Balanced)'}
+                                {t.runningBalance > 0 ? ' (পাওনা/Receivable)' : t.runningBalance < 0 ? ' (জমা/Deposit)' : ' (সমতা/Balanced)'}
                               </span>
                             </p>
                             {t.billNo && (

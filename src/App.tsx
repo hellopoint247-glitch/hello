@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { safeLocalStorage as localStorage } from './utils/safeStorage';
 import { motion, AnimatePresence } from 'motion/react';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ } from './types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction } from './types';
 import { 
   loadContacts, 
   saveContacts, 
@@ -20,6 +20,10 @@ import {
   saveProducts,
   loadQuickFaqs,
   saveQuickFaqs,
+  loadCashInAccounts,
+  saveCashInAccounts,
+  loadCashInTransactions,
+  saveCashInTransactions,
   getCurrency,
   saveCurrency
 } from './utils/storage';
@@ -28,8 +32,11 @@ import { CustomerDetail } from './components/CustomerDetail';
 import { TransactionForm } from './components/TransactionForm';
 import { CashbookForm } from './components/CashbookForm';
 import { PinLockScreen } from './components/PinLockScreen';
+import { CheckCircle2 } from 'lucide-react';
 import { CustomerPortal } from './components/CustomerPortal';
+import { PremiumAppLoader } from './components/PremiumAppLoader';
 import { ThemeMode, getSavedThemeMode, saveThemeMode, applyTheme } from './utils/theme';
+import { soundEngine } from './utils/audio';
 
 // Firebase core integration imports
 import { 
@@ -91,6 +98,8 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [cashbook, setCashbook] = useState<CashbookEntry[]>([]);
   const [paybills, setPayBills] = useState<PayBillEntry[]>([]);
+  const [cashInAccounts, setCashInAccounts] = useState<CashInAccount[]>(() => loadCashInAccounts());
+  const [cashInTransactions, setCashInTransactions] = useState<CashInTransaction[]>(() => loadCashInTransactions());
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [products, setProducts] = useState<Product[]>(() => loadProducts());
   const [quickFaqs, setQuickFaqs] = useState<ChatQuickFAQ[]>(() => loadQuickFaqs());
@@ -416,6 +425,8 @@ export default function App() {
       setTransactions(loadTransactions());
       setCashbook(loadCashbook());
       setPayBills(loadPayBills());
+      setCashInAccounts(loadCashInAccounts());
+      setCashInTransactions(loadCashInTransactions());
       try {
         const savedRecharges = localStorage.getItem('hellopoint_recharge_requests');
         if (savedRecharges) setRechargeRequests(JSON.parse(savedRecharges));
@@ -452,7 +463,9 @@ export default function App() {
         list.push(snapDoc.data() as Contact);
       });
       // Sort by last update
-      setContacts(list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+      const sorted = list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      setContacts(sorted);
+      saveContacts(sorted);
       setLoadingCloud(false);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/contacts`);
@@ -465,6 +478,7 @@ export default function App() {
         list.push(snapDoc.data() as Transaction);
       });
       setTransactions(list);
+      saveTransactions(list);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/transactions`);
     });
@@ -476,7 +490,9 @@ export default function App() {
         list.push(snapDoc.data() as CashbookEntry);
       });
       // Sort cashbook chronologically descending (newest first)
-      setCashbook(list.sort((a, b) => b.date.localeCompare(a.date)));
+      const sorted = list.sort((a, b) => b.date.localeCompare(a.date));
+      setCashbook(sorted);
+      saveCashbook(sorted);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/cashbook`);
     });
@@ -488,9 +504,41 @@ export default function App() {
         list.push(snapDoc.data() as PayBillEntry);
       });
       // Sort paybills chronologically descending (newest first)
-      setPayBills(list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      const sorted = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      setPayBills(sorted);
+      savePayBills(sorted);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/paybills`);
+    });
+
+    const qCashInAccounts = collection(db, 'users', activeUid, 'cashin_accounts');
+    const unsubCashInAccounts = onSnapshot(qCashInAccounts, (snapshot) => {
+      const list: CashInAccount[] = [];
+      snapshot.forEach((snapDoc) => {
+        const data = snapDoc.data() as CashInAccount;
+        list.push({ ...data, id: data.id || snapDoc.id });
+      });
+      list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      setCashInAccounts(list);
+      saveCashInAccounts(list);
+    }, (error) => {
+      console.error('Failed to subscribe to cashin_accounts:', error);
+      handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/cashin_accounts`);
+    });
+
+    const qCashInTransactions = collection(db, 'users', activeUid, 'cashin_transactions');
+    const unsubCashInTransactions = onSnapshot(qCashInTransactions, (snapshot) => {
+      const list: CashInTransaction[] = [];
+      snapshot.forEach((snapDoc) => {
+        const data = snapDoc.data() as CashInTransaction;
+        list.push({ ...data, id: data.id || snapDoc.id });
+      });
+      list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      setCashInTransactions(list);
+      saveCashInTransactions(list);
+    }, (error) => {
+      console.error('Failed to subscribe to cashin_transactions:', error);
+      handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/cashin_transactions`);
     });
 
     const qReminders = collection(db, 'users', activeUid, 'reminders');
@@ -646,6 +694,8 @@ export default function App() {
       unsubTransactions();
       unsubCashbook();
       unsubPayBills();
+      unsubCashInAccounts();
+      unsubCashInTransactions();
       unsubReminders();
       unsubRecharges();
       unsubPaybillRequests();
@@ -762,9 +812,9 @@ export default function App() {
           } else {
             try {
               const localTheme = localStorage.getItem('hellopoint_theme_color');
-              if (localTheme && user?.uid && user.uid === activeUid) {
+              if (localTheme && (user?.uid || activeUid)) {
                 setDoc(docUser, { themeColor: localTheme }, { merge: true }).catch(err => {
-                  console.error('Failed to initialize themeColor in Firestore:', err);
+                  console.warn('Silent themeColor sync notice:', err);
                 });
               }
             } catch (e) {
@@ -781,9 +831,9 @@ export default function App() {
               if (localSaved) {
                 const parsed = JSON.parse(localSaved);
                 setCustomCategories(parsed);
-                if (user?.uid && user.uid === activeUid) {
+                if (user?.uid || activeUid) {
                   setDoc(docUser, { customCategories: parsed }, { merge: true }).catch(err => {
-                    console.error('Failed to initialize customCategories in Firestore:', err);
+                    console.warn('Silent customCategories sync notice:', err);
                   });
                 }
               }
@@ -801,9 +851,9 @@ export default function App() {
               if (localSaved) {
                 const parsed = JSON.parse(localSaved);
                 setDeletedCategories(parsed);
-                if (user?.uid && user.uid === activeUid) {
+                if (user?.uid || activeUid) {
                   setDoc(docUser, { deletedCategories: parsed }, { merge: true }).catch(err => {
-                    console.error('Failed to initialize deletedCategories in Firestore:', err);
+                    console.warn('Silent deletedCategories sync notice:', err);
                   });
                 }
               }
@@ -819,7 +869,7 @@ export default function App() {
             try {
               const localFavs = localStorage.getItem('hellopoint_favorite_tags');
               if (localFavs && (user?.uid || activeUid)) {
-                setDoc(docUser, { favoriteTags: JSON.parse(localFavs) }, { merge: true }).catch(console.error);
+                setDoc(docUser, { favoriteTags: JSON.parse(localFavs) }, { merge: true }).catch(() => {});
               }
             } catch (e) {
               console.error(e);
@@ -833,7 +883,7 @@ export default function App() {
             try {
               const localOverrides = localStorage.getItem('hellopoint_tag_category_overrides');
               if (localOverrides && (user?.uid || activeUid)) {
-                setDoc(docUser, { tagCategoryOverrides: JSON.parse(localOverrides) }, { merge: true }).catch(console.error);
+                setDoc(docUser, { tagCategoryOverrides: JSON.parse(localOverrides) }, { merge: true }).catch(() => {});
               }
             } catch (e) {
               console.error(e);
@@ -841,7 +891,7 @@ export default function App() {
           }
         }
       } else {
-        if (user) {
+        if (user || activeUid) {
           const currentPin = localStorage.getItem('hellopoint_pin') || '1234';
           const currentShopStatus = localStorage.getItem('hellopoint_shop_status') || 'open';
           const currentTheme = localStorage.getItem('hellopoint_theme_color') || '#6244a6';
@@ -870,12 +920,12 @@ export default function App() {
             tagCategoryOverrides: initialOverrides,
             themeColor: currentTheme
           }).catch(err => {
-            console.error('Failed to initialize settings document in Firestore:', err);
+            console.warn('Silent settings initialization notice:', err);
           });
         }
       }
     }, (error) => {
-      console.error('Failed to sync settings from cloud:', error);
+      console.warn('Settings subscription notice:', error);
     });
 
     return () => unsubUser();
@@ -1016,6 +1066,14 @@ export default function App() {
         updatedAt: new Date().toISOString(),
         ...(req.photoUrl ? { photoUrl: req.photoUrl } : {})
       };
+
+      // Optimistic update
+      setContacts(prev => {
+        const updated = [newContact, ...prev.filter(c => c.id !== contactId)];
+        saveContacts(updated);
+        return updated;
+      });
+
       await setDoc(doc(db, 'users', user.uid, 'contacts', contactId), cleanForFirestore(newContact));
 
       // 2. Delete the signup request so it leaves the notification bar
@@ -1285,6 +1343,8 @@ export default function App() {
       const offlineTransactions = loadTransactions();
       const offlineCashbook = loadCashbook();
       const offlinePayBills = loadPayBills();
+      const offlineCashInAccounts = loadCashInAccounts();
+      const offlineCashInTransactions = loadCashInTransactions();
       const offlineProducts = loadProducts();
       const offlineQuickFaqs = loadQuickFaqs();
 
@@ -1293,6 +1353,8 @@ export default function App() {
         offlineTransactions.length > 0 || 
         offlineCashbook.length > 0 ||
         offlinePayBills.length > 0 ||
+        offlineCashInAccounts.length > 0 ||
+        offlineCashInTransactions.length > 0 ||
         offlineProducts.length > 0 ||
         offlineQuickFaqs.length > 0;
       if (!hasOfflineData) return;
@@ -1314,6 +1376,12 @@ export default function App() {
       }
       for (const pb of offlinePayBills) {
         await setDoc(doc(db, 'users', uid, 'paybills', pb.id), cleanForFirestore(pb));
+      }
+      for (const cia of offlineCashInAccounts) {
+        await setDoc(doc(db, 'users', uid, 'cashin_accounts', cia.id), cleanForFirestore(cia));
+      }
+      for (const cit of offlineCashInTransactions) {
+        await setDoc(doc(db, 'users', uid, 'cashin_transactions', cit.id), cleanForFirestore(cit));
       }
       for (const prod of offlineProducts) {
         await setDoc(doc(db, 'users', uid, 'products', prod.id), cleanForFirestore(prod));
@@ -1366,6 +1434,7 @@ export default function App() {
   // Contacts handlers
   const handleAddContact = async (name: string, phone: string) => {
     triggerSaveAnimation();
+    soundEngine.playSuccessSound();
     const contactId = 'contact-' + Date.now();
 
     const newContact: Contact = {
@@ -1377,41 +1446,51 @@ export default function App() {
       updatedAt: new Date().toISOString()
     };
 
-    if (user) {
-      const path = `users/${user.uid}/contacts/${contactId}`;
+    // Instantaneous optimistic UI & local storage update for real-time responsiveness
+    setContacts(prev => {
+      const updated = [newContact, ...prev.filter(c => c.id !== contactId)];
+      saveContacts(updated);
+      return updated;
+    });
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      const path = `users/${activeUid}/contacts/${contactId}`;
       try {
-        await setDoc(doc(db, 'users', user.uid, 'contacts', contactId), cleanForFirestore(newContact));
+        await setDoc(doc(db, 'users', activeUid, 'contacts', contactId), cleanForFirestore(newContact));
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, path);
       }
-    } else {
-      const updated = [newContact, ...contacts];
-      setContacts(updated);
-      saveContacts(updated);
     }
   };
 
   const handleDeleteContact = async (id: string) => {
+    soundEngine.playDeleteSound();
     // Instantaneous local UI updates & local persistent backup update
-    const updatedContacts = contacts.filter(c => c.id !== id);
-    const updatedTxs = transactions.filter(t => t.contactId !== id);
-    setContacts(updatedContacts);
-    setTransactions(updatedTxs);
-    saveContacts(updatedContacts);
-    saveTransactions(updatedTxs);
+    setContacts(prev => {
+      const updatedContacts = prev.filter(c => c.id !== id);
+      saveContacts(updatedContacts);
+      return updatedContacts;
+    });
+    setTransactions(prev => {
+      const updatedTxs = prev.filter(t => t.contactId !== id);
+      saveTransactions(updatedTxs);
+      return updatedTxs;
+    });
 
-    if (user) {
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
       try {
         // Cascade delete on Firestore - delete contact
-        await deleteDoc(doc(db, 'users', user.uid, 'contacts', id));
+        await deleteDoc(doc(db, 'users', activeUid, 'contacts', id));
         
         // Delete child transactions
         const relatedTxs = transactions.filter(t => t.contactId === id);
         for (const tx of relatedTxs) {
-          await deleteDoc(doc(db, 'users', user.uid, 'transactions', tx.id));
+          await deleteDoc(doc(db, 'users', activeUid, 'transactions', tx.id));
         }
       } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/contacts/${id}`);
+        handleFirestoreError(err, OperationType.DELETE, `users/${activeUid}/contacts/${id}`);
       }
     }
 
@@ -1679,6 +1758,7 @@ export default function App() {
     signature?: string;
   }) => {
     triggerSaveAnimation();
+    soundEngine.playCashEntrySound(data.type);
     if (screen.type !== 'transaction_form') return;
     const { contactId, transactionId } = screen;
     const isEditing = !!transactionId;
@@ -1698,35 +1778,43 @@ export default function App() {
     };
 
     const targetContact = contacts.find(c => c.id === contactId);
-    if (!targetContact) return;
-
-    const updatedContact = {
+    const updatedContact = targetContact ? {
       ...targetContact,
       updatedAt: new Date().toISOString()
-    };
+    } : null;
 
-    if (user) {
-      try {
-        // Save transaction document
-        await setDoc(doc(db, 'users', user.uid, 'transactions', txId), cleanForFirestore(formattedTx));
-        // Refresh contact update timer
-        await setDoc(doc(db, 'users', user.uid, 'contacts', contactId), cleanForFirestore(updatedContact));
-      } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/transactions/${txId}`);
-      }
-    } else {
+    // Instantaneous optimistic update for real-time transactions & balances
+    setTransactions(prev => {
       let finalTxs = [];
       if (isEditing) {
-        finalTxs = transactions.map(t => t.id === txId ? formattedTx : t);
+        finalTxs = prev.map(t => t.id === txId ? formattedTx : t);
       } else {
-        finalTxs = [...transactions, formattedTx];
+        finalTxs = [...prev, formattedTx];
       }
-      setTransactions(finalTxs);
       saveTransactions(finalTxs);
+      return finalTxs;
+    });
 
-      const finalContacts = contacts.map(c => c.id === contactId ? updatedContact : c);
-      setContacts(finalContacts);
-      saveContacts(finalContacts);
+    if (updatedContact) {
+      setContacts(prev => {
+        const finalContacts = prev.map(c => c.id === contactId ? updatedContact : c);
+        saveContacts(finalContacts);
+        return finalContacts;
+      });
+    }
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        // Save transaction document
+        await setDoc(doc(db, 'users', activeUid, 'transactions', txId), cleanForFirestore(formattedTx));
+        // Refresh contact update timer
+        if (updatedContact) {
+          await setDoc(doc(db, 'users', activeUid, 'contacts', contactId), cleanForFirestore(updatedContact));
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${activeUid}/transactions/${txId}`);
+      }
     }
 
     // Return to Customer ledger folder
@@ -1734,6 +1822,7 @@ export default function App() {
   };
 
   const handleDeleteTransaction = async (targetTxId?: string) => {
+    soundEngine.playDeleteSound();
     let transactionId = targetTxId;
     let contactId = (screen.type === 'transaction_form' || screen.type === 'contact_detail') ? screen.contactId : '';
 
@@ -1754,7 +1843,22 @@ export default function App() {
     const linkedCbId = txToDelete.cashbookEntryId;
     const activeUid = user?.uid || ownerUid;
 
-    if (user && activeUid && transactionId) {
+    // Instantaneous optimistic update
+    setTransactions(prev => {
+      const updatedTxs = prev.filter(t => t.id !== transactionId);
+      saveTransactions(updatedTxs);
+      return updatedTxs;
+    });
+
+    if (linkedCbId) {
+      setCashbook(prev => {
+        const updatedCb = prev.filter(e => e.id !== linkedCbId);
+        saveCashbook(updatedCb);
+        return updatedCb;
+      });
+    }
+
+    if (activeUid && transactionId) {
       try {
         await deleteDoc(doc(db, 'users', activeUid, 'transactions', transactionId));
         if (linkedCbId) {
@@ -1762,16 +1866,6 @@ export default function App() {
         }
       } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `users/${activeUid}/transactions/${transactionId}`);
-      }
-    } else if (transactionId) {
-      const updatedTxs = transactions.filter(t => t.id !== transactionId);
-      setTransactions(updatedTxs);
-      saveTransactions(updatedTxs);
-
-      if (linkedCbId) {
-        const updatedCb = cashbook.filter(e => e.id !== linkedCbId);
-        setCashbook(updatedCb);
-        saveCashbook(updatedCb);
       }
     }
 
@@ -1791,6 +1885,7 @@ export default function App() {
     contactId?: string;
   }) => {
     triggerSaveAnimation();
+    soundEngine.playCashbookSound(data.type);
     const entryId = 'cb-' + Date.now();
 
     const entry: CashbookEntry = {
@@ -1803,31 +1898,39 @@ export default function App() {
       contactId: data.contactId
     };
 
-    if (user) {
-      try {
-        await setDoc(doc(db, 'users', user.uid, 'cashbook', entryId), cleanForFirestore(entry));
-      } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/cashbook/${entryId}`);
-      }
-    } else {
-      const updatedCb = [entry, ...cashbook];
-      setCashbook(updatedCb);
+    // Instantaneous optimistic update
+    setCashbook(prev => {
+      const updatedCb = [entry, ...prev];
       saveCashbook(updatedCb);
+      return updatedCb;
+    });
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        await setDoc(doc(db, 'users', activeUid, 'cashbook', entryId), cleanForFirestore(entry));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${activeUid}/cashbook/${entryId}`);
+      }
     }
     setIsCashbookOpen(false);
   };
 
   const handleDeleteCashbookEntry = async (id: string) => {
+    soundEngine.playDeleteSound();
     // Instantaneous local UI updates & local persistent backup update
-    const updatedCb = cashbook.filter(e => e.id !== id);
-    setCashbook(updatedCb);
-    saveCashbook(updatedCb);
+    setCashbook(prev => {
+      const updatedCb = prev.filter(e => e.id !== id);
+      saveCashbook(updatedCb);
+      return updatedCb;
+    });
 
-    if (user) {
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
       try {
-        await deleteDoc(doc(db, 'users', user.uid, 'cashbook', id));
+        await deleteDoc(doc(db, 'users', activeUid, 'cashbook', id));
       } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/cashbook/${id}`);
+        handleFirestoreError(err, OperationType.DELETE, `users/${activeUid}/cashbook/${id}`);
       }
     }
   };
@@ -1838,6 +1941,12 @@ export default function App() {
     // Check if transitioning to PAID
     const previousBill = paybills.find(p => p.id === paybill.id);
     const becamePaid = paybill.isPaid && (!previousBill || !previousBill.isPaid);
+
+    if (paybill.isPaid) {
+      soundEngine.playPayBillPaidSound();
+    } else {
+      soundEngine.playSuccessSound();
+    }
 
     const activeUid = user?.uid || ownerUid;
 
@@ -1879,6 +1988,21 @@ export default function App() {
           updatedAt: new Date().toISOString()
         } : null;
 
+        // Optimistic update for transactions & contacts
+        setTransactions(prev => {
+          const updatedTxs = [...prev, formattedTx];
+          saveTransactions(updatedTxs);
+          return updatedTxs;
+        });
+
+        if (updatedContact) {
+          setContacts(prev => {
+            const finalContacts = prev.map(c => c.id === targetContactId ? updatedContact : c);
+            saveContacts(finalContacts);
+            return finalContacts;
+          });
+        }
+
         if (activeUid) {
           try {
             await setDoc(doc(db, 'users', activeUid, 'transactions', txId), cleanForFirestore(formattedTx));
@@ -1888,29 +2012,21 @@ export default function App() {
           } catch (err) {
             console.error('Failed to auto-save paybill transaction/contact update to Firestore:', err);
           }
-        } else {
-          const updatedTxs = [...transactions, formattedTx];
-          setTransactions(updatedTxs);
-          saveTransactions(updatedTxs);
-
-          if (updatedContact) {
-            const finalContacts = contacts.map(c => c.id === targetContactId ? updatedContact : c);
-            setContacts(finalContacts);
-            saveContacts(finalContacts);
-          }
         }
       }
     }
 
-    const exists = paybills.some(p => p.id === paybill.id);
-    let updated = [];
-    if (exists) {
-      updated = paybills.map(p => p.id === paybill.id ? paybill : p);
-    } else {
-      updated = [paybill, ...paybills];
-    }
-    setPayBills(updated);
-    savePayBills(updated);
+    setPayBills(prev => {
+      const exists = prev.some(p => p.id === paybill.id);
+      let updated: PayBillEntry[];
+      if (exists) {
+        updated = prev.map(p => p.id === paybill.id ? paybill : p);
+      } else {
+        updated = [paybill, ...prev];
+      }
+      savePayBills(updated);
+      return updated;
+    });
 
     if (activeUid) {
       try {
@@ -1922,18 +2038,135 @@ export default function App() {
   };
 
   const handleDeletePayBill = async (id: string) => {
+    soundEngine.playDeleteSound();
     // Instantaneous local UI updates & local persistent backup update
-    const updated = paybills.filter(p => p.id !== id);
-    setPayBills(updated);
-    savePayBills(updated);
+    setPayBills(prev => {
+      const updated = prev.filter(p => p.id !== id);
+      savePayBills(updated);
+      return updated;
+    });
 
     const activeUid = user?.uid || ownerUid;
-
     if (activeUid) {
       try {
         await deleteDoc(doc(db, 'users', activeUid, 'paybills', id));
       } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `users/${activeUid}/paybills/${id}`);
+      }
+    }
+  };
+
+  // Cash-In Account & Transaction handlers
+  const handleSaveCashInAccount = async (account: CashInAccount) => {
+    triggerSaveAnimation();
+    soundEngine.playSuccessSound();
+    setCashInAccounts(prev => {
+      const exists = prev.some(a => a.id === account.id);
+      let updated: CashInAccount[];
+      if (exists) {
+        updated = prev.map(a => a.id === account.id ? account : a);
+      } else {
+        updated = [account, ...prev];
+      }
+      saveCashInAccounts(updated);
+      return updated;
+    });
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        await setDoc(doc(db, 'users', activeUid, 'cashin_accounts', account.id), cleanForFirestore(account));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${activeUid}/cashin_accounts/${account.id}`);
+      }
+    }
+  };
+
+  const handleDeleteCashInAccount = async (accountId: string) => {
+    soundEngine.playDeleteSound();
+    setCashInAccounts(prev => {
+      const updated = prev.filter(a => a.id !== accountId);
+      saveCashInAccounts(updated);
+      return updated;
+    });
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        await deleteDoc(doc(db, 'users', activeUid, 'cashin_accounts', accountId));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `users/${activeUid}/cashin_accounts/${accountId}`);
+      }
+    }
+  };
+
+  const handleSaveCashInTransaction = async (tx: CashInTransaction, updatedAccount?: CashInAccount) => {
+    triggerSaveAnimation();
+    soundEngine.playCashInSound();
+    
+    setCashInTransactions(prev => {
+      const updated = [tx, ...prev];
+      saveCashInTransactions(updated);
+      return updated;
+    });
+
+    if (updatedAccount) {
+      setCashInAccounts(prev => {
+        const updatedAccs = prev.map(a => a.id === updatedAccount.id ? updatedAccount : a);
+        saveCashInAccounts(updatedAccs);
+        return updatedAccs;
+      });
+    }
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        await setDoc(doc(db, 'users', activeUid, 'cashin_transactions', tx.id), cleanForFirestore(tx));
+        if (updatedAccount) {
+          await setDoc(doc(db, 'users', activeUid, 'cashin_accounts', updatedAccount.id), cleanForFirestore(updatedAccount));
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${activeUid}/cashin_transactions/${tx.id}`);
+      }
+    }
+  };
+
+  const handleDeleteCashInTransaction = async (txId: string, refundAccount: boolean = true) => {
+    soundEngine.playDeleteSound();
+    const targetTx = cashInTransactions.find(t => t.id === txId);
+    
+    setCashInTransactions(prev => {
+      const updated = prev.filter(t => t.id !== txId);
+      saveCashInTransactions(updated);
+      return updated;
+    });
+
+    let updatedAcc: CashInAccount | null = null;
+    if (targetTx && refundAccount) {
+      const matchedAccount = cashInAccounts.find(a => a.id === targetTx.matchedAccountId);
+      if (matchedAccount) {
+        updatedAcc = {
+          ...matchedAccount,
+          balance: matchedAccount.balance + targetTx.amount,
+          updatedAt: new Date().toISOString()
+        };
+        setCashInAccounts(prev => {
+          const next = prev.map(a => a.id === updatedAcc!.id ? updatedAcc! : a);
+          saveCashInAccounts(next);
+          return next;
+        });
+      }
+    }
+
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      try {
+        await deleteDoc(doc(db, 'users', activeUid, 'cashin_transactions', txId));
+        if (updatedAcc) {
+          await setDoc(doc(db, 'users', activeUid, 'cashin_accounts', updatedAcc.id), cleanForFirestore(updatedAcc));
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `users/${activeUid}/cashin_transactions/${txId}`);
       }
     }
   };
@@ -2185,6 +2418,12 @@ export default function App() {
               onDeleteProduct={handleDeleteProduct}
               quickFaqs={quickFaqs}
               onSaveQuickFaqs={handleSaveQuickFaqs}
+              cashInAccounts={cashInAccounts}
+              cashInTransactions={cashInTransactions}
+              onSaveCashInAccount={handleSaveCashInAccount}
+              onDeleteCashInAccount={handleDeleteCashInAccount}
+              onSaveCashInTransaction={handleSaveCashInTransaction}
+              onDeleteCashInTransaction={handleDeleteCashInTransaction}
             />
           </motion.div>
         )}
@@ -2256,40 +2495,16 @@ export default function App() {
         />
       )}
 
-      {/* GLOBAL TRANSIENT FROSTED ENTRY LOADER OVERLAY */}
-      {saveLoading && (
-        <div id="save-loader-overlay" className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex flex-col items-center justify-center z-[99999] transition-all duration-300">
-          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-2xl flex flex-col items-center gap-3.5 text-center max-w-[200px] transform scale-100 duration-200">
-            {/* Dynamic Orbit Ring with circulating dots */}
-            <div className="relative w-16 h-16 flex items-center justify-center select-none mb-1">
-              {/* Central Nucleus with a heartbeat pulse */}
-              <div className="absolute w-2.5 h-2.5 bg-purple-750/90 rounded-full shadow-sm animate-pulse" />
-              
-              {/* Orbital ring track */}
-              <div className="absolute inset-1 rounded-full border border-dashed border-[#6244a6]/20" />
-              
-              {/* Dot 1 - Fast orbit (Purple) */}
-              <div className="absolute inset-0 animate-spin" style={{ animationDuration: '1.2s' }}>
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 bg-purple-650 rounded-full shadow-md shadow-purple-200" />
-              </div>
-              
-              {/* Dot 2 - Medium orbit (Amber/Yellow) */}
-              <div className="absolute inset-0 animate-spin" style={{ animationDuration: '1.9s' }}>
-                <div className="absolute bottom-1 right-1/2 translate-x-1/2 w-2 h-2 bg-yellow-400 rounded-full shadow-md shadow-yellow-100" />
-              </div>
-              
-              {/* Dot 3 - Slower orbit (Emerald Green) */}
-              <div className="absolute inset-0 animate-spin" style={{ animationDuration: '2.7s' }}>
-                <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-emerald-500 rounded-full shadow-md shadow-emerald-250" />
-              </div>
-            </div>
-            
-            <p className="text-[11px] font-black text-purple-700 tracking-wide uppercase">
-              {lang === 'bn' ? 'সংরক্ষণ করা হচ্ছে...' : 'Saving Entry...'}
-            </p>
-          </div>
-        </div>
-      )}
+      {/* GLOBAL TRANSIENT FROSTED ENTRY LOADER OVERLAY (CASH-IN ANIMATION STYLE) */}
+      <PremiumAppLoader
+        isOpen={saveLoading}
+        title={lang === 'bn' ? 'সংরক্ষণ করা হচ্ছে...' : 'Saving Entry...'}
+        icon={CheckCircle2}
+        iconGradient="from-purple-600 via-indigo-600 to-purple-700"
+        ringColor="border-purple-500"
+        progressColor="from-purple-500 to-indigo-500"
+        duration={700}
+      />
 
       {/* GLOBAL SECURITY KEYBOARD PIN SCREEN */}
       {isLocked && (

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, X, MessageSquare, User, Check, CheckCheck, Copy, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatMessage } from '../types';
+import { soundEngine } from '../utils/audio';
 
 interface ChatBoxProps {
   currentContactId: string;
@@ -36,6 +37,7 @@ export function ChatBox({
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const prevMsgCountRef = useRef<number>(0);
 
   // Filter messages for this specific customer
   const filteredMessages = chatMessages.filter(m => m.contactId === currentContactId);
@@ -45,18 +47,22 @@ export function ChatBox({
     onMarkAsRead(currentContactId, senderRole);
   }, [currentContactId, filteredMessages.length, senderRole, onMarkAsRead]);
 
-  // Scroll to bottom
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
+  // Scroll to bottom and play incoming sound if a new message from the other party arrives
   useEffect(() => {
-    scrollToBottom();
-  }, [filteredMessages.length]);
+    if (prevMsgCountRef.current > 0 && filteredMessages.length > prevMsgCountRef.current) {
+      const lastMsg = filteredMessages[filteredMessages.length - 1];
+      if (lastMsg && lastMsg.senderRole !== senderRole) {
+        soundEngine.playIncomingMessageSound();
+      }
+    }
+    prevMsgCountRef.current = filteredMessages.length;
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [filteredMessages.length, senderRole]);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
+    soundEngine.playMessageSentSound();
     onSendMessage(currentContactId, inputText.trim(), senderRole, senderName);
     setInputText('');
   };

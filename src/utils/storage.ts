@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Contact, Transaction, CashbookEntry, PayBillEntry, Product, ChatQuickFAQ } from '../types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, Product, ChatQuickFAQ, CashInAccount, CashInTransaction } from '../types';
 import { safeLocalStorage as localStorage } from './safeStorage';
 
 const CONTACTS_KEY = 'hellopoint_contacts';
@@ -14,6 +14,8 @@ const CURRENCY_KEY = 'hellopoint_currency';
 const PRODUCTS_KEY = 'hellopoint_products';
 const QUICK_FAQS_KEY = 'hellopoint_quick_faqs';
 const PAYBILL_ACCOUNTS_KEY = 'hellopoint_paybill_accounts';
+const CASHIN_ACCOUNTS_KEY = 'hellopoint_cashin_accounts';
+const CASHIN_TRANSACTIONS_KEY = 'hellopoint_cashin_transactions';
 
 export const DEFAULT_PAYBILL_ACCOUNTS: string[] = [];
 
@@ -417,3 +419,44 @@ export function getContactSummary(contactId: string, transactions: Transaction[]
     entryCount: contactTxs.length
   };
 }
+
+export function loadCashInAccounts(): CashInAccount[] {
+  try {
+    const data = localStorage.getItem(CASHIN_ACCOUNTS_KEY);
+    if (!data) return [];
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error('Failed to load cashin accounts', e);
+    return [];
+  }
+}
+
+export function saveCashInAccounts(accounts: CashInAccount[]): void {
+  try {
+    localStorage.setItem(CASHIN_ACCOUNTS_KEY, JSON.stringify(accounts));
+  } catch (e) {
+    console.error('Failed to save cashin accounts', e);
+  }
+}
+
+export function loadCashInTransactions(): CashInTransaction[] {
+  try {
+    const data = localStorage.getItem(CASHIN_TRANSACTIONS_KEY);
+    if (!data) return [];
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error('Failed to load cashin transactions', e);
+    return [];
+  }
+}
+
+export function saveCashInTransactions(txs: CashInTransaction[]): void {
+  try {
+    localStorage.setItem(CASHIN_TRANSACTIONS_KEY, JSON.stringify(txs));
+  } catch (e) {
+    console.error('Failed to save cashin transactions', e);
+  }
+}
+

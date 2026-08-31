@@ -57,15 +57,20 @@ import {
   Landmark,
   Tag,
   ChevronUp,
-  Hash
+  Hash,
+  Star,
+  Users,
+  ChevronLeft,
+  Plus
 } from 'lucide-react';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ } from '../types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction } from '../types';
 import { ThemeMode } from '../utils/theme';
 import { ChatBox } from './ChatBox';
 import { ShopManagementModal } from './ShopManagementModal';
 import ChatAutoReplySettingsModal from './ChatAutoReplySettingsModal';
 import { getContactSummary, loadQuickFaqs, saveQuickFaqs, loadSavedPayBillAccounts, addSavedPayBillAccount } from '../utils/storage';
 import BanglaCalendar from './BanglaCalendar';
+import { CashInView } from './CashInView';
 import { motion, AnimatePresence } from 'motion/react';
 
 const normalizeString = (str: string): string => {
@@ -134,6 +139,12 @@ interface MainDashboardProps {
   onDeleteProduct?: (productId: string) => void;
   quickFaqs?: ChatQuickFAQ[];
   onSaveQuickFaqs?: (faqs: ChatQuickFAQ[]) => void;
+  cashInAccounts?: CashInAccount[];
+  cashInTransactions?: CashInTransaction[];
+  onSaveCashInAccount?: (account: CashInAccount) => Promise<void> | void;
+  onDeleteCashInAccount?: (accountId: string) => Promise<void> | void;
+  onSaveCashInTransaction?: (tx: CashInTransaction, updatedAccount?: CashInAccount) => Promise<void> | void;
+  onDeleteCashInTransaction?: (txId: string, refundAccount?: boolean) => Promise<void> | void;
 }
 
 interface Reminder {
@@ -203,7 +214,13 @@ export function MainDashboard({
   onSaveProduct,
   onDeleteProduct,
   quickFaqs,
-  onSaveQuickFaqs
+  onSaveQuickFaqs,
+  cashInAccounts = [],
+  cashInTransactions = [],
+  onSaveCashInAccount,
+  onDeleteCashInAccount,
+  onSaveCashInTransaction,
+  onDeleteCashInTransaction
 }: MainDashboardProps) {
   // Bilingual localization state
   const [localLang, setLocalLang] = useState<'bn' | 'en'>(() => (localStorage.getItem('hellopoint_lang') as 'bn' | 'en') || 'bn');
@@ -2143,6 +2160,19 @@ export function MainDashboard({
               <span className="absolute bottom-0 left-1/4 right-1/4 h-1 bg-yellow-300 rounded-t-full" />
             )}
           </button>
+
+          <button 
+            id="tab-cashin"
+            onClick={() => setActiveTab('cashin')}
+            className={`flex-1 pb-1 relative transition-all ${
+              activeTab === 'cashin' ? 'text-yellow-300 font-extrabold text-sm' : 'text-white/60 hover:text-white font-medium'
+            }`}
+          >
+            {lang === 'bn' ? 'ক্যাশ-ইন' : 'Cash-In'}
+            {activeTab === 'cashin' && (
+              <span className="absolute bottom-0 left-1/4 right-1/4 h-1 bg-yellow-300 rounded-t-full" />
+            )}
+          </button>
         </div>
       </header>
 
@@ -2156,37 +2186,35 @@ export function MainDashboard({
           <div id="contacts-dashboard-content" className="space-y-2.5">
             
             {/* Net Stats Premium Card */}
-            <div id="net-stats-card" className="bg-white rounded-2xl shadow-xs border border-slate-100 overflow-hidden relative select-none">
-              {/* Top subtle decorative accent glow */}
-              <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-emerald-500 via-purple-500 to-rose-500 opacity-85" />
+            <div id="net-stats-card" className="bg-white dark:bg-[#1E252D] rounded-2xl p-2.5 sm:p-3 shadow-xs border border-slate-100 dark:border-slate-800 grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-800 items-center select-none relative overflow-hidden">
+              {/* Top subtle decorative accent line */}
+              <div className="absolute inset-x-0 top-0 h-[2.5px] bg-gradient-to-r from-emerald-500 via-purple-500 to-rose-500 opacity-90" />
 
-              <div className="grid grid-cols-2 divide-x divide-slate-100 items-stretch py-3 px-1 sm:px-2">
-                {/* Left Column: আপনি দেবেন (We Owe - Emerald) */}
-                <div className="flex flex-col items-center justify-center text-center px-1.5 sm:px-2">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100/80 mb-1.5 shadow-2xs">
-                    <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
-                      <TrendingDown className="w-2 h-2 stroke-[2.5]" />
-                    </span>
-                    <span className="text-[10px] sm:text-[11px] font-black tracking-tight">{text.youWillGive}</span>
-                  </div>
-                  <div className="flex items-baseline justify-center gap-0.5 text-emerald-600 font-mono font-black tracking-tight">
-                    <span className="text-xs sm:text-sm font-bold opacity-90">{currency}</span>
-                    <span className="text-base sm:text-xl font-black">{totals.youWillGive.toFixed(2)}</span>
-                  </div>
+              {/* Left Column: আপনি দেবেন (We Owe - Emerald) */}
+              <div className="flex flex-col items-center justify-center text-center px-1.5 sm:px-2">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-100/80 dark:border-emerald-800/50 mb-1 shadow-2xs">
+                  <span className="w-3.5 h-3.5 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                    <TrendingDown className="w-2 h-2 stroke-[2.5]" />
+                  </span>
+                  <span className="text-[10px] sm:text-[11px] font-black tracking-tight">{text.youWillGive}</span>
                 </div>
-                
-                {/* Right Column: আপনি পাবেন (Receivable - Rose) */}
-                <div className="flex flex-col items-center justify-center text-center px-1.5 sm:px-2">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100/80 mb-1.5 shadow-2xs">
-                    <span className="w-3.5 h-3.5 rounded-full bg-rose-500 text-white flex items-center justify-center shrink-0">
-                      <TrendingUp className="w-2 h-2 stroke-[2.5]" />
-                    </span>
-                    <span className="text-[10px] sm:text-[11px] font-black tracking-tight">{text.youWillGet}</span>
-                  </div>
-                  <div className="flex items-baseline justify-center gap-0.5 text-rose-500 font-mono font-black tracking-tight">
-                    <span className="text-xs sm:text-sm font-bold opacity-90">{currency}</span>
-                    <span className="text-base sm:text-xl font-black">{totals.youWillGet.toFixed(2)}</span>
-                  </div>
+                <div className="flex items-baseline justify-center gap-0.5 text-emerald-600 dark:text-emerald-400 font-mono font-black tracking-tight">
+                  <span className="text-xs sm:text-sm font-bold opacity-90">{currency}</span>
+                  <span className="text-base sm:text-xl font-black">{totals.youWillGive.toFixed(2)}</span>
+                </div>
+              </div>
+              
+              {/* Right Column: আপনি পাবেন (Receivable - Rose) */}
+              <div className="flex flex-col items-center justify-center text-center px-1.5 sm:px-2">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-100/80 dark:border-rose-800/50 mb-1 shadow-2xs">
+                  <span className="w-3.5 h-3.5 rounded-full bg-rose-500 text-white flex items-center justify-center shrink-0">
+                    <TrendingUp className="w-2 h-2 stroke-[2.5]" />
+                  </span>
+                  <span className="text-[10px] sm:text-[11px] font-black tracking-tight">{text.youWillGet}</span>
+                </div>
+                <div className="flex items-baseline justify-center gap-0.5 text-rose-500 dark:text-rose-400 font-mono font-black tracking-tight">
+                  <span className="text-xs sm:text-sm font-bold opacity-90">{currency}</span>
+                  <span className="text-base sm:text-xl font-black">{totals.youWillGet.toFixed(2)}</span>
                 </div>
               </div>
             </div>
@@ -3031,6 +3059,24 @@ export function MainDashboard({
               )}
             </div>
 
+          </div>
+        )}
+
+        {/* TAB 4: CASH-IN (Agent SIM Last 4-digits auto match & deduction) */}
+        {activeTab === 'cashin' && (
+          <div id="cashin-dashboard-content" className="animate-fade-in">
+            <CashInView
+              accounts={cashInAccounts}
+              transactions={cashInTransactions}
+              contacts={contacts}
+              currency={currency}
+              lang={lang}
+              themeColor={themeColor || '#7C3AED'}
+              onSaveAccount={onSaveCashInAccount || (() => {})}
+              onDeleteAccount={onDeleteCashInAccount || (() => {})}
+              onSaveTransaction={onSaveCashInTransaction || (() => {})}
+              onDeleteTransaction={onDeleteCashInTransaction || (() => {})}
+            />
           </div>
         )}
 

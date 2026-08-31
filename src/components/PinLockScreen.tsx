@@ -5,6 +5,8 @@ import { Contact, Product, ChatMessage, ChatQuickFAQ } from '../types';
 import { APP_PROPRIETOR_NAME } from '../version';
 import { VisitorLiveChatModal } from './VisitorLiveChatModal';
 import { VisitorShopModal } from './VisitorShopModal';
+import { soundEngine } from '../utils/audio';
+import { PremiumAppLoader } from './PremiumAppLoader';
 
 interface PinLockScreenProps {
   onUnlock: (role: 'owner' | 'customer', customerId?: string) => void;
@@ -145,6 +147,7 @@ export function PinLockScreen({
     const savedPin = localStorage.getItem('hellopoint_pin');
     if (savedPin) {
       if (completedPin === savedPin) {
+        soundEngine.playPinUnlockSound();
         localStorage.setItem('hellopoint_pin_session_time', Date.now().toString());
         setFailedAttempts(0);
         onUnlock('owner');
@@ -153,6 +156,7 @@ export function PinLockScreen({
       // Do nothing, let them keep entering up to 11 digits seamlessly.
     } else {
       // First-time owner setup
+      soundEngine.playPinUnlockSound();
       localStorage.setItem('hellopoint_pin', completedPin);
       localStorage.setItem('hellopoint_pin_session_time', Date.now().toString());
       setFailedAttempts(0);
@@ -175,6 +179,7 @@ export function PinLockScreen({
     }
 
     if (customer) {
+      soundEngine.playPinUnlockSound();
       setErrorMsg('');
       setFailedAttempts(0);
       
@@ -252,6 +257,7 @@ export function PinLockScreen({
   };
 
   const triggerError = (msg: string) => {
+    soundEngine.playPinErrorSound();
     setErrorMsg(msg);
     setIsShaking(true);
     setTimeout(() => setIsShaking(false), 450);
@@ -461,6 +467,7 @@ export function PinLockScreen({
             </p>
             <button
               onClick={() => {
+                soundEngine.playPinUnlockSound();
                 onUnlock('customer', rememberedCustId);
               }}
               className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-650 hover:from-purple-705 hover:to-indigo-705 active:scale-95 text-white text-[10px] font-black rounded-xl shadow-tiny transition-all cursor-pointer"
@@ -844,6 +851,16 @@ export function PinLockScreen({
           setChatInitialPhone(customerPhone);
           setShowLiveChatModal(true);
         }}
+      />
+
+      {/* REGISTRATION SUBMISSION LOADER */}
+      <PremiumAppLoader
+        isOpen={isRegisterSubmitting}
+        title={lang === 'bn' ? 'অনুরোধ পাঠানো হচ্ছে...' : 'Submitting Request...'}
+        icon={UserPlus}
+        iconGradient="from-purple-600 to-indigo-650"
+        ringColor="border-purple-500"
+        progressColor="from-purple-500 to-indigo-500"
       />
     </div>
   );

@@ -57,7 +57,32 @@ export interface PayBillEntry {
 }
 
 // Current application view state types
-export type ActiveTab = 'customers' | 'paybill' | 'cashbook';
+export type ActiveTab = 'customers' | 'paybill' | 'cashbook' | 'cashin';
+
+export interface CashInAccount {
+  id: string;
+  accountNumber: string; // e.g. "01783585858"
+  accountName?: string; // e.g. "বিকাশ এজেন্ট", "নগদ সিম"
+  balance: number; // current balance
+  lastDigits: string; // last 4 digits (e.g. "5858")
+  provider?: 'bkash' | 'nagad' | 'rocket' | 'upay' | 'other';
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface CashInTransaction {
+  id: string;
+  customerPhone: string;
+  customerName?: string;
+  amount: number;
+  lastDigits: string; // The 4 digits entered by user to match agent account
+  accountId?: string; // ID of the matched CashInAccount
+  accountNumber?: string; // Full agent account number from which it was deducted
+  accountName?: string;
+  date: string; // e.g. "2026-08-30" or ISO
+  createdAt: string;
+  note?: string;
+}
 
 export type ScreenState = 
   | { type: 'dashboard' }

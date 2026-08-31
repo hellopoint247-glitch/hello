@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { Contact, Transaction, RechargeRequest, ChatMessage, PayBillEntry, PayBillRequest } from '../types';
 import { getContactSummary } from '../utils/storage';
+import { soundEngine } from '../utils/audio';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatBox } from './ChatBox';
 
@@ -242,6 +243,7 @@ export function CustomerPortal({
     if (onCreateRechargeRequest) {
       onCreateRechargeRequest(cleanNum, amt, selectedMethod);
     }
+    soundEngine.playIPhoneVerificationSound();
 
     // Reset fields
     setRechargePhoneInput('');
@@ -400,6 +402,7 @@ export function CustomerPortal({
     }
 
     setPaybillSuccessSerial(paddedSerial);
+    soundEngine.playIPhoneVerificationSound();
     setShowPaybillSuccessPopup(true);
 
     // Reset fields
@@ -1216,12 +1219,14 @@ export function CustomerPortal({
                         {!hideRunningBalance ? (
                           <span className={`${style.balanceText} font-bold tracking-tight leading-none inline-flex items-center gap-0.5 shrink-0`}>
                             <span className="text-slate-400 font-normal">(</span>
-                            <span className={`font-black ${
+                            <span className={`font-black font-mono ${
                               (tx as any).runningBalance < 0 
-                                ? 'text-blue-600' // High visibility standard blue color for negative balance
-                                : 'text-slate-700' // Dark color for positive
+                                ? 'text-emerald-600 dark:text-emerald-400' 
+                                : (tx as any).runningBalance > 0
+                                ? 'text-rose-600 dark:text-rose-400'
+                                : 'text-slate-600 dark:text-slate-400'
                             }`}>
-                              {(tx as any).runningBalance > 0 ? '+' : (tx as any).runningBalance < 0 ? '-' : ''}
+                              {(tx as any).runningBalance < 0 ? '+' : (tx as any).runningBalance > 0 ? '-' : ''}
                               {currency}{toBn(Math.abs((tx as any).runningBalance).toFixed(1))}
                             </span>
                             <span className="text-slate-400 font-normal">)</span>

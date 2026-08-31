@@ -36,7 +36,7 @@ import { db, auth, handleFirestoreError, OperationType } from '../utils/firebase
 import { doc, setDoc } from 'firebase/firestore';
 
 // Helper function to convert Bengali digits (০-৯) to English digits (0-9)
-const convertBengaliDigitsToEnglish = (str: string): string => {
+export const convertBengaliDigitsToEnglish = (str: string): string => {
   if (!str) return str;
   const banglaToEnglishMap: Record<string, string> = {
     '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
@@ -45,27 +45,30 @@ const convertBengaliDigitsToEnglish = (str: string): string => {
   return str.replace(/[০-৯]/g, (w) => banglaToEnglishMap[w] || w);
 };
 
-// Helper to sanitize numeric and general tags (removes spaces, dashes, symbols from number tags)
-const sanitizeTagInput = (input: string, isNumberContext = false): string => {
-  if (!input) return input;
-  const english = convertBengaliDigitsToEnglish(input.trim());
-  const hasDigits = /[0-9]/.test(english);
-  const nonDigitSymbols = english.replace(/[0-9\s\-\+\(\)\.\,\/\#\:\;\_]/g, '');
+// Helper to determine if a string is pure numeric / phone number / code (should not be saved or shown as tag/category)
+export const isNumericOrPhoneTag = (str: string): boolean => {
+  if (!str) return true;
+  const trimmed = str.trim();
+  if (!trimmed) return true;
+  const english = convertBengaliDigitsToEnglish(trimmed);
+  // Phone number (e.g. 017..., +8801..., 8801...)
+  if (/^(\+?88)?01[0-9]{9}$/.test(english.replace(/[\s\-\(\)]/g, ''))) return true;
+  // If it has digits and only digits/formatting symbols (no Bengali or Latin alphabetical characters)
+  const nonSymbolAlpha = english.replace(/[0-9\s\-\+\#\*\:\.\,\/\(\)\_\;]/g, '');
+  const digitsOnly = english.replace(/[^0-9]/g, '');
+  if (digitsOnly.length > 0 && nonSymbolAlpha.length === 0) return true;
+  return false;
+};
 
-  // If explicitly in number context, or if the string is made of digits + formatting symbols (spaces, dashes, etc.)
-  if (isNumberContext || (hasDigits && nonDigitSymbols.length === 0)) {
-    const digitsOnly = english.replace(/[^0-9]/g, '');
-    if (digitsOnly.length > 0) {
-      return digitsOnly;
-    }
-  }
+// Helper to sanitize tag input
+const sanitizeTagInput = (input: string): string => {
+  if (!input) return input;
   return input.trim();
 };
 
-// Component to render text with clean glass-themed highlight on matched substring/digits without breaking words or conjuncts
-const HighlightedTagText: React.FC<{ text: string; query: string; digitsQuery?: string }> = ({ text, query, digitsQuery }) => {
+// Component to render text with bright, vibrant highlight on matched search substring
+const HighlightedTagText: React.FC<{ text: string; query: string }> = ({ text, query }) => {
   const cleanQ = query.trim().toLowerCase();
-  const cleanDigits = digitsQuery?.trim() || '';
 
   if (cleanQ && text.toLowerCase().includes(cleanQ)) {
     const idx = text.toLowerCase().indexOf(cleanQ);
@@ -75,34 +78,12 @@ const HighlightedTagText: React.FC<{ text: string; query: string; digitsQuery?: 
     return (
       <span className="whitespace-nowrap inline">
         <span>{before}</span>
-        <mark className="bg-red-500/20 dark:bg-red-400/25 text-red-600 dark:text-red-400 rounded-xs px-0.5 font-semibold inline">
+        <mark className="bg-amber-300 dark:bg-amber-400 text-slate-950 px-1 py-0.5 rounded-xs font-black inline shadow-2xs">
           {match}
         </mark>
         <span>{after}</span>
       </span>
     );
-  }
-
-  if (cleanDigits && cleanDigits.length >= 1) {
-    const textEnglish = convertBengaliDigitsToEnglish(text);
-    const digitsOnly = textEnglish.replace(/[^0-9]/g, '');
-    if (digitsOnly.includes(cleanDigits)) {
-      const idx = textEnglish.indexOf(cleanDigits);
-      if (idx !== -1) {
-        const before = text.slice(0, idx);
-        const match = text.slice(idx, idx + cleanDigits.length);
-        const after = text.slice(idx + cleanDigits.length);
-        return (
-          <span className="whitespace-nowrap inline">
-            <span>{before}</span>
-            <mark className="bg-red-500/20 dark:bg-red-400/25 text-red-600 dark:text-red-400 rounded-xs px-0.5 font-semibold inline">
-              {match}
-            </mark>
-            <span>{after}</span>
-          </span>
-        );
-      }
-    }
   }
 
   return <span className="whitespace-nowrap inline">{text}</span>;
@@ -210,16 +191,24 @@ export function TransactionForm({
   const [favoriteTags, setFavoriteTags] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('hellopoint_favorite_tags');
-      return saved ? JSON.parse(saved) : [];
+      const list: string[] = saved ? JSON.parse(saved) : [];
+      return list.filter(t => !isNumericOrPhoneTag(t));
     } catch {
       return [];
     }
   });
 
-  const [tagOverrides, setTagOverrides] = useState<Record<string, 'person' | 'transaction' | 'expense' | 'number' | 'general'>>(() => {
+  const [tagOverrides, setTagOverrides] = useState<Record<string, 'person' | 'transaction' | 'expense' | 'general'>>(() => {
     try {
       const saved = localStorage.getItem('hellopoint_tag_category_overrides');
-      return saved ? JSON.parse(saved) : {};
+      const map = saved ? JSON.parse(saved) : {};
+      const cleanMap: Record<string, 'person' | 'transaction' | 'expense' | 'general'> = {};
+      Object.keys(map).forEach(k => {
+        if (!isNumericOrPhoneTag(k) && map[k] !== 'number') {
+          cleanMap[k] = map[k];
+        }
+      });
+      return cleanMap;
     } catch {
       return {};
     }
@@ -229,7 +218,8 @@ export function TransactionForm({
   const [recentUsageOrder, setRecentUsageOrder] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('hellopoint_tag_recent_usage');
-      return saved ? JSON.parse(saved) : [];
+      const list: string[] = saved ? JSON.parse(saved) : [];
+      return list.filter(t => !isNumericOrPhoneTag(t));
     } catch {
       return [];
     }
@@ -241,15 +231,24 @@ export function TransactionForm({
       try {
         const savedFavs = localStorage.getItem('hellopoint_favorite_tags');
         if (savedFavs) {
-          setFavoriteTags(JSON.parse(savedFavs));
+          const list: string[] = JSON.parse(savedFavs);
+          setFavoriteTags(list.filter(t => !isNumericOrPhoneTag(t)));
         }
         const savedOverrides = localStorage.getItem('hellopoint_tag_category_overrides');
         if (savedOverrides) {
-          setTagOverrides(JSON.parse(savedOverrides));
+          const map = JSON.parse(savedOverrides);
+          const cleanMap: Record<string, 'person' | 'transaction' | 'expense' | 'general'> = {};
+          Object.keys(map).forEach(k => {
+            if (!isNumericOrPhoneTag(k) && map[k] !== 'number') {
+              cleanMap[k] = map[k];
+            }
+          });
+          setTagOverrides(cleanMap);
         }
         const savedUsage = localStorage.getItem('hellopoint_tag_recent_usage');
         if (savedUsage) {
-          setRecentUsageOrder(JSON.parse(savedUsage));
+          const list: string[] = JSON.parse(savedUsage);
+          setRecentUsageOrder(list.filter(t => !isNumericOrPhoneTag(t)));
         }
       } catch (e) {
         console.error('Error syncing tag categories from storage:', e);
@@ -264,7 +263,7 @@ export function TransactionForm({
   const recordTagUsage = (tagName: string) => {
     try {
       const trimmed = tagName.trim();
-      if (!trimmed) return;
+      if (!trimmed || isNumericOrPhoneTag(trimmed)) return;
       const updated = [trimmed, ...recentUsageOrder.filter(t => t !== trimmed)];
       setRecentUsageOrder(updated);
       localStorage.setItem('hellopoint_tag_recent_usage', JSON.stringify(updated));
@@ -274,8 +273,8 @@ export function TransactionForm({
     }
   };
 
-  // Load historical unique notes from props, fallback to calculated local list if not provided
-  const getRecentNotes = () => {
+  // Load historical unique notes from props or cache, memoized up to 500 items for lag-free performance
+  const recentNotesList = React.useMemo(() => {
     let savedCategories: string[] = customCategories ? [...customCategories] : [];
     let savedDeleted: string[] = deletedCategories ? [...deletedCategories] : [];
 
@@ -294,14 +293,15 @@ export function TransactionForm({
 
         const cached = localStorage.getItem('hellopoint_custom_categories');
         if (cached) {
-          savedCategories = JSON.parse(cached);
+          const parsed: string[] = JSON.parse(cached);
+          savedCategories = parsed.filter(n => !isNumericOrPhoneTag(n));
         } else {
           const list = [...defaultNotes];
           try {
             const txs = loadTransactions();
             txs.forEach((tx) => {
               const trimmed = tx.note ? tx.note.trim() : '';
-              if (trimmed && !trimmed.includes(',') && !trimmed.includes('।') && !list.includes(trimmed)) {
+              if (trimmed && !trimmed.includes(',') && !trimmed.includes('।') && !isNumericOrPhoneTag(trimmed) && !list.includes(trimmed)) {
                 list.push(trimmed);
               }
             });
@@ -321,37 +321,32 @@ export function TransactionForm({
 
     // Ensure all favorited or category-overridden tags are always included in savedCategories
     favoriteTags.forEach(tag => {
-      if (!savedCategories.includes(tag) && !savedDeleted.includes(tag)) {
+      if (!isNumericOrPhoneTag(tag) && !savedCategories.includes(tag) && !savedDeleted.includes(tag)) {
         savedCategories.push(tag);
       }
     });
     Object.keys(tagOverrides).forEach(tag => {
-      if (!savedCategories.includes(tag) && !savedDeleted.includes(tag)) {
+      if (!isNumericOrPhoneTag(tag) && !savedCategories.includes(tag) && !savedDeleted.includes(tag)) {
         savedCategories.push(tag);
       }
     });
 
-    const filtered = savedCategories.filter(n => !savedDeleted.includes(n) && !n.includes(',') && !n.includes('।'));
-    return filtered.slice(0, 100);
-  };
+    const filtered = savedCategories.filter(n => !isNumericOrPhoneTag(n) && !savedDeleted.includes(n) && !n.includes(',') && !n.includes('।'));
+    return filtered.slice(0, 500);
+  }, [customCategories, deletedCategories, favoriteTags, tagOverrides]);
 
-  const recentNotesList = getRecentNotes();
-
-  // Strict category calculation: each tag has exactly one category
-  const getTagCategory = React.useCallback((tag: string): 'favorite' | 'person' | 'transaction' | 'expense' | 'number' | 'general' => {
+  // Strict category calculation: each tag has exactly one category (all numbers removed)
+  const getTagCategory = React.useCallback((tag: string): 'favorite' | 'person' | 'transaction' | 'expense' | 'general' => {
     if (favoriteTags.includes(tag)) {
       return 'favorite';
     }
     if (tagOverrides[tag] && tagOverrides[tag] !== 'general') {
-      return tagOverrides[tag] as 'person' | 'transaction' | 'expense' | 'number';
-    }
-    if (/[0-9]/.test(convertBengaliDigitsToEnglish(tag)) || /^(01|\+8801|\d+)/.test(tag)) {
-      return 'number';
+      return tagOverrides[tag] as 'person' | 'transaction' | 'expense';
     }
     return 'general';
   }, [favoriteTags, tagOverrides]);
 
-  const [tagFilter, setTagFilter] = useState<'all' | 'favorite' | 'person' | 'transaction' | 'expense' | 'number'>('all');
+  const [tagFilter, setTagFilter] = useState<'all' | 'favorite' | 'person' | 'transaction' | 'expense'>('all');
   const [tagSearchQuery, setTagSearchQuery] = useState('');
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [isAddingTagToFilter, setIsAddingTagToFilter] = useState<'favorite' | 'person' | 'transaction' | 'expense' | null>(null);
@@ -361,13 +356,12 @@ export function TransactionForm({
   const activeNoteSegments = note.split(/[,।]/);
   const currentNoteSegment = activeNoteSegments[activeNoteSegments.length - 1].trim();
   const activeTypedQuery = tagSearchQuery.trim() || currentNoteSegment;
-  const activeTypedDigits = convertBengaliDigitsToEnglish(activeTypedQuery).replace(/[^0-9]/g, '');
 
   const sortedRecentNotes = React.useMemo(() => {
     const selectedTags = activeNoteSegments.map(s => s.trim()).filter(Boolean);
     const queryLower = activeTypedQuery.toLowerCase();
 
-    let list = [...recentNotesList];
+    let list = recentNotesList.filter(n => !isNumericOrPhoneTag(n));
 
     return list.sort((a, b) => {
       // 1. Tags currently active in the note always go first
@@ -389,44 +383,23 @@ export function TransactionForm({
         const bStarts = bLower.startsWith(queryLower);
         if (aStarts && !bStarts) return -1;
         if (!aStarts && bStarts) return 1;
-
-        // Digits containment matching
-        if (activeTypedDigits.length >= 1) {
-          const aDigits = convertBengaliDigitsToEnglish(a).replace(/[^0-9]/g, '');
-          const bDigits = convertBengaliDigitsToEnglish(b).replace(/[^0-9]/g, '');
-          const aDigMatch = aDigits.includes(activeTypedDigits);
-          const bDigMatch = bDigits.includes(activeTypedDigits);
-          if (aDigMatch && !bDigMatch) return -1;
-          if (!aDigMatch && bDigMatch) return 1;
-        }
       }
 
-      // 3. Persistent Filter Recency: Tags used recently come first in their respective filter
-      const aUsageIdx = recentUsageOrder.indexOf(a);
-      const bUsageIdx = recentUsageOrder.indexOf(b);
-      if (aUsageIdx !== -1 && bUsageIdx !== -1) {
-        return aUsageIdx - bUsageIdx;
-      }
-      if (aUsageIdx !== -1) return -1;
-      if (bUsageIdx !== -1) return 1;
-
-      return 0;
+      // 3. Bengali Alphabetical Sorting (অ, আ, ই, ঈ ...)
+      return a.localeCompare(b, 'bn', { sensitivity: 'base' });
     });
-  }, [recentNotesList, note, activeTypedQuery, activeTypedDigits, recentUsageOrder]);
+  }, [recentNotesList, note, activeTypedQuery]);
 
   // Live Matching Tags Tracker - finds matching tags across all filters and tells where they are located
   const matchingTagsInfo = React.useMemo(() => {
-    if (!activeTypedQuery && !activeTypedDigits) return [];
+    if (!activeTypedQuery || isNumericOrPhoneTag(activeTypedQuery)) return [];
     const qLower = activeTypedQuery.toLowerCase();
 
     return sortedRecentNotes
       .map(tag => {
         const tagCategory = getTagCategory(tag);
-        const tagEnglish = convertBengaliDigitsToEnglish(tag);
-        const tagDigits = tagEnglish.replace(/[^0-9]/g, '');
-
         let matchScore = 0;
-        let matchType: 'exact' | 'starts' | 'digits' | 'contains' | null = null;
+        let matchType: 'exact' | 'starts' | 'contains' | null = null;
 
         if (tag.toLowerCase() === qLower) {
           matchScore = 100;
@@ -434,9 +407,6 @@ export function TransactionForm({
         } else if (tag.toLowerCase().startsWith(qLower)) {
           matchScore = 80;
           matchType = 'starts';
-        } else if (activeTypedDigits.length >= 1 && tagDigits.includes(activeTypedDigits)) {
-          matchScore = 60;
-          matchType = 'digits';
         } else if (qLower.length >= 1 && tag.toLowerCase().includes(qLower)) {
           matchScore = 40;
           matchType = 'contains';
@@ -452,9 +422,10 @@ export function TransactionForm({
       })
       .filter(item => item.matchScore > 0)
       .sort((a, b) => b.matchScore - a.matchScore);
-  }, [sortedRecentNotes, activeTypedQuery, activeTypedDigits, getTagCategory, tagFilter]);
+  }, [sortedRecentNotes, activeTypedQuery, getTagCategory, tagFilter]);
 
   const toggleFavorite = (tagName: string) => {
+    if (isNumericOrPhoneTag(tagName)) return;
     const willBeFav = !favoriteTags.includes(tagName);
 
     if (willBeFav && tagOverrides[tagName] && tagOverrides[tagName] !== 'general') {
@@ -487,7 +458,8 @@ export function TransactionForm({
     handleSaveNewCategory(tagName);
   };
 
-  const setTagOverrideCategory = (tagName: string, category: 'person' | 'transaction' | 'expense' | 'number' | 'general') => {
+  const setTagOverrideCategory = (tagName: string, category: 'person' | 'transaction' | 'expense' | 'general') => {
+    if (isNumericOrPhoneTag(tagName)) return;
     if (category !== 'general' && favoriteTags.includes(tagName)) {
       setFavoriteTags(prev => {
         const next = prev.filter(t => t !== tagName);
@@ -534,44 +506,40 @@ export function TransactionForm({
         toggleFavorite(tagName);
         setActionFeedback(`⭐ "${tagName}" ফেভারিট থেকে সরান হয়েছে`);
       }
-    } else if (tagFilter === 'person' || tagFilter === 'transaction' || tagFilter === 'expense' || tagFilter === 'number') {
+    } else if (tagFilter === 'person' || tagFilter === 'transaction' || tagFilter === 'expense') {
       setTagOverrideCategory(tagName, 'general');
       setActionFeedback(`🏷️ "${tagName}" এই ফিল্টার থেকে সরান হয়েছে`);
     }
     setTimeout(() => setActionFeedback(null), 2000);
   };
 
+  // Strict requirement: প্রতি ক্যাটাগরিতে ট্যাগ গুলি অ,আ,ই,ঈ এই সিরিয়ালে থাকে (Bengali alphabetical sorting)
   const filteredNotesForView = React.useMemo(() => {
-    let list = sortedRecentNotes;
+    let list = sortedRecentNotes.filter(n => !isNumericOrPhoneTag(n));
     if (tagFilter !== 'all') {
       list = list.filter(n => getTagCategory(n) === tagFilter);
     }
     if (tagSearchQuery.trim()) {
       const q = tagSearchQuery.trim().toLowerCase();
-      const qDigits = convertBengaliDigitsToEnglish(q).replace(/[^0-9]/g, '');
-      list = list.filter(n => {
-        const nLower = n.toLowerCase();
-        if (nLower.includes(q)) return true;
-        if (qDigits.length >= 1) {
-          const nDigits = convertBengaliDigitsToEnglish(n).replace(/[^0-9]/g, '');
-          if (nDigits.includes(qDigits)) return true;
-        }
-        return false;
-      });
+      list = list.filter(n => n.toLowerCase().includes(q));
     }
-    return list;
+    return [...list].sort((a, b) => a.localeCompare(b, 'bn', { sensitivity: 'base' }));
   }, [sortedRecentNotes, tagFilter, tagSearchQuery, getTagCategory]);
 
-  const favCount = React.useMemo(() => sortedRecentNotes.filter(n => getTagCategory(n) === 'favorite').length, [sortedRecentNotes, getTagCategory]);
-  const personCount = React.useMemo(() => sortedRecentNotes.filter(n => getTagCategory(n) === 'person').length, [sortedRecentNotes, getTagCategory]);
-  const transactionCount = React.useMemo(() => sortedRecentNotes.filter(n => getTagCategory(n) === 'transaction').length, [sortedRecentNotes, getTagCategory]);
-  const expenseCount = React.useMemo(() => sortedRecentNotes.filter(n => getTagCategory(n) === 'expense').length, [sortedRecentNotes, getTagCategory]);
-  const numberCount = React.useMemo(() => sortedRecentNotes.filter(n => getTagCategory(n) === 'number').length, [sortedRecentNotes, getTagCategory]);
+  const allCount = React.useMemo(() => sortedRecentNotes.filter(n => !isNumericOrPhoneTag(n)).length, [sortedRecentNotes]);
+  const favCount = React.useMemo(() => sortedRecentNotes.filter(n => !isNumericOrPhoneTag(n) && getTagCategory(n) === 'favorite').length, [sortedRecentNotes, getTagCategory]);
+  const personCount = React.useMemo(() => sortedRecentNotes.filter(n => !isNumericOrPhoneTag(n) && getTagCategory(n) === 'person').length, [sortedRecentNotes, getTagCategory]);
+  const transactionCount = React.useMemo(() => sortedRecentNotes.filter(n => !isNumericOrPhoneTag(n) && getTagCategory(n) === 'transaction').length, [sortedRecentNotes, getTagCategory]);
+  const expenseCount = React.useMemo(() => sortedRecentNotes.filter(n => !isNumericOrPhoneTag(n) && getTagCategory(n) === 'expense').length, [sortedRecentNotes, getTagCategory]);
 
   const handleAddNewTagToActiveFilter = () => {
-    const isNumberFilter = isAddingTagToFilter === null && tagFilter === 'number';
-    const cleaned = sanitizeTagInput(newCustomTagInput, isNumberFilter);
+    const cleaned = sanitizeTagInput(newCustomTagInput);
     if (!cleaned) return;
+    if (isNumericOrPhoneTag(cleaned)) {
+      setActionFeedback('⚠️ নাম্বার ক্যাটাগরিতে সেভ হবে না');
+      setTimeout(() => setActionFeedback(null), 2000);
+      return;
+    }
 
     // Immediately save to custom categories so it appears in recent notes and syncs real-time
     handleSaveNewCategory(cleaned);
@@ -657,10 +625,10 @@ export function TransactionForm({
   };
 
   const handleSaveNewCategory = (newCat: string) => {
-    // Automatically sanitize number tags (remove spaces, symbols, punctuation)
     const cleaned = sanitizeTagInput(newCat);
     if (!cleaned) return;
     if (cleaned.includes(',') || cleaned.includes('।')) return;
+    if (isNumericOrPhoneTag(cleaned)) return; // Prevent number entries from saving as categories!
     
     recordTagUsage(cleaned);
 
@@ -670,7 +638,7 @@ export function TransactionForm({
       try {
         const cached = localStorage.getItem('hellopoint_custom_categories');
         let categories: string[] = cached ? JSON.parse(cached) : [];
-        categories = [cleaned, ...categories.filter(c => c !== cleaned)];
+        categories = [cleaned, ...categories.filter(c => c !== cleaned && !isNumericOrPhoneTag(c))];
         localStorage.setItem('hellopoint_custom_categories', JSON.stringify(categories));
 
         // Ensure it is removed from deleted list if they are explicitly saving it
@@ -1063,13 +1031,14 @@ export function TransactionForm({
               className="bg-transparent border-none text-xs font-semibold text-slate-800 dark:text-[#F1F3F5] outline-none w-full placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none leading-relaxed font-sans"
             />
 
-            {/* If user types a unique tag, show quick save button with cleaned value */}
+            {/* If user types a unique tag, show quick save button with cleaned value (numbers ignored) */}
             {(() => {
               const cleanedCandidate = sanitizeTagInput(note.trim());
               if (
                 cleanedCandidate.length > 0 && 
                 !cleanedCandidate.includes(',') && 
                 !cleanedCandidate.includes('।') && 
+                !isNumericOrPhoneTag(cleanedCandidate) &&
                 !recentNotesList.includes(cleanedCandidate)
               ) {
                 return (
@@ -1085,37 +1054,36 @@ export function TransactionForm({
               return null;
             })()}
 
-            {/* Live Matching Tracker: Shows matched tags location while typing numbers or text */}
+            {/* Live Matching Tracker: Shows matched tags location while typing text */}
             {matchingTagsInfo.length > 0 && (
-              <div className="mt-1.5 mb-1 p-1.5 rounded-lg bg-red-50/40 dark:bg-red-950/20 border border-red-300 dark:border-red-800/60 flex flex-col gap-1 text-[9.5px] animate-fade-in backdrop-blur-xs">
-                <div className="flex items-center justify-between text-red-800 dark:text-red-300 font-semibold text-[9px] px-1">
-                  <span className="flex items-center gap-1">
-                    <span className="text-red-500 dark:text-red-400">🎯</span>
+              <div className="mt-1.5 mb-1 p-2 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border-2 border-amber-400 dark:border-amber-500/80 flex flex-col gap-1 text-[9.5px] animate-fade-in shadow-xs backdrop-blur-xs">
+                <div className="flex items-center justify-between text-amber-950 dark:text-amber-200 font-bold text-[9.5px] px-1">
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-amber-600 dark:text-amber-400 font-black">🎯</span>
                     <span>মিলে যাওয়া ট্যাগ ({matchingTagsInfo.length}টি):</span>
                   </span>
-                  <span className="text-[8px] text-red-600/80 dark:text-red-400/80">
+                  <span className="text-[8.5px] text-amber-800/90 dark:text-amber-300/90 font-medium">
                     ট্যাপ করে সিলেক্ট করুন
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto px-0.5">
-                  {matchingTagsInfo.slice(0, 8).map(({ tag, category, isInActiveFilter }) => (
+                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto px-0.5">
+                  {matchingTagsInfo.slice(0, 16).map(({ tag, category, isInActiveFilter }) => (
                     <button
                       key={tag}
                       type="button"
                       onClick={() => handleCategoryClick(tag)}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-[#1E252D] border border-red-400 dark:border-red-500/80 text-slate-800 dark:text-slate-200 font-medium hover:bg-red-50/50 dark:hover:bg-red-950/40 transition-colors shadow-2xs cursor-pointer active:scale-95 text-[10px] whitespace-nowrap shrink-0"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100/90 dark:bg-amber-900/60 border border-amber-500 dark:border-amber-400 text-amber-950 dark:text-amber-100 font-bold hover:bg-amber-200 dark:hover:bg-amber-800 transition-all shadow-xs cursor-pointer active:scale-95 text-[10px] whitespace-nowrap shrink-0"
                     >
-                      <HighlightedTagText text={tag} query={activeTypedQuery} digitsQuery={activeTypedDigits} />
-                      <span className="text-[7.5px] px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                      <HighlightedTagText text={tag} query={activeTypedQuery} />
+                      <span className="text-[8px] px-1 py-0.2 rounded bg-white/70 dark:bg-black/30 text-amber-900 dark:text-amber-200">
                         {category === 'favorite' && '⭐'}
                         {category === 'person' && '👤'}
                         {category === 'transaction' && '🔄'}
                         {category === 'expense' && '💸'}
-                        {category === 'number' && '🔢'}
                         {category === 'general' && '🏷️'}
                       </span>
                       {!isInActiveFilter && (
-                        <span className="text-[7.5px] text-red-500 dark:text-red-400 font-semibold">
+                        <span className="text-[8px] text-amber-700 dark:text-amber-300 font-bold">
                           (অন্য ফিল্টার)
                         </span>
                       )}
@@ -1127,7 +1095,7 @@ export function TransactionForm({
 
             {sortedRecentNotes.length > 0 && (
               <div className="mt-2 text-left w-full border-t border-slate-100 dark:border-slate-700/60 pt-2">
-                {/* Quick Category Filter Tabs */}
+                {/* Quick Category Filter Tabs (Uniform styling, no numbering category) */}
                 <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 mb-2 w-full">
                   <button
                     type="button"
@@ -1140,7 +1108,7 @@ export function TransactionForm({
                   >
                     <span>সব</span>
                     <span className={`px-1 rounded-full text-[7.5px] font-black transition-colors ${tagFilter === 'all' ? 'bg-slate-800 dark:bg-slate-300 text-slate-100 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
-                      {sortedRecentNotes.length}
+                      {allCount}
                     </span>
                   </button>
 
@@ -1150,14 +1118,12 @@ export function TransactionForm({
                     title="ফেভারিট"
                     className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 whitespace-nowrap flex items-center gap-1 border ${
                       tagFilter === 'favorite'
-                        ? 'bg-amber-600/90 text-white border-amber-600 shadow-2xs'
-                        : matchingTagsInfo.some(m => m.category === 'favorite')
-                        ? 'bg-amber-50/60 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-red-400 dark:border-red-500'
-                        : 'bg-amber-50/60 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/50 hover:bg-amber-100/60 dark:hover:bg-amber-950/60'
+                        ? 'bg-slate-700 dark:bg-slate-200 text-white dark:text-slate-900 border-slate-700 dark:border-slate-200 shadow-2xs'
+                        : 'bg-white dark:bg-[#333C48] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#4A5565] hover:bg-slate-50 dark:hover:bg-[#3D4756]'
                     }`}
                   >
                     <span>⭐ ফেভারিট</span>
-                    <span className={`px-1 rounded-full text-[7.5px] font-black transition-colors ${tagFilter === 'favorite' ? 'bg-amber-800 text-white' : 'bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200'}`}>
+                    <span className={`px-1 rounded-full text-[7.5px] font-black transition-colors ${tagFilter === 'favorite' ? 'bg-slate-800 dark:bg-slate-300 text-slate-100 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                       {favCount}
                     </span>
                   </button>
@@ -1168,14 +1134,12 @@ export function TransactionForm({
                     title="ব্যক্তি"
                     className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 whitespace-nowrap flex items-center gap-1 border ${
                       tagFilter === 'person'
-                        ? 'bg-sky-600/90 text-white border-sky-600 shadow-2xs'
-                        : matchingTagsInfo.some(m => m.category === 'person')
-                        ? 'bg-sky-50/60 dark:bg-sky-950/30 text-sky-800 dark:text-sky-300 border-red-400 dark:border-red-500'
-                        : 'bg-sky-50/60 dark:bg-sky-950/30 text-sky-800 dark:text-sky-300 border-sky-200/80 dark:border-sky-800/50 hover:bg-sky-100/60 dark:hover:bg-sky-950/60'
+                        ? 'bg-slate-700 dark:bg-slate-200 text-white dark:text-slate-900 border-slate-700 dark:border-slate-200 shadow-2xs'
+                        : 'bg-white dark:bg-[#333C48] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#4A5565] hover:bg-slate-50 dark:hover:bg-[#3D4756]'
                     }`}
                   >
-                    <span>ব্যক্তি</span>
-                    <span className={`px-1 rounded-full text-[7.5px] font-black transition-colors ${tagFilter === 'person' ? 'bg-sky-800 text-white' : 'bg-sky-100 dark:bg-sky-900/60 text-sky-900 dark:text-sky-200'}`}>
+                    <span>👤 ব্যক্তি</span>
+                    <span className={`px-1 rounded-full text-[7.5px] font-black transition-colors ${tagFilter === 'person' ? 'bg-slate-800 dark:bg-slate-300 text-slate-100 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                       {personCount}
                     </span>
                   </button>
@@ -1186,14 +1150,12 @@ export function TransactionForm({
                     title="লেনদেন"
                     className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 whitespace-nowrap flex items-center gap-1 border ${
                       tagFilter === 'transaction'
-                        ? 'bg-indigo-600/90 text-white border-indigo-600 shadow-2xs'
-                        : matchingTagsInfo.some(m => m.category === 'transaction')
-                        ? 'bg-indigo-50/60 dark:bg-indigo-950/30 text-indigo-800 dark:text-indigo-300 border-red-400 dark:border-red-500'
-                        : 'bg-indigo-50/60 dark:bg-indigo-950/30 text-indigo-800 dark:text-indigo-300 border-indigo-200/80 dark:border-indigo-800/50 hover:bg-indigo-100/60 dark:hover:bg-indigo-950/60'
+                        ? 'bg-slate-700 dark:bg-slate-200 text-white dark:text-slate-900 border-slate-700 dark:border-slate-200 shadow-2xs'
+                        : 'bg-white dark:bg-[#333C48] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#4A5565] hover:bg-slate-50 dark:hover:bg-[#3D4756]'
                     }`}
                   >
-                    <span>লেনদেন</span>
-                    <span className={`px-1 rounded-full text-[7.5px] font-black transition-colors ${tagFilter === 'transaction' ? 'bg-indigo-800 text-white' : 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-900 dark:text-indigo-200'}`}>
+                    <span>🔄 লেনদেন</span>
+                    <span className={`px-1 rounded-full text-[7.5px] font-black transition-colors ${tagFilter === 'transaction' ? 'bg-slate-800 dark:bg-slate-300 text-slate-100 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                       {transactionCount}
                     </span>
                   </button>
@@ -1204,33 +1166,13 @@ export function TransactionForm({
                     title="খরচ"
                     className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 whitespace-nowrap flex items-center gap-1 border ${
                       tagFilter === 'expense'
-                        ? 'bg-rose-600/90 text-white border-rose-600 shadow-2xs'
-                        : matchingTagsInfo.some(m => m.category === 'expense')
-                        ? 'bg-rose-50/60 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-red-400 dark:border-red-500'
-                        : 'bg-rose-50/60 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-200/80 dark:border-rose-800/50 hover:bg-rose-100/60 dark:hover:bg-rose-950/60'
+                        ? 'bg-slate-700 dark:bg-slate-200 text-white dark:text-slate-900 border-slate-700 dark:border-slate-200 shadow-2xs'
+                        : 'bg-white dark:bg-[#333C48] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#4A5565] hover:bg-slate-50 dark:hover:bg-[#3D4756]'
                     }`}
                   >
-                    <span>খরচ</span>
-                    <span className={`px-1 rounded-full text-[7.5px] font-black transition-colors ${tagFilter === 'expense' ? 'bg-rose-800 text-white' : 'bg-rose-100 dark:bg-rose-900/60 text-rose-900 dark:text-rose-200'}`}>
+                    <span>💸 খরচ</span>
+                    <span className={`px-1 rounded-full text-[7.5px] font-black transition-colors ${tagFilter === 'expense' ? 'bg-slate-800 dark:bg-slate-300 text-slate-100 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                       {expenseCount}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setTagFilter('number')}
-                    title="নাম্বারিং"
-                    className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 whitespace-nowrap flex items-center gap-1 border ${
-                      tagFilter === 'number'
-                        ? 'bg-emerald-600/90 text-white border-emerald-600 shadow-2xs'
-                        : matchingTagsInfo.some(m => m.category === 'number')
-                        ? 'bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-red-400 dark:border-red-500'
-                        : 'bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/50 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/60'
-                    }`}
-                  >
-                    <span>নাম্বারিং</span>
-                    <span className={`px-1 rounded-full text-[7.5px] font-black transition-colors ${tagFilter === 'number' ? 'bg-emerald-800 text-white' : 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200'}`}>
-                      {numberCount}
                     </span>
                   </button>
                 </div>
@@ -1240,7 +1182,7 @@ export function TransactionForm({
                   <Search className="w-3.5 h-3.5 text-slate-400 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors group-focus-within:text-purple-600" />
                   <input
                     type="text"
-                    placeholder="ট্যাগ বা নাম্বার সার্চ করুন (Search)..."
+                    placeholder="ট্যাগ সার্চ করুন (Search)..."
                     value={tagSearchQuery}
                     onChange={(e) => setTagSearchQuery(e.target.value)}
                     className="w-full bg-slate-50 dark:bg-[#252B33] border border-slate-200 dark:border-[#46515E] rounded-lg pl-8 pr-7 py-1 text-[10px] font-bold text-slate-800 dark:text-[#F1F3F5] outline-none focus:bg-white dark:focus:bg-[#20252D] focus:border-purple-500 dark:focus:border-amber-400 focus:ring-2 focus:ring-purple-200/50 dark:focus:ring-amber-400/20 shadow-2xs transition-all duration-150 placeholder:text-slate-400 dark:placeholder:text-slate-500"
@@ -1265,7 +1207,7 @@ export function TransactionForm({
                   </div>
                 )}
 
-                {/* Tags List Container with Soft Muted Styling */}
+                {/* Tags List Container with Single Uniform Color (সব ট্যাগের কালার এক) */}
                 {filteredNotesForView.length === 0 ? (
                   <div className="text-center py-2.5 px-2 bg-slate-50 dark:bg-[#252B33] rounded-lg border border-dashed border-slate-200 dark:border-[#46515E] text-[10px] text-slate-400 dark:text-slate-400 font-bold mb-2">
                     {tagSearchQuery ? (
@@ -1276,7 +1218,7 @@ export function TransactionForm({
                         {tagFilter === 'person' && '👤 "ব্যক্তি" ক্যাটাগরিতে কোন ট্যাগ নেই। নিচের "এড+" বাটনে ট্যাপ করে যোগ করুন!'}
                         {tagFilter === 'transaction' && '🔄 "লেনদেন" ক্যাটাগরিতে কোন ট্যাগ নেই। নিচের "এড+" বাটনে ট্যাপ করে যোগ করুন!'}
                         {tagFilter === 'expense' && '💸 "খরচ" ক্যাটাগরিতে কোন ট্যাগ নেই। নিচের "এড+" বাটনে ট্যাপ করে যোগ করুন!'}
-                        {tagFilter === 'number' && '🔢 "নাম্বারিং" ক্যাটাগরিতে কোন ট্যাগ নেই।'}
+                        {tagFilter === 'all' && 'কোন ট্যাগ নেই।'}
                       </>
                     )}
                   </div>
@@ -1284,52 +1226,25 @@ export function TransactionForm({
                   <div className="flex flex-wrap gap-1 max-h-60 overflow-y-auto pt-0.5 pb-1.5 justify-start">
                     {filteredNotesForView.map((n) => {
                       const isSelected = note.split(/[,।]/).map(s => s.trim()).includes(n);
-                      const isFav = favoriteTags.includes(n);
                       const category = getTagCategory(n);
+                      const isMatched = Boolean(activeTypedQuery && n.toLowerCase().includes(activeTypedQuery.toLowerCase()));
 
-                      // Check if tag is currently matched by active typed query
-                      const hasActiveQuery = Boolean(activeTypedQuery || activeTypedDigits);
-                      const isMatch = hasActiveQuery && (
-                        (activeTypedQuery && n.toLowerCase().includes(activeTypedQuery.toLowerCase())) ||
-                        (activeTypedDigits.length >= 1 && convertBengaliDigitsToEnglish(n).replace(/[^0-9]/g, '').includes(activeTypedDigits))
-                      );
-
-                      // Clean styling: if matched by user input, give it a clean red border
+                      // If matched by search or query (even a single character), highlight the entire tag prominently
                       let tagStyle = '';
-                      if (isMatch) {
+                      if (isMatched) {
                         tagStyle = isSelected
-                          ? 'bg-red-500/10 dark:bg-red-500/20 border-red-500 dark:border-red-400 text-red-700 dark:text-red-300 font-semibold ring-1 ring-red-400/40 shadow-2xs'
-                          : 'bg-red-50/40 dark:bg-red-950/25 border-red-400 dark:border-red-500 text-slate-800 dark:text-slate-200 hover:bg-red-50/70 dark:hover:bg-red-950/40 font-medium';
-                      } else if (isFav) {
-                        tagStyle = isSelected
-                          ? 'bg-amber-100/90 dark:bg-amber-950/70 border-amber-400 dark:border-amber-600 text-amber-950 dark:text-amber-100 font-black ring-1 ring-amber-400/50 shadow-2xs'
-                          : 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200/80 dark:border-amber-800/40 text-amber-900/90 dark:text-amber-300 hover:bg-amber-100/60 dark:hover:bg-amber-950/50 font-semibold';
-                      } else if (category === 'person') {
-                        tagStyle = isSelected
-                          ? 'bg-sky-100/90 dark:bg-sky-950/70 border-sky-400 dark:border-sky-600 text-sky-950 dark:text-sky-100 font-black ring-1 ring-sky-400/50 shadow-2xs'
-                          : 'bg-sky-50/70 dark:bg-sky-950/30 border-sky-200/80 dark:border-sky-800/40 text-sky-900/90 dark:text-sky-300 hover:bg-sky-100/60 dark:hover:bg-sky-950/50 font-semibold';
-                      } else if (category === 'transaction') {
-                        tagStyle = isSelected
-                          ? 'bg-indigo-100/90 dark:bg-indigo-950/70 border-indigo-400 dark:border-indigo-600 text-indigo-950 dark:text-indigo-100 font-black ring-1 ring-indigo-400/50 shadow-2xs'
-                          : 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-200/80 dark:border-indigo-800/40 text-indigo-900/90 dark:text-indigo-300 hover:bg-indigo-100/60 dark:hover:bg-indigo-950/50 font-semibold';
-                      } else if (category === 'expense') {
-                        tagStyle = isSelected
-                          ? 'bg-rose-100/90 dark:bg-rose-950/70 border-rose-400 dark:border-rose-600 text-rose-950 dark:text-rose-100 font-black ring-1 ring-rose-400/50 shadow-2xs'
-                          : 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-200/80 dark:border-rose-800/40 text-rose-900/90 dark:text-rose-300 hover:bg-rose-100/60 dark:hover:bg-rose-950/50 font-semibold';
-                      } else if (category === 'number') {
-                        tagStyle = isSelected
-                          ? 'bg-emerald-100/90 dark:bg-emerald-950/70 border-emerald-400 dark:border-emerald-600 text-emerald-950 dark:text-emerald-100 font-black ring-1 ring-emerald-400/50 shadow-2xs'
-                          : 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200/80 dark:border-emerald-800/40 text-emerald-900/90 dark:text-emerald-300 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/50 font-semibold';
+                          ? 'bg-amber-300 dark:bg-amber-400 border-amber-600 dark:border-amber-300 text-slate-950 dark:text-slate-950 font-black ring-2 ring-amber-400 shadow-sm scale-[1.02]'
+                          : 'bg-amber-100 dark:bg-amber-950/80 border-amber-500 dark:border-amber-400 text-amber-950 dark:text-amber-100 font-bold ring-2 ring-amber-400/80 shadow-xs scale-[1.02]';
+                      } else if (isSelected) {
+                        tagStyle = 'bg-purple-100 dark:bg-purple-950/70 border-purple-400 dark:border-purple-600 text-purple-900 dark:text-purple-200 font-bold ring-1 ring-purple-400/40 shadow-2xs';
                       } else {
-                        tagStyle = isSelected
-                          ? 'bg-slate-200 dark:bg-[#3D4756] border-slate-400 dark:border-slate-500 text-slate-900 dark:text-slate-100 font-black ring-1 ring-slate-400/40 shadow-2xs'
-                          : 'bg-white dark:bg-[#2B333E] border-slate-200 dark:border-[#424D5B] text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-[#333C48] font-semibold';
+                        tagStyle = 'bg-white dark:bg-[#2B333E] border-slate-200 dark:border-[#424D5B] text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#333C48] hover:text-slate-900 dark:hover:text-white font-medium';
                       }
 
                       return (
                         <div
                           key={n}
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border transition-all duration-150 hover:scale-[1.02] active:scale-95 select-none text-[10px] whitespace-nowrap shrink-0 ${tagStyle}`}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border transition-all duration-150 active:scale-95 select-none text-[10px] whitespace-nowrap shrink-0 ${tagStyle}`}
                         >
                           {/* Tag Text Button with Highlighted Match */}
                           <button
@@ -1341,8 +1256,7 @@ export function TransactionForm({
                             {category === 'person' && <span className="text-[8.5px] opacity-90" title="ব্যক্তি">👤</span>}
                             {category === 'transaction' && <span className="text-[8.5px] opacity-90" title="লেনদেন">🔄</span>}
                             {category === 'expense' && <span className="text-[8.5px] opacity-90" title="খরচ">💸</span>}
-                            {category === 'number' && <span className="text-[8.5px] opacity-90" title="নাম্বারিং">🔢</span>}
-                            <HighlightedTagText text={n} query={activeTypedQuery} digitsQuery={activeTypedDigits} />
+                            <HighlightedTagText text={n} query={activeTypedQuery} />
                           </button>
 
                           {/* Remove/Delete Tag Button */}
@@ -1360,8 +1274,10 @@ export function TransactionForm({
                                 : "এই ফিল্টার থেকে সরান"
                             }
                             className={`p-0.5 rounded-full transition-colors cursor-pointer ml-0.5 ${
-                              isSelected 
-                                ? 'hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400' 
+                              isMatched
+                                ? 'hover:bg-amber-200 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 hover:text-rose-600 dark:hover:text-rose-400'
+                                : isSelected 
+                                ? 'hover:bg-purple-200 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 hover:text-rose-600 dark:hover:text-rose-400' 
                                 : 'hover:bg-slate-200 dark:hover:bg-slate-700/60 text-slate-400 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400'
                             }`}
                           >
@@ -1374,29 +1290,18 @@ export function TransactionForm({
                 )}
 
                 {/* + Add Button Banner placed BELOW the Tags List */}
-                {(tagFilter === 'favorite' || tagFilter === 'person' || tagFilter === 'transaction' || tagFilter === 'expense' || tagFilter === 'number') && (
+                {(tagFilter === 'favorite' || tagFilter === 'person' || tagFilter === 'transaction' || tagFilter === 'expense') && (
                   <div className="mt-1.5 mb-2 flex items-center justify-between bg-slate-50 dark:bg-[#252B33] border border-slate-200 dark:border-[#46515E] rounded-lg p-1.5">
                     <span className="text-[9.5px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
                       {tagFilter === 'favorite' && '⭐ ফেভারিটে ট্যাগ এড করুন'}
                       {tagFilter === 'person' && '👤 ব্যক্তিতে ট্যাগ এড করুন'}
                       {tagFilter === 'transaction' && '🔄 লেনদেনে ট্যাগ এড করুন'}
                       {tagFilter === 'expense' && '💸 খরচে ট্যাগ এড করুন'}
-                      {tagFilter === 'number' && '🔢 নাম্বারিংয়ে ট্যাগ এড করুন'}
                     </span>
                     <button
                       type="button"
                       onClick={() => setIsAddingTagToFilter(isAddingTagToFilter === tagFilter ? null : (tagFilter as any))}
-                      className={`px-2.5 py-0.5 rounded-md text-[9.5px] font-extrabold flex items-center gap-1 transition-all cursor-pointer shadow-2xs text-white ${
-                        tagFilter === 'favorite'
-                          ? 'bg-amber-600 hover:bg-amber-700'
-                          : tagFilter === 'person'
-                          ? 'bg-sky-600 hover:bg-sky-700'
-                          : tagFilter === 'transaction'
-                          ? 'bg-indigo-600 hover:bg-indigo-700'
-                          : tagFilter === 'expense'
-                          ? 'bg-rose-600 hover:bg-rose-700'
-                          : 'bg-emerald-600 hover:bg-emerald-700'
-                      }`}
+                      className="px-2.5 py-0.5 rounded-md text-[9.5px] font-extrabold flex items-center gap-1 transition-all cursor-pointer shadow-2xs text-white bg-purple-600 hover:bg-purple-700"
                     >
                       <Plus className="w-2.5 h-2.5 stroke-[3]" />
                       <span>এড+</span>
@@ -1413,7 +1318,6 @@ export function TransactionForm({
                         {isAddingTagToFilter === 'person' && '👤 ব্যক্তি ফিল্টারে নতুন ট্যাগ যোগ করুন'}
                         {isAddingTagToFilter === 'transaction' && '🔄 লেনদেন ফিল্টারে নতুন ট্যাগ যোগ করুন'}
                         {isAddingTagToFilter === 'expense' && '💸 খরচ ফিল্টারে নতুন ট্যাগ যোগ করুন'}
-                        {isAddingTagToFilter === 'number' && '🔢 নাম্বারিং ফিল্টারে নতুন নাম্বার যোগ করুন'}
                       </span>
                       <button
                         type="button"
@@ -1428,7 +1332,7 @@ export function TransactionForm({
                     <div className="flex gap-1.5 items-center">
                       <input
                         type="text"
-                        placeholder={isAddingTagToFilter === 'number' ? "নাম্বার লিখুন (স্পেস/চিহ্ন ছাড়া সেভ হবে)..." : "নতুন ট্যাগ লিখুন (যেমন: নাম, বিষয়)..."}
+                        placeholder="নতুন ট্যাগ লিখুন (যেমন: নাম, বিষয়)..."
                         value={newCustomTagInput}
                         onChange={(e) => setNewCustomTagInput(e.target.value)}
                         onKeyDown={(e) => {
@@ -1471,9 +1375,6 @@ export function TransactionForm({
                                 } else if (isAddingTagToFilter === 'expense') {
                                   setTagOverrideCategory(tag, 'expense');
                                   setActionFeedback(`💸 "${tag}" খরচ ক্যাটাগরিতে যোগ করা হয়েছে`);
-                                } else if (isAddingTagToFilter === 'number') {
-                                  setTagOverrideCategory(tag, 'number');
-                                  setActionFeedback(`🔢 "${tag}" নাম্বারিংয়ে যোগ করা হয়েছে`);
                                 }
                                 setTimeout(() => setActionFeedback(null), 2000);
                               }}

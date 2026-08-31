@@ -8,6 +8,7 @@ import { safeLocalStorage as localStorage } from '../utils/safeStorage';
 import { MessageSquare, Send, X, User, Phone, CheckCheck, ShieldAlert, ArrowRight, UserPlus, Lock, Trash2 } from 'lucide-react';
 import { ChatMessage, ChatQuickFAQ } from '../types';
 import { DEFAULT_QUICK_FAQS } from '../utils/storage';
+import { soundEngine } from '../utils/audio';
 
 interface VisitorLiveChatModalProps {
   isOpen: boolean;
@@ -216,6 +217,7 @@ export function VisitorLiveChatModal({
     const currentPhone = visitorPhone.trim() || deviceRegisteredPhone || '';
 
     // 1. Send customer's selected question immediately with their Name & Phone
+    soundEngine.playMessageSentSound();
     onSendMessage(visitorId, faq.question, 'customer', currentName, currentPhone);
 
     // 2. Show typing... for 10 seconds, then reply and hide this specific FAQ (Requirement 1 & 2)
@@ -227,6 +229,7 @@ export function VisitorLiveChatModal({
     setTypingText('typing...');
 
     const timer = setTimeout(() => {
+      soundEngine.playIncomingMessageSound();
       onSendMessage(visitorId, replyAnswer, 'owner', 'প্রোপাইটার (HelloPoint)');
       setIsAutoReplying(false);
 
@@ -254,6 +257,7 @@ export function VisitorLiveChatModal({
     if (!trimmedMsg) return;
 
     // Send customer's message with their Name and Phone Number
+    soundEngine.playMessageSentSound();
     onSendMessage(visitorId, trimmedMsg, 'customer', currentName, currentPhone);
     setInputText('');
 
@@ -262,6 +266,7 @@ export function VisitorLiveChatModal({
       setIsAutoReplying(true);
       setTypingText(lang === 'bn' ? 'টাইপ করছেন...' : 'typing...');
       const timer = setTimeout(() => {
+        soundEngine.playIncomingMessageSound();
         const closedReply = lang === 'bn'
           ? 'আমাদের শপ এখন বন্ধ আছে, অনলাইনে আসার সাথে সাথে আপনার সাথে যোগাযোগ করা হবে। ধন্যবাদ।'
           : 'Our shop is currently closed. We will get in touch with you as soon as we are online. Thank you.';
@@ -282,6 +287,7 @@ export function VisitorLiveChatModal({
       setIsAutoReplying(true);
       setTypingText(lang === 'bn' ? 'টাইপ করছেন...' : 'typing...');
       const timer = setTimeout(() => {
+        soundEngine.playIncomingMessageSound();
         const busyReply = lang === 'bn'
           ? 'আমরা অন্য চ্যাটে ব্যস্ত আছি, কিছুক্ষণের মধ্যে আপনার সাথে আমাদের একজন প্রতিনিধি যুক্ত হবেন।'
           : 'We are currently busy with other chats. A representative will connect with you shortly.';
