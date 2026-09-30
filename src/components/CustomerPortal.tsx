@@ -9,7 +9,6 @@ import {
   FileText, 
   Image, 
   PenTool, 
-  Calendar, 
   DollarSign, 
   CheckCircle, 
   Check,
@@ -497,6 +496,70 @@ export function CustomerPortal({
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [customerTxs, searchQuery, filterType]);
+
+  const getNormalizedDateKey = (dateStr: string) => {
+    if (!dateStr) return 'unknown';
+    if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+      return dateStr.substring(0, 10);
+    }
+    try {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      }
+    } catch {}
+    return dateStr.substring(0, 10);
+  };
+
+  const isDateToday = (dateStr?: string) => {
+    if (!dateStr) return false;
+    const key = getNormalizedDateKey(dateStr);
+    const now = new Date();
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (key === todayKey) return true;
+    try {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        return (
+          d.getFullYear() === now.getFullYear() &&
+          d.getMonth() === now.getMonth() &&
+          d.getDate() === now.getDate()
+        );
+      }
+    } catch {}
+    return false;
+  };
+
+  const dateGroupedPortalTxs = useMemo(() => {
+    const groups: {
+      dateKey: string;
+      displayDate: string;
+      items: typeof filteredTxs;
+    }[] = [];
+
+    const groupMap = new Map<string, typeof groups[0]>();
+
+    filteredTxs.forEach((tx) => {
+      const key = getNormalizedDateKey(tx.date || tx.createdAt);
+      let group = groupMap.get(key);
+      if (!group) {
+        group = {
+          dateKey: key,
+          displayDate: formatTxDate(tx.date || tx.createdAt),
+          items: []
+        };
+        groupMap.set(key, group);
+        groups.push(group);
+      }
+
+      group.items.push(tx);
+    });
+
+    return groups;
+  }, [filteredTxs, lang]);
 
   const handlePrintPortal = () => {
     window.print();
@@ -1123,8 +1186,8 @@ export function CustomerPortal({
         </div>
 
         {/* Render Timeline entries - LONG BILLER CARD STYLE */}
-        <div className="space-y-1.5">
-            {filteredTxs.length === 0 ? (
+        <div className="space-y-3 sm:space-y-3.5">
+            {dateGroupedPortalTxs.length === 0 ? (
               <div className="text-center py-6 text-slate-400 border border-dashed border-slate-150 rounded-xl">
                 <Clock className="w-5 h-5 text-slate-350 mx-auto mb-1 animate-pulse" />
                 <p className="text-[10px] font-bold leading-none">
@@ -1132,112 +1195,109 @@ export function CustomerPortal({
                 </p>
               </div>
             ) : (
-              filteredTxs.map((tx) => {
-                const isGave = tx.type === 'GAVE';
-
+              dateGroupedPortalTxs.map((group) => {
                 // Card density mapping configurations for transaction rows
                 const rowStyles = {
                   compact: {
                     containerPadding: "px-2 py-0.5 sm:py-1 gap-1",
-                    circle: "w-1 h-1",
-                    dateText: "text-[7.5px]",
-                    separator: "text-[8px]",
-                    noteText: "text-[9.5px]",
-                    rightContainer: "w-[122px] gap-1",
-                    amountCol: "w-[58px]",
-                    amountText: "text-[8.5px] px-0.5 py-0.1",
-                    balanceCol: "w-[60px] justify-end",
-                    balanceText: "text-[7.2px]"
+                    dateText: "text-[7.5px] sm:text-[8px]",
+                    separator: "text-[7.5px]",
+                    noteText: "text-[9.5px] sm:text-[10px]",
+                    amountText: "text-[10px] sm:text-[10.5px]",
+                    balanceText: "text-[10px] sm:text-[10.5px]"
                   },
                   comfortable: {
-                    containerPadding: "px-2.5 py-1.5 gap-1.5",
-                    circle: "w-1.2 h-1.2",
-                    dateText: "text-[8.5px]",
-                    separator: "text-[9px]",
-                    noteText: "text-[11px]",
-                    rightContainer: "w-[138px] gap-1",
-                    amountCol: "w-[70px]",
-                    amountText: "text-[9.5px] px-1 py-0.2",
-                    balanceCol: "w-[64px] justify-end",
-                    balanceText: "text-[8px]"
+                    containerPadding: "px-2.5 py-1 sm:py-1.5 gap-1.5",
+                    dateText: "text-[8px] sm:text-[8.5px]",
+                    separator: "text-[8px]",
+                    noteText: "text-[10.5px] sm:text-[11px]",
+                    amountText: "text-[11px] sm:text-[11.5px]",
+                    balanceText: "text-[11px] sm:text-[11.5px]"
                   },
                   large: {
-                    containerPadding: "px-3.5 py-2.5 gap-2",
-                    circle: "w-2 h-2",
-                    dateText: "text-[9.5px]",
-                    separator: "text-[10px]",
-                    noteText: "text-[12.5px]",
-                    rightContainer: "w-[158px] gap-1.5",
-                    amountCol: "w-[80px]",
-                    amountText: "text-[11px] px-1.5 py-0.5",
-                    balanceCol: "w-[74px] justify-end",
-                    balanceText: "text-[9.5px]"
+                    containerPadding: "px-3 py-1.5 sm:py-2 gap-2",
+                    dateText: "text-[9px] sm:text-[9.5px]",
+                    separator: "text-[9px]",
+                    noteText: "text-[11.5px] sm:text-[12px]",
+                    amountText: "text-[12px] sm:text-[12.5px]",
+                    balanceText: "text-[12px] sm:text-[12.5px]"
                   }
                 };
 
                 const style = rowStyles[cardDensity] || rowStyles.comfortable;
 
                 return (
-                  <div 
-                    key={tx.id}
-                    onClick={() => setSelectedTx(tx)}
-                    className={`bg-white hover:bg-slate-50 border border-slate-200/50 rounded-lg ${style.containerPadding} flex items-center justify-between cursor-pointer transition-all shadow-tiny hover:border-purple-300 select-none text-left`}
-                  >
-                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      {/* Compact status circle */}
-                      <span className={`${style.circle} rounded-full shrink-0 ${isGave ? 'bg-rose-500' : 'bg-emerald-500'}`} />
-                      
-                      {/* Date */}
-                      <span className={`${style.dateText} text-slate-400 font-bold font-mono shrink-0`}>
-                        {formatTxDate(tx.date || tx.createdAt)}
-                      </span>
-                      
-                      <span className={`text-slate-300 ${style.separator} shrink-0 font-light`}>|</span>
- 
-                      {/* Note / Comment */}
-                      <span className={`${style.noteText} font-extrabold text-slate-700 truncate min-w-0`}>
-                        {tx.note || (isGave 
-                          ? (lang === 'bn' ? 'পণ্য ক্রয় হিসাব' : 'Goods Purchased') 
-                          : (lang === 'bn' ? 'টাকা জমা/পরিশোধ' : 'Amount Deposited'))
-                        }
-                      </span>
-                    </div>
- 
-                    {/* Amount & Running Balance (perfect inline layout, zero wrapping) */}
-                    <div className={`shrink-0 flex items-center justify-end ${style.rightContainer} select-none`}>
-                      {/* Amount Column */}
-                      <div className={`${style.amountCol} shrink-0 text-right`}>
-                        <span className={`${style.amountText} font-black font-sans tracking-tight block text-center w-full whitespace-nowrap overflow-visible ${
-                          !isGave ? 'text-emerald-600 bg-emerald-50/40 border border-[#a7f3d0]/40 rounded' : 'text-rose-500 bg-rose-50/40 border border-[#fecdd3]/40 rounded'
-                        }`}>
-                          {!isGave ? '+' : '-'}{currency}{toBn(tx.amount.toFixed(2))}
-                        </span>
-                      </div>
-                      
-                      {/* Running Balance Column */}
-                      <div className={`${style.balanceCol} shrink-0 text-right flex`}>
-                        {!hideRunningBalance ? (
-                          <span className={`${style.balanceText} font-bold tracking-tight leading-none inline-flex items-center gap-0.5 shrink-0`}>
-                            <span className="text-slate-400 font-normal">(</span>
-                            <span className={`font-black font-mono ${
-                              (tx as any).runningBalance < 0 
-                                ? 'text-emerald-600 dark:text-emerald-400' 
-                                : (tx as any).runningBalance > 0
-                                ? 'text-rose-600 dark:text-rose-400'
-                                : 'text-slate-600 dark:text-slate-400'
-                            }`}>
-                              {(tx as any).runningBalance < 0 ? '+' : (tx as any).runningBalance > 0 ? '-' : ''}
-                              {currency}{toBn(Math.abs((tx as any).runningBalance).toFixed(1))}
+                  <div key={group.dateKey} className="space-y-1 sm:space-y-1.5 flex flex-col">
+                    {/* Entries for this date */}
+                    {group.items.map((tx) => {
+                      const isGave = tx.type === 'GAVE';
+                      const isToday = isDateToday(tx.date || tx.createdAt);
+
+                      return (
+                        <div 
+                          key={tx.id}
+                          onClick={() => setSelectedTx(tx)}
+                          className={`bg-white hover:bg-slate-50 border border-slate-200/50 rounded-lg ${style.containerPadding} flex items-center justify-between cursor-pointer transition-all shadow-tiny hover:border-purple-300 select-none text-left`}
+                        >
+                          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+                            {/* Date: Light yellow/amber for today, muted slate for other days */}
+                            <span 
+                              className={`${style.dateText} font-mono shrink-0 ${
+                                isToday 
+                                  ? 'text-amber-500 dark:text-yellow-300 font-black' 
+                                  : 'text-slate-400 font-bold'
+                              }`}
+                              title={isToday ? (lang === 'bn' ? 'আজকের লেনদেন' : 'Today\'s transaction') : undefined}
+                            >
+                              {formatTxDate(tx.date || tx.createdAt)}
                             </span>
-                            <span className="text-slate-400 font-normal">)</span>
-                          </span>
-                        ) : (
-                          <span className="text-[7.5px] font-extrabold text-slate-300 tracking-wider leading-none shrink-0">
-                            (•••)
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                            
+                            <span className={`text-slate-300 ${style.separator} shrink-0 font-light`}>|</span>
+       
+                            {/* Note / Comment and Main Balance (মুল ব্যালেন্স ক্যাটাগরির ডান পাশে) */}
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <span className={`${style.noteText} font-extrabold text-slate-700 truncate min-w-0`}>
+                                {tx.note || (isGave 
+                                  ? (lang === 'bn' ? 'পণ্য ক্রয় হিসাব' : 'Goods Purchased') 
+                                  : (lang === 'bn' ? 'টাকা জমা/পরিশোধ' : 'Amount Deposited'))
+                                }
+                              </span>
+
+                              {/* Main Balance (মুল ব্যালেন্স) */}
+                              <span className={`${style.amountText} font-black font-mono tracking-tight shrink-0 whitespace-nowrap ${
+                                !isGave ? 'text-emerald-600' : 'text-rose-600'
+                              }`}>
+                                {!isGave ? '+' : '-'}{currency}{toBn(tx.amount.toFixed(2))}
+                              </span>
+                            </div>
+                          </div>
+         
+                          {/* Running Balance Column (জের ব্যালেন্স একটু বড় হবে) */}
+                          <div className="shrink-0 text-right flex items-center justify-end select-none pl-1.5">
+                            {!hideRunningBalance ? (
+                              <span className={`${style.balanceText} font-bold tracking-tight leading-none inline-flex items-center gap-0.5 shrink-0`}>
+                                <span className="text-slate-400 font-normal">(</span>
+                                <span className={`font-black font-mono ${
+                                  (tx as any).runningBalance < 0 
+                                    ? 'text-emerald-600 dark:text-emerald-400' 
+                                    : (tx as any).runningBalance > 0
+                                    ? 'text-rose-600 dark:text-rose-400'
+                                    : 'text-slate-600 dark:text-slate-400'
+                                }`}>
+                                  {(tx as any).runningBalance < 0 ? '+' : (tx as any).runningBalance > 0 ? '-' : ''}
+                                  {currency}{toBn(Math.abs((tx as any).runningBalance).toFixed(1))}
+                                </span>
+                                <span className="text-slate-400 font-normal">)</span>
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-extrabold text-slate-300 tracking-wider leading-none shrink-0">
+                                (•••)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })

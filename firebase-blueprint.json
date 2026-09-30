@@ -165,10 +165,49 @@
         "imageUrl": { "type": "string" },
         "images": { "type": "array" },
         "inStock": { "type": "boolean" },
+        "stockQuantity": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name", "price", "description", "inStock", "createdAt"]
+    },
+    "ShopCustomerAccount": {
+      "title": "ShopCustomerAccount",
+      "description": "Online shop registered customer account",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "phone", "address", "createdAt"]
+    },
+    "ShopOrder": {
+      "title": "ShopOrder",
+      "description": "Online shop customer order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "deliveryCharge": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["cod", "bkash", "nagad", "online"] },
+        "paymentStatus": { "type": "string", "enum": ["unpaid", "paid"] },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "shipped", "delivered", "cancelled"] },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderNumber", "customerName", "customerPhone", "customerAddress", "items", "totalAmount", "status", "createdAt"]
     },
     "ChatQuickFAQ": {
       "title": "ChatQuickFAQ",
@@ -226,6 +265,14 @@
       "schema": "Product",
       "description": "Shop products collection"
     },
+    "/users/{userId}/shop_customers/{customerId}": {
+      "schema": "ShopCustomerAccount",
+      "description": "Online shop registered customer accounts"
+    },
+    "/users/{userId}/shop_orders/{orderId}": {
+      "schema": "ShopOrder",
+      "description": "Online shop customer orders"
+    },
     "/users/{userId}/quick_faqs/{faqId}": {
       "schema": "ChatQuickFAQ",
       "description": "Chat quick FAQs & automated replies"
@@ -236,3 +283,4 @@
     }
   }
 }
+

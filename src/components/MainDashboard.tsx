@@ -61,14 +61,20 @@ import {
   Star,
   Users,
   ChevronLeft,
-  Plus
+  Plus,
+  Globe,
+  Smartphone,
+  CheckCircle2,
+  Radio
 } from 'lucide-react';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction } from '../types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount, RemoteTypeState } from '../types';
 import { ThemeMode } from '../utils/theme';
 import { ChatBox } from './ChatBox';
 import { ShopManagementModal } from './ShopManagementModal';
+import { downloadParcelLabelImage } from '../utils/parcelLabelGenerator';
+import { OwnerRemoteTypeModal, OwnerRemoteTypeInlineBanner, getInitialRemoteTypeState, syncRemoteTypeStateInstant } from './RemoteTypeModals';
 import ChatAutoReplySettingsModal from './ChatAutoReplySettingsModal';
-import { getContactSummary, loadQuickFaqs, saveQuickFaqs, loadSavedPayBillAccounts, addSavedPayBillAccount } from '../utils/storage';
+import { getContactSummary, loadQuickFaqs, saveQuickFaqs, loadSavedPayBillAccounts, addSavedPayBillAccount, findMatchingCashInAccount } from '../utils/storage';
 import BanglaCalendar from './BanglaCalendar';
 import { CashInView } from './CashInView';
 import { motion, AnimatePresence } from 'motion/react';
@@ -106,7 +112,7 @@ interface MainDashboardProps {
   onSignIn: () => void;
   onSignOut: () => void;
   paybills: PayBillEntry[];
-  onSavePayBill: (paybill: PayBillEntry) => void;
+  onSavePayBill: (paybill: PayBillEntry, addToCustomerLedger?: boolean, matchedContactId?: string) => void;
   onDeletePayBill: (id: string) => void;
   lang?: 'bn' | 'en';
   setLang?: (l: 'bn' | 'en') => void;
@@ -137,6 +143,13 @@ interface MainDashboardProps {
   products?: Product[];
   onSaveProduct?: (product: Product) => void;
   onDeleteProduct?: (productId: string) => void;
+  shopOrders?: ShopOrder[];
+  onUpdateShopOrderStatus?: (orderId: string, status: ShopOrder['status']) => void;
+  onDeleteShopOrder?: (orderId: string) => void;
+  shopCustomers?: ShopCustomerAccount[];
+  onDeleteShopCustomer?: (customerId: string) => void;
+  remoteTypeState?: RemoteTypeState;
+  onUpdateRemoteTypeState?: (state: RemoteTypeState) => void;
   quickFaqs?: ChatQuickFAQ[];
   onSaveQuickFaqs?: (faqs: ChatQuickFAQ[]) => void;
   cashInAccounts?: CashInAccount[];
@@ -145,6 +158,18 @@ interface MainDashboardProps {
   onDeleteCashInAccount?: (accountId: string) => Promise<void> | void;
   onSaveCashInTransaction?: (tx: CashInTransaction, updatedAccount?: CashInAccount) => Promise<void> | void;
   onDeleteCashInTransaction?: (txId: string, refundAccount?: boolean) => Promise<void> | void;
+  onClearCashInAccountHistory?: (accountId: string) => Promise<void> | void;
+  onSaveCustomerTransaction?: (data: {
+    amount: number;
+    type: 'GAVE' | 'GOT';
+    note: string;
+    billNo: string;
+    date: string;
+    attachFile?: string;
+    signature?: string;
+    contactId?: string;
+    transactionId?: string;
+  }) => Promise<void> | void;
 }
 
 interface Reminder {
@@ -213,6 +238,13 @@ export function MainDashboard({
   products = [],
   onSaveProduct,
   onDeleteProduct,
+  shopOrders = [],
+  onUpdateShopOrderStatus,
+  onDeleteShopOrder,
+  shopCustomers = [],
+  onDeleteShopCustomer,
+  remoteTypeState: propRemoteTypeState,
+  onUpdateRemoteTypeState,
   quickFaqs,
   onSaveQuickFaqs,
   cashInAccounts = [],
@@ -220,11 +252,41 @@ export function MainDashboard({
   onSaveCashInAccount,
   onDeleteCashInAccount,
   onSaveCashInTransaction,
-  onDeleteCashInTransaction
+  onDeleteCashInTransaction,
+  onClearCashInAccountHistory,
+  onSaveCustomerTransaction
 }: MainDashboardProps) {
   // Bilingual localization state
   const [localLang, setLocalLang] = useState<'bn' | 'en'>(() => (localStorage.getItem('hellopoint_lang') as 'bn' | 'en') || 'bn');
   const lang = propLang || localLang;
+  const [showRemoteTypeModal, setShowRemoteTypeModal] = useState(false);
+  const activeRemoteState = propRemoteTypeState || getInitialRemoteTypeState();
+  const updateRemoteState = onUpdateRemoteTypeState || syncRemoteTypeStateInstant;
+
+  const handleClearLiveRemoteNumber = () => {
+    updateRemoteState({
+      ...activeRemoteState,
+      liveNumber: '',
+      isTyping: false,
+      updatedAt: new Date().toISOString()
+    });
+  };
+
+  const handleDeleteSentRemoteNumber = (id: string) => {
+    updateRemoteState({
+      ...activeRemoteState,
+      sentNumbers: (activeRemoteState.sentNumbers || []).filter(item => item.id !== id),
+      updatedAt: new Date().toISOString()
+    });
+  };
+
+  const handleClearAllSentRemoteNumbers = () => {
+    updateRemoteState({
+      ...activeRemoteState,
+      sentNumbers: [],
+      updatedAt: new Date().toISOString()
+    });
+  };
   const setLang = (l: 'bn' | 'en') => {
     localStorage.setItem('hellopoint_lang', l);
     if (propSetLang) propSetLang(l);
@@ -499,6 +561,47 @@ export function MainDashboard({
   });
   const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
   const [activePayBillDetails, setActivePayBillDetails] = useState<PayBillEntry | null>(null);
+  const [addPayBillToBaki, setAddPayBillToBaki] = useState(false);
+
+  // Match active paybill's customer with customer accounts (contacts)
+  const matchedContactForActivePayBill = useMemo(() => {
+    if (!activePayBillDetails) return null;
+
+    // 1. By direct contactId
+    if (activePayBillDetails.contactId) {
+      const direct = contacts.find(c => c.id === activePayBillDetails.contactId);
+      if (direct) return direct;
+    }
+
+    // 2. By phone number in note (which is customer's mobile number in Pay Bill)
+    if (activePayBillDetails.note) {
+      const cleanPaybillPhone = activePayBillDetails.note.trim().replace(/\D/g, '');
+      if (cleanPaybillPhone && cleanPaybillPhone.length >= 6) {
+        const byPhone = contacts.find(c => {
+          const cleanContactPhone = c.phone.trim().replace(/\D/g, '');
+          return cleanContactPhone && (cleanContactPhone.endsWith(cleanPaybillPhone) || cleanPaybillPhone.endsWith(cleanContactPhone));
+        });
+        if (byPhone) return byPhone;
+      }
+    }
+
+    // 3. By billerDetails if it contains phone or exact customer name
+    if (activePayBillDetails.billerDetails) {
+      const cleanDetails = activePayBillDetails.billerDetails.trim();
+      const detailsPhone = cleanDetails.replace(/\D/g, '');
+      if (detailsPhone && detailsPhone.length >= 6) {
+        const byPhone = contacts.find(c => {
+          const cPhone = c.phone.trim().replace(/\D/g, '');
+          return cPhone && (cPhone.endsWith(detailsPhone) || detailsPhone.endsWith(cPhone));
+        });
+        if (byPhone) return byPhone;
+      }
+      const byName = contacts.find(c => c.name.trim().toLowerCase() === cleanDetails.toLowerCase());
+      if (byName) return byName;
+    }
+
+    return null;
+  }, [activePayBillDetails, contacts]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (message: string) => {
@@ -1118,7 +1221,8 @@ export function MainDashboard({
       paidAt: editingPayBill?.paidAt,
       paidInfo: editingPayBill?.paidInfo,
       paidAccount: editingPayBill?.paidAccount,
-      contactId: pbContactId || undefined
+      contactId: pbContactId || undefined,
+      isOnline: editingPayBill?.isOnline
     };
 
     onSavePayBill(entry);
@@ -1263,10 +1367,19 @@ export function MainDashboard({
     }));
   }, [selectedMonthPaybills]);
 
-  // Combine stored tags + existing paybill accounts for instant 1-tap re-use (filtering out legacy preset templates)
-  const allAvailableAccountTags = useMemo(() => {
+  // Combine stored tags + existing paybill accounts + cash-in accounts for instant 1-tap re-use,
+  // sorted so the Last Number with the most paid bills is always first
+  const { allAvailableAccountTags, accountPaidCountsMap } = useMemo(() => {
     const legacyPresets = ['bkash', 'nagad', 'rocket', 'upay', 'বিকাশ', 'নগদ', 'রকেট', 'উপায়', 'ইসলামী ব্যাংক', 'সিটি ব্যাংক', 'ডাচ বাংলা ব্যাংক'];
     const list: string[] = [];
+
+    // Registered Cash-In accounts first
+    (cashInAccounts || []).forEach(acc => {
+      const clean = acc.lastDigits?.trim();
+      if (clean && !list.some(item => item.toLowerCase() === clean.toLowerCase())) {
+        list.push(clean);
+      }
+    });
 
     [...savedPayBillAccounts].forEach(acc => {
       const clean = acc.trim();
@@ -1283,8 +1396,36 @@ export function MainDashboard({
         }
       }
     });
-    return list;
-  }, [savedPayBillAccounts, paybills]);
+
+    // Count paid bills per last number (prioritizing selected month, then all-time paid bills)
+    const countsMap = new Map<string, { monthCount: number; totalCount: number; totalAmount: number }>();
+    (paybills || []).forEach(pb => {
+      if (pb.isPaid && pb.paidAccount && pb.paidAccount.trim()) {
+        const key = pb.paidAccount.trim().toLowerCase();
+        const curr = countsMap.get(key) || { monthCount: 0, totalCount: 0, totalAmount: 0 };
+        curr.totalCount += 1;
+        curr.totalAmount += Number(pb.amount) || 0;
+        if (getPayBillMonthKey(pb) === selectedPayBillMonth) {
+          curr.monthCount += 1;
+        }
+        countsMap.set(key, curr);
+      }
+    });
+
+    const sortedList = [...list].sort((a, b) => {
+      const statA = countsMap.get(a.trim().toLowerCase()) || { monthCount: 0, totalCount: 0, totalAmount: 0 };
+      const statB = countsMap.get(b.trim().toLowerCase()) || { monthCount: 0, totalCount: 0, totalAmount: 0 };
+      if (statB.totalCount !== statA.totalCount) {
+        return statB.totalCount - statA.totalCount;
+      }
+      if (statB.monthCount !== statA.monthCount) {
+        return statB.monthCount - statA.monthCount;
+      }
+      return statB.totalAmount - statA.totalAmount;
+    });
+
+    return { allAvailableAccountTags: sortedList, accountPaidCountsMap: countsMap };
+  }, [savedPayBillAccounts, paybills, cashInAccounts, selectedPayBillMonth]);
 
   // Monthly account breakdown statistics for the currently selected month (only for bills with a specified last number)
   const monthlyAccountStats = useMemo(() => {
@@ -1298,17 +1439,68 @@ export function MainDashboard({
       map.set(acc, existing);
     });
 
-    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+    return Array.from(map.values()).sort((a, b) => b.count - a.count || b.totalAmount - a.totalAmount);
   }, [selectedMonthPaybills]);
+
+  // Monthly statistics for bills entered online by customers
+  const onlineStats = useMemo(() => {
+    const onlineBillsInMonth = selectedMonthPaybills.filter(
+      pb => pb.isOnline || Boolean(pb.contactId && pb.contactId.trim())
+    );
+
+    const onlineRequestsInMonth = (paybillRequests || []).filter(req => {
+      const rawDateStr = req.createdAt || '';
+      let mKey = '';
+      const match = rawDateStr.match(/(\d{4})-(\d{2})/);
+      if (match) {
+        mKey = `${match[1]}-${match[2]}`;
+      } else {
+        const d = new Date(req.createdAt || Date.now());
+        if (!isNaN(d.getTime())) {
+          mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        }
+      }
+      return mKey === selectedPayBillMonth;
+    });
+
+    const totalCount = onlineBillsInMonth.length + onlineRequestsInMonth.length;
+    const totalAmount = onlineBillsInMonth.reduce((sum, pb) => sum + (Number(pb.amount) || 0), 0) +
+                        onlineRequestsInMonth.reduce((sum, req) => sum + (Number(req.amount) || 0), 0);
+
+    return {
+      count: totalCount,
+      totalAmount,
+      onlineBillsInMonth,
+      onlineRequestsInMonth
+    };
+  }, [selectedMonthPaybills, paybillRequests, selectedPayBillMonth]);
+
+  // Real-time matched Cash-In accounts for modals
+  const matchedCashInForPayBill = useMemo(() => {
+    if (!paidAccountText.trim()) return undefined;
+    return findMatchingCashInAccount(paidAccountText.trim(), cashInAccounts);
+  }, [paidAccountText, cashInAccounts]);
+
+  const matchedCashInForVerifiedPayBill = useMemo(() => {
+    if (!activePayBillDetails?.paidAccount?.trim()) return undefined;
+    return findMatchingCashInAccount(activePayBillDetails.paidAccount.trim(), cashInAccounts);
+  }, [activePayBillDetails, cashInAccounts]);
 
   // Memoized filtered and sorted pay bills list to avoid O(N log N) filtering/sorting on every single render/tick
   const filteredAndSortedPaybills = useMemo(() => {
     return monthBillsWithSerials
       .filter(({ pb }) => {
         if (selectedAccountFilter) {
-          const acc = pb.paidAccount ? pb.paidAccount.trim() : '';
-          if (acc !== selectedAccountFilter) {
-            return false;
+          if (selectedAccountFilter === 'ONLINE') {
+            const isOnline = pb.isOnline || Boolean(pb.contactId && pb.contactId.trim());
+            if (!isOnline) {
+              return false;
+            }
+          } else {
+            const acc = pb.paidAccount ? pb.paidAccount.trim() : '';
+            if (acc !== selectedAccountFilter) {
+              return false;
+            }
           }
         }
 
@@ -1714,6 +1906,56 @@ export function MainDashboard({
               )}
             </motion.button>
 
+            {/* Online Shop Orders & Catalog Quick Button */}
+            {onSaveProduct && onDeleteProduct && (
+              <motion.button 
+                id="header-shop-trigger"
+                onClick={() => setShowShopManagementModal(true)}
+                whileHover={{ scale: 1.15 }}
+                whileTap={{ scale: 0.90 }}
+                className={`p-1.5 rounded-full transition-all focus:outline-none relative cursor-pointer ${
+                  shopOrders.filter(o => o.status === 'pending').length > 0
+                    ? 'animate-bell-glow scale-110 shadow-lg text-white ring-2 ring-emerald-400/50' 
+                    : 'bg-white/10 hover:bg-white/20 text-yellow-300'
+                }`}
+                title={lang === 'bn' ? 'অনলাইন শপ ও অর্ডার ম্যানেজমেন্ট' : 'Online Shop & Order Management'}
+              >
+                <ShoppingBag className={`w-5 h-5 ${shopOrders.filter(o => o.status === 'pending').length > 0 ? 'text-emerald-300 animate-pulse' : 'text-yellow-300'}`} />
+                {shopOrders.filter(o => o.status === 'pending').length > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-4.5 h-4.5 bg-red-650 text-white rounded-full text-[8.5px] font-black flex items-center justify-center px-1 border border-brand-primary shadow-md animate-bounce">
+                    {shopOrders.filter(o => o.status === 'pending').length}
+                  </span>
+                )}
+              </motion.button>
+            )}
+
+            {/* Remote Type Live Receiver Header Icon Button */}
+            <motion.button
+              id="header-remote-type-trigger"
+              onClick={() => setShowRemoteTypeModal(true)}
+              whileHover={{ scale: 1.15 }}
+              whileTap={{ scale: 0.90 }}
+              className={`p-1.5 rounded-full transition-all focus:outline-none relative cursor-pointer ${
+                activeRemoteState.liveNumber || (activeRemoteState.sentNumbers && activeRemoteState.sentNumbers.length > 0)
+                  ? 'animate-bell-glow scale-110 shadow-lg text-white ring-2 ring-amber-400/60'
+                  : 'bg-white/10 hover:bg-white/20 text-yellow-300'
+              }`}
+              title={lang === 'bn' ? 'রিমট টাইপ লাইভ নাম্বার দেখুন' : 'View Remote Type Live Numbers'}
+            >
+              <Radio
+                className={`w-5 h-5 ${
+                  activeRemoteState.liveNumber
+                    ? 'text-emerald-300 animate-pulse'
+                    : 'text-yellow-300'
+                }`}
+              />
+              {(activeRemoteState.liveNumber || (activeRemoteState.sentNumbers && activeRemoteState.sentNumbers.length > 0)) && (
+                <span className="absolute -top-1 -right-1 min-w-4.5 h-4.5 bg-red-650 text-white rounded-full text-[8.5px] font-black flex items-center justify-center px-1 border border-brand-primary shadow-md animate-bounce">
+                  {activeRemoteState.sentNumbers?.length || '•'}
+                </span>
+              )}
+            </motion.button>
+
             {/* The Vertical Three-Dot Menu Button requested by user */}
             <motion.button 
               id="header-three-dot-trigger"
@@ -2072,11 +2314,18 @@ export function MainDashboard({
                   >
                     <span className="flex items-center gap-1.5">
                       <ShoppingBag className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
-                      {lang === 'bn' ? 'অনলাইন শপ প্রডাক্ট ম্যানেজ' : 'Manage Shop Products'}
+                      {lang === 'bn' ? 'অনলাইন শপ ও অর্ডার ম্যানেজ' : 'Manage Shop & Orders'}
                     </span>
-                    <span className="bg-emerald-600 text-white font-mono px-1.5 py-0.5 rounded-lg text-[8px] tracking-wide font-black">
-                      {products.length}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      {shopOrders.filter(o => o.status === 'pending').length > 0 && (
+                        <span className="bg-red-600 text-white font-mono px-1.5 py-0.5 rounded-lg text-[8px] tracking-wide font-black animate-pulse">
+                          {shopOrders.filter(o => o.status === 'pending').length} NEW
+                        </span>
+                      )}
+                      <span className="bg-emerald-600 text-white font-mono px-1.5 py-0.5 rounded-lg text-[8px] tracking-wide font-black">
+                        {products.length}
+                      </span>
+                    </div>
                   </button>
                 )}
 
@@ -2179,8 +2428,115 @@ export function MainDashboard({
       {/* Main Content Scroll View (Styled optimally compact) */}
       <main id="main-content" className={`flex-1 px-3 py-2 ${isDesktopMode ? 'max-w-7xl' : 'max-w-sm'} mx-auto w-full pb-20 overflow-y-auto`}>
         
+        {/* LIVE REMOTE TYPE INLINE RECEIVER & SENT NUMBERS ON MAIN PAGE */}
+        <OwnerRemoteTypeInlineBanner
+          lang={lang}
+          remoteState={activeRemoteState}
+          onOpenModal={() => setShowRemoteTypeModal(true)}
+          onClearLiveNumber={handleClearLiveRemoteNumber}
+          onDeleteSentNumber={handleDeleteSentRemoteNumber}
+          onClearAllSentNumbers={handleClearAllSentRemoteNumbers}
+        />
 
-        
+        {/* NEW SHOP ORDERS LIVE DETAILS & PARCEL REPORT DOWNLOAD BANNER */}
+        {shopOrders.filter(o => o.status === 'pending').length > 0 && (
+          <div className="mb-2.5 bg-amber-50 dark:bg-slate-900 border-2 border-amber-400 rounded-2xl p-3 shadow-sm space-y-2.5 animate-fade-in">
+            <div className="flex items-center justify-between gap-2 border-b border-amber-200/80 dark:border-slate-800 pb-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0 animate-pulse">
+                  <ShoppingBag className="w-4 h-4" />
+                </div>
+                <div className="text-left">
+                  <span className="text-xs font-black text-slate-900 dark:text-white block leading-tight">
+                    {lang === 'bn'
+                      ? `নতুন ${shopOrders.filter(o => o.status === 'pending').length}টি শপ অর্ডার এসেছে!`
+                      : `${shopOrders.filter(o => o.status === 'pending').length} New Shop Order(s)!`}
+                  </span>
+                  <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300">
+                    {lang === 'bn' ? '১৫০৳ সেন্ড মানি TrxID যাচাই করে কনফার্ম ও পার্সেল রিপোর্ট ডাউনলোড করুন' : 'Verify TrxID, confirm & download parcel slip'}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowShopManagementModal(true)}
+                className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 text-[10.5px] font-black cursor-pointer shrink-0"
+              >
+                {lang === 'bn' ? 'সব অর্ডার দেখুন' : 'All Orders'}
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {shopOrders
+                .filter(o => o.status === 'pending')
+                .slice(0, 3)
+                .map(order => (
+                  <div
+                    key={order.id}
+                    className="bg-white dark:bg-slate-800 rounded-xl p-2.5 border border-amber-300/90 dark:border-slate-700 text-left space-y-1.5 text-xs"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono font-black text-[11px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                          #{order.orderNumber}
+                        </span>
+                        <span className="font-black text-slate-900 dark:text-white">{order.customerName}</span>
+                        <span className="font-mono font-black text-emerald-700 select-all">({order.customerPhone})</span>
+                      </div>
+                      {order.transactionId && (
+                        <span className="font-mono font-black text-[10.5px] bg-emerald-50 text-emerald-900 border border-emerald-300 px-2 py-0.5 rounded select-all">
+                          ১৫০৳ TrxID: {order.transactionId}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                      📍 {order.division ? `বিভাগ: ${order.division} | জেলা: ${order.district} | থানা: ${order.thana} — ` : ''}
+                      {order.customerAddress}
+                    </div>
+
+                    <div className="text-[11px] font-black text-slate-800 dark:text-slate-200">
+                      📦 {order.items.map(i => `${i.name} (${i.quantity} পিস)`).join(', ')} —{' '}
+                      <span className="text-purple-700 dark:text-amber-300 font-mono">
+                        COD প্রদেয়: {currency}{(order.dueOnDeliveryAmount ?? order.subtotal).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() => downloadParcelLabelImage(order, currency)}
+                        className="px-2.5 py-1 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-[10.5px] font-black flex items-center gap-1 cursor-pointer"
+                      >
+                        <Download className="w-3 h-3 text-yellow-300" />
+                        <span>{lang === 'bn' ? 'পার্সেল রিপোর্ট ডাউনলোড' : 'Download Parcel Report'}</span>
+                      </button>
+
+                      {onUpdateShopOrderStatus && (
+                        <button
+                          type="button"
+                          onClick={() => onUpdateShopOrderStatus(order.id, 'confirmed')}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-black flex items-center gap-1 cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>{lang === 'bn' ? 'কনফার্ম করুন' : 'Confirm'}</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setShowShopManagementModal(true)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[10.5px] font-black cursor-pointer"
+                      >
+                        {lang === 'bn' ? 'বিস্তারিত' : 'Details'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
         {/* TAB 1: CUSTOMERS */}
         {activeTab === 'customers' && (
           <div id="contacts-dashboard-content" className="space-y-2.5">
@@ -2618,61 +2974,112 @@ export function MainDashboard({
                     </div>
                   </div>
 
-                  {/* Row B: Last Number Breakdown for Selected Month */}
+                  {/* Row B: Last Number Breakdown for Selected Month & Online Entries */}
                   <div className="pt-2 border-t border-slate-100 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
                         <Hash className="w-3 h-3 text-purple-600" />
-                        {lang === 'bn' ? 'লাস্ট নাম্বার অনুযায়ী পরিশোধিত বিল:' : 'Paid Bills by Last Number:'}
+                        {lang === 'bn' ? 'লাস্ট নাম্বার ও অনলাইন বিল হিসাব:' : 'Bills by Last Number & Online:'}
                       </span>
-                      <span className="text-[8px] font-extrabold px-1.5 py-0.5 bg-purple-50 text-brand-primary rounded-md border border-purple-100 font-mono">
-                        {selectedMonthPaybills.filter(p => p.isPaid).length} {lang === 'bn' ? 'টি পেইড' : 'paid'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {selectedAccountFilter && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedAccountFilter(null)}
+                            className="text-[8px] font-bold px-1.5 py-0.5 bg-rose-50 text-rose-600 rounded-md border border-rose-150 flex items-center gap-0.5 hover:bg-rose-100 transition-colors cursor-pointer"
+                          >
+                            <X className="w-2.5 h-2.5" />
+                            {lang === 'bn' ? 'ফিল্টার বাতিল' : 'Clear Filter'}
+                          </button>
+                        )}
+                        <span className="text-[8px] font-extrabold px-1.5 py-0.5 bg-purple-50 text-brand-primary rounded-md border border-purple-100 font-mono">
+                          {selectedMonthPaybills.filter(p => p.isPaid).length} {lang === 'bn' ? 'টি পেইড' : 'paid'}
+                        </span>
+                      </div>
                     </div>
 
-                    {monthlyAccountStats.length === 0 ? (
-                      <div className="py-1.5 px-2 bg-slate-50/70 rounded-lg border border-slate-150/70 text-center text-slate-400 text-[9px] font-bold">
-                        {lang === 'bn' ? 'এই মাসে এখনও কোনো লাস্ট নাম্বার দিয়ে পরিশোধিত বিলের হিসাব নেই।' : 'No paid bills with last numbers for this month yet.'}
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-0.5 scrollbar-thin">
-                        {monthlyAccountStats.map((item) => {
-                          const isFilterActive = selectedAccountFilter === item.accountName;
-                          return (
-                            <button
-                              key={item.accountName}
-                              onClick={() => {
-                                setSelectedAccountFilter(isFilterActive ? null : item.accountName);
-                              }}
-                              className={`py-1 px-2 rounded-lg border text-left transition-all cursor-pointer flex items-center gap-1.5 ${
-                                isFilterActive 
-                                  ? 'bg-purple-650 text-white border-purple-700 shadow-xs'
-                                  : 'bg-slate-50 hover:bg-purple-50/80 border-slate-200 text-slate-800'
-                              }`}
-                              title={lang === 'bn' ? `${item.accountName} এর বিলগুলো ফিল্টার করতে ক্লিক করুন` : `Click to filter bills for ${item.accountName}`}
-                            >
-                              <div className="flex flex-col min-w-0">
-                                <span className={`text-[9.5px] font-black truncate max-w-[120px] sm:max-w-[160px] ${
-                                  isFilterActive ? 'text-white' : 'text-slate-800'
-                                }`}>
-                                  {item.accountName}
-                                </span>
-                                <span className={`text-[8.5px] font-mono font-bold leading-tight ${
-                                  isFilterActive ? 'text-purple-150' : 'text-emerald-600'
-                                }`}>
-                                  {currency} {item.totalAmount.toFixed(2)}
-                                </span>
-                              </div>
-                              <span className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded-full font-mono shrink-0 ${
-                                isFilterActive ? 'bg-white text-purple-700' : 'bg-purple-100 text-purple-800'
+                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-0.5 scrollbar-thin">
+                      {/* Last Number Breakdown Chips - Top two most paid last numbers are placed first with light yellow highlight */}
+                      {monthlyAccountStats.map((item, idx) => {
+                        const isFilterActive = selectedAccountFilter === item.accountName;
+                        const isMostPaid = idx < 2;
+                        return (
+                          <button
+                            key={item.accountName}
+                            onClick={() => {
+                              setSelectedAccountFilter(isFilterActive ? null : item.accountName);
+                            }}
+                            className={`py-1 px-2 rounded-lg border text-left transition-all cursor-pointer flex items-center gap-1.5 ${
+                              isFilterActive 
+                                ? 'bg-purple-650 text-white border-purple-700 shadow-xs'
+                                : isMostPaid
+                                ? 'bg-yellow-100/90 hover:bg-yellow-200/80 border-yellow-300 text-amber-950 shadow-2xs'
+                                : 'bg-slate-50 hover:bg-purple-50/80 border-slate-200 text-slate-800'
+                            }`}
+                            title={lang === 'bn' ? `${item.accountName} এর বিলগুলো ফিল্টার করতে ক্লিক করুন` : `Click to filter bills for ${item.accountName}`}
+                          >
+                            <div className="flex flex-col min-w-0">
+                              <span className={`text-[9.5px] font-black truncate max-w-[120px] sm:max-w-[160px] ${
+                                isFilterActive ? 'text-white' : isMostPaid ? 'text-amber-950' : 'text-slate-800'
                               }`}>
-                                {item.count} {lang === 'bn' ? 'টি' : ''}
+                                {item.accountName}
                               </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
+                              <span className={`text-[8.5px] font-mono font-bold leading-tight ${
+                                isFilterActive ? 'text-purple-150' : isMostPaid ? 'text-amber-800' : 'text-emerald-600'
+                              }`}>
+                                {currency} {item.totalAmount.toFixed(2)}
+                              </span>
+                            </div>
+                            <span className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded-full font-mono shrink-0 ${
+                              isFilterActive
+                                ? 'bg-white text-purple-700'
+                                : isMostPaid
+                                ? 'bg-amber-300/80 text-amber-950'
+                                : 'bg-purple-100 text-purple-800'
+                            }`}>
+                              {item.count} {lang === 'bn' ? 'টি' : ''}
+                            </span>
+                          </button>
+                        );
+                      })}
+
+                      {/* Online Entries Badge Card - shown after last numbers */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedAccountFilter(selectedAccountFilter === 'ONLINE' ? null : 'ONLINE');
+                        }}
+                        className={`py-1 px-2 rounded-lg border text-left transition-all cursor-pointer flex items-center gap-1.5 ${
+                          selectedAccountFilter === 'ONLINE'
+                            ? 'bg-blue-600 text-white border-blue-700 shadow-xs ring-1 ring-blue-400'
+                            : 'bg-blue-50/90 hover:bg-blue-100/90 border-blue-200 text-blue-900'
+                        }`}
+                        title={lang === 'bn' ? 'কাস্টমারদের অনলাইনে এন্ট্রি করা বিলগুলো ফিল্টার করতে ক্লিক করুন' : 'Click to filter customer online bills'}
+                      >
+                        <div className="flex items-center gap-1">
+                          <Globe className={`w-3 h-3 shrink-0 ${selectedAccountFilter === 'ONLINE' ? 'text-white' : 'text-blue-600'}`} />
+                          <div className="flex flex-col min-w-0">
+                            <span className={`text-[9.5px] font-black uppercase tracking-wide leading-tight ${
+                              selectedAccountFilter === 'ONLINE' ? 'text-white' : 'text-blue-900'
+                            }`}>
+                              online
+                            </span>
+                            {onlineStats.totalAmount > 0 && (
+                              <span className={`text-[8.5px] font-mono font-bold leading-tight ${
+                                selectedAccountFilter === 'ONLINE' ? 'text-blue-100' : 'text-blue-700'
+                              }`}>
+                                {currency} {onlineStats.totalAmount.toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <span className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded-full font-mono shrink-0 ${
+                          selectedAccountFilter === 'ONLINE' ? 'bg-white text-blue-700' : 'bg-blue-600 text-white'
+                        }`}>
+                          {onlineStats.count} {lang === 'bn' ? 'টি' : ''}
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2758,6 +3165,7 @@ export function MainDashboard({
                         setActivePayBillDetails(pb);
                         setPaidInfoText(pb.paidInfo || '');
                         setPaidAccountText(pb.paidAccount || '');
+                        setAddPayBillToBaki(false);
                       }}
                       className={`bg-white rounded-xl border flex flex-col transition-all shadow-tiny border-slate-200 hover:border-purple-300 cursor-pointer select-none overflow-hidden max-h-[44px] justify-center ${pClass}`}
                     >
@@ -2781,8 +3189,27 @@ export function MainDashboard({
                           </span>
                         </div>
 
-                        {/* Right: Small compact checkmark tick or exclamation status mark to save space */}
-                        <div className="flex items-center shrink-0 pr-0.5">
+                        {/* Right: Online entry tag, Paid Account tag & checkmark/pending status mark */}
+                        <div className="flex items-center gap-1 shrink-0 pr-0.5">
+                          {(pb.isOnline || Boolean(pb.contactId && pb.contactId.trim())) && (
+                            <span 
+                              className="text-[7.5px] px-1 py-0.2 bg-blue-100 text-blue-800 font-black uppercase rounded shrink-0 flex items-center gap-0.5 border border-blue-200"
+                              title={lang === 'bn' ? 'কাস্টমার অনলাইনে বিলটি এন্ট্রি করেছেন' : 'Customer entered bill online'}
+                            >
+                              <Globe className="w-2 h-2 text-blue-600" />
+                              <span>online</span>
+                            </span>
+                          )}
+
+                          {pb.paidAccount && pb.paidAccount.trim() && (
+                            <span 
+                              className="text-[8px] px-1 py-0.2 bg-purple-100 text-purple-800 font-mono font-bold rounded shrink-0 border border-purple-200"
+                              title={lang === 'bn' ? `পরিশোধের লাস্ট নাম্বার: ${pb.paidAccount}` : `Paid Account: ${pb.paidAccount}`}
+                            >
+                              #{pb.paidAccount.trim()}
+                            </span>
+                          )}
+
                           {pb.isPaid ? (
                             <span 
                               className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center font-black text-[10px] select-none border border-emerald-250 animate-fade-in shadow-tiny" 
@@ -3076,6 +3503,8 @@ export function MainDashboard({
               onDeleteAccount={onDeleteCashInAccount || (() => {})}
               onSaveTransaction={onSaveCashInTransaction || (() => {})}
               onDeleteTransaction={onDeleteCashInTransaction || (() => {})}
+              onClearAccountHistory={onClearCashInAccountHistory}
+              onSaveCustomerTransaction={onSaveCustomerTransaction}
             />
           </div>
         )}
@@ -4426,6 +4855,8 @@ export function MainDashboard({
                 onClick={() => {
                   setActivePayBillDetails(null);
                   setPaidInfoText('');
+                  setPaidAccountText('');
+                  setAddPayBillToBaki(false);
                 }}
                 className="text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-50 cursor-pointer"
               >
@@ -4434,122 +4865,109 @@ export function MainDashboard({
             </div>
 
             {/* Scrollable Body Content */}
-            <div className="flex-1 overflow-y-auto pr-1 space-y-3.5 scrollbar-thin text-[11px] text-slate-705">
+            <div className="flex-1 overflow-y-auto pr-1 space-y-2.5 scrollbar-thin text-[11px] text-slate-705">
               
-              {/* Receipt Visual Header Card */}
-              <div className="bg-slate-50 border border-slate-150 p-3 rounded-2xl text-center space-y-1">
-                <span className={`text-[8.5px] font-black uppercase tracking-widest px-2 rounded-full inline-block ${
-                  activePayBillDetails.isPaid ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-rose-50 text-rose-600 border-rose-100'
-                }`}>
-                  {activePayBillDetails.isPaid ? (lang === 'bn' ? 'পরিশোধিত / PAID' : 'PAID') : (lang === 'bn' ? 'বকেয়া / UNPAID' : 'PENDING')}
-                </span>
-                
-                <h4 className="text-xl font-black font-mono tracking-tight text-slate-850">
-                  {currency} {activePayBillDetails.amount.toFixed(2)}
-                </h4>
-                
-                <div className="flex items-center justify-center gap-1.5 mt-1">
-                  <p className="text-[10px] text-slate-450 font-mono font-bold leading-none select-all">
-                    {lang === 'bn' ? 'বিলার আইডি:' : 'Biller ID:'} <span className="text-rose-500 font-black">{activePayBillDetails.billerNumber}</span>
-                  </p>
-                  <button
-                    onClick={() => handleCopyText(activePayBillDetails.billerNumber, `${activePayBillDetails.id}-burl`)}
-                    className="p-0.5 rounded bg-white hover:bg-slate-100 border border-slate-200 transition-all text-slate-400 hover:text-slate-600 cursor-pointer flex items-center justify-center shrink-0"
-                    title={lang === 'bn' ? 'বিলার আইডি কপি' : 'Copy Biller ID'}
-                  >
-                    {copiedId === `${activePayBillDetails.id}-burl` ? (
-                      <Check className="w-2.5 h-2.5 text-emerald-600" />
-                    ) : (
-                      <Copy className="w-2.5 h-2.5" />
-                    )}
-                  </button>
-                  {copiedId === `${activePayBillDetails.id}-burl` && (
-                    <span className="text-[8.5px] text-emerald-600 font-bold animate-fade-in shrink-0">
-                      {lang === 'bn' ? 'কপি হয়েছে' : 'Copied'}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Specific Details List */}
-              <div className="bg-slate-50/40 p-2.5 rounded-xl border border-slate-100 space-y-2">
-                <div>
-                  <span className="font-extrabold text-slate-400 text-[8.5px] uppercase tracking-wider block">
-                    {lang === 'bn' ? 'কাস্টমার নাম' : 'Customer Name'}
+              {/* Combined Single Side-by-Side Card (Left: Receipt/Amount/Biller ID, Right: Customer/Mobile/Dates) */}
+              <div className="bg-slate-50/80 border border-slate-200/80 p-2.5 rounded-2xl grid grid-cols-2 divide-x divide-slate-200/80 gap-2.5 items-center">
+                {/* Left Side: Status, Amount & Biller ID */}
+                <div className="pr-1 text-center flex flex-col items-center justify-center space-y-1 min-w-0">
+                  <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full inline-block ${
+                    activePayBillDetails.isPaid ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-600 border border-rose-200'
+                  }`}>
+                    {activePayBillDetails.isPaid ? (lang === 'bn' ? 'পরিশোধিত / PAID' : 'PAID') : (lang === 'bn' ? 'বকেয়া / UNPAID' : 'PENDING')}
                   </span>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <p className="font-black text-slate-800 text-xs">{activePayBillDetails.billerDetails}</p>
-                    <button
-                      onClick={() => handleCopyText(activePayBillDetails.billerDetails, `${activePayBillDetails.id}-dets`)}
-                      className="p-1 rounded bg-white hover:bg-slate-150 border border-slate-200 transition-all text-slate-500 cursor-pointer flex items-center justify-center shrink-0"
-                      title={lang === 'bn' ? 'নাম কপি করুন' : 'Copy Name'}
-                    >
-                      {copiedId === `${activePayBillDetails.id}-dets` ? (
-                        <Check className="w-3 h-3 text-emerald-600" />
-                      ) : (
-                        <Copy className="w-3 h-3" />
-                      )}
-                    </button>
-                    {copiedId === `${activePayBillDetails.id}-dets` && (
-                      <span className="text-[8.5px] text-emerald-600 font-bold animate-fade-in shrink-0">
+                  
+                  <h4 className="text-base sm:text-lg font-black font-mono tracking-tight text-slate-850 leading-tight truncate max-w-full">
+                    {currency} {activePayBillDetails.amount.toFixed(2)}
+                  </h4>
+                  
+                  <div className="flex flex-col items-center justify-center gap-0.5 w-full">
+                    <span className="text-[8px] font-extrabold text-slate-400 uppercase leading-none">
+                      {lang === 'bn' ? 'বিলার আইডি' : 'Biller ID'}
+                    </span>
+                    <div className="flex items-center justify-center gap-1 max-w-full">
+                      <p className="text-[10px] text-rose-500 font-mono font-black leading-none select-all truncate">
+                        {activePayBillDetails.billerNumber}
+                      </p>
+                      <button
+                        onClick={() => handleCopyText(activePayBillDetails.billerNumber, `${activePayBillDetails.id}-burl`)}
+                        className="p-0.5 rounded bg-white hover:bg-slate-100 border border-slate-200 transition-all text-slate-400 hover:text-slate-600 cursor-pointer flex items-center justify-center shrink-0"
+                        title={lang === 'bn' ? 'বিলার আইডি কপি' : 'Copy Biller ID'}
+                      >
+                        {copiedId === `${activePayBillDetails.id}-burl` ? (
+                          <Check className="w-2.5 h-2.5 text-emerald-600" />
+                        ) : (
+                          <Copy className="w-2.5 h-2.5" />
+                        )}
+                      </button>
+                    </div>
+                    {copiedId === `${activePayBillDetails.id}-burl` && (
+                      <span className="text-[7.5px] text-emerald-600 font-bold animate-fade-in">
                         {lang === 'bn' ? 'কপি হয়েছে' : 'Copied'}
                       </span>
                     )}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                {/* Right Side: Customer Name, Mobile Number & Dates */}
+                <div className="pl-2.5 space-y-1.5 text-left min-w-0">
                   <div>
-                    <span className="font-extrabold text-slate-400 text-[8.5px] uppercase tracking-wider block">
-                      {lang === 'bn' ? 'এন্ট্রি করার তারিখ' : 'Recorded Date'}
+                    <span className="font-extrabold text-slate-400 text-[8px] uppercase tracking-wider block leading-none">
+                      {lang === 'bn' ? 'কাস্টমার নাম' : 'Customer Name'}
                     </span>
-                    <p className="font-bold text-slate-700 mt-0.5">
-                      📅 {new Date(activePayBillDetails.date).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    </p>
-                  </div>
-
-                  {activePayBillDetails.secondDate && (
-                    <div>
-                      <span className="font-extrabold text-slate-400 text-[8.5px] uppercase tracking-wider block">
-                        {lang === 'bn' ? 'পরিশোধের শেষ সময়' : 'Due Date'}
-                      </span>
-                      <p className="font-bold text-amber-700 mt-0.5">
-                        ⏳ {new Date(activePayBillDetails.secondDate).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {activePayBillDetails.note && (
-                  <div>
-                    <span className="font-extrabold text-slate-400 text-[8.5px] uppercase tracking-wider block">
-                      {lang === 'bn' ? 'মোবাইল নাম্বার' : 'Mobile Number'}
-                    </span>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <p className="text-purple-900 font-bold italic font-mono text-xs">📱 {activePayBillDetails.note}</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <p className="font-black text-slate-800 text-[11px] truncate">{activePayBillDetails.billerDetails}</p>
                       <button
-                        onClick={() => handleCopyText(activePayBillDetails.note, `${activePayBillDetails.id}-note`)}
-                        className="p-1 rounded bg-white hover:bg-slate-150 border border-slate-200 transition-all text-slate-500 cursor-pointer flex items-center justify-center shrink-0"
-                        title={lang === 'bn' ? 'মোবাইল নম্বর কপি করুন' : 'Copy Mobile Number'}
+                        onClick={() => handleCopyText(activePayBillDetails.billerDetails, `${activePayBillDetails.id}-dets`)}
+                        className="p-0.5 rounded bg-white hover:bg-slate-150 border border-slate-200 transition-all text-slate-500 cursor-pointer flex items-center justify-center shrink-0"
+                        title={lang === 'bn' ? 'নাম কপি করুন' : 'Copy Name'}
                       >
-                        {copiedId === `${activePayBillDetails.id}-note` ? (
-                          <Check className="w-3 h-3 text-emerald-600" />
+                        {copiedId === `${activePayBillDetails.id}-dets` ? (
+                          <Check className="w-2.5 h-2.5 text-emerald-600" />
                         ) : (
-                          <Copy className="w-3 h-3" />
+                          <Copy className="w-2.5 h-2.5" />
                         )}
                       </button>
-                      {copiedId === `${activePayBillDetails.id}-note` && (
-                        <span className="text-[8.5px] text-emerald-600 font-bold animate-fade-in shrink-0">
-                          {lang === 'bn' ? 'কপি হয়েছে' : 'Copied'}
-                        </span>
-                      )}
                     </div>
                   </div>
-                )}
+
+                  {activePayBillDetails.note && (
+                    <div>
+                      <span className="font-extrabold text-slate-400 text-[8px] uppercase tracking-wider block leading-none">
+                        {lang === 'bn' ? 'মোবাইল নাম্বার' : 'Mobile Number'}
+                      </span>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <p className="text-purple-900 font-bold font-mono text-[10.5px] truncate">📱 {activePayBillDetails.note}</p>
+                        <button
+                          onClick={() => handleCopyText(activePayBillDetails.note, `${activePayBillDetails.id}-note`)}
+                          className="p-0.5 rounded bg-white hover:bg-slate-150 border border-slate-200 transition-all text-slate-500 cursor-pointer flex items-center justify-center shrink-0"
+                          title={lang === 'bn' ? 'মোবাইল নম্বর কপি করুন' : 'Copy Mobile Number'}
+                        >
+                          {copiedId === `${activePayBillDetails.id}-note` ? (
+                            <Check className="w-2.5 h-2.5 text-emerald-600" />
+                          ) : (
+                            <Copy className="w-2.5 h-2.5" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-0.5 border-t border-slate-200/60 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[8.5px]">
+                    <span className="font-bold text-slate-600 whitespace-nowrap" title={lang === 'bn' ? 'এন্ট্রি করার তারিখ' : 'Recorded Date'}>
+                      📅 {new Date(activePayBillDetails.date).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: 'short' })}
+                    </span>
+                    {activePayBillDetails.secondDate && (
+                      <span className="font-bold text-amber-700 whitespace-nowrap" title={lang === 'bn' ? 'পরিশোধের শেষ সময়' : 'Due Date'}>
+                        ⏳ {new Date(activePayBillDetails.secondDate).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: 'short' })}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Paid Status & Inputs */}
-              <div className="border-t border-slate-100 pt-3">
+              <div className="border-t border-slate-100 pt-2">
                 {activePayBillDetails.isPaid ? (
                   <div className="p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100/65 space-y-2 text-left">
                     <div className="flex items-center justify-between">
@@ -4561,7 +4979,7 @@ export function MainDashboard({
                       </p>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                       {activePayBillDetails.paidInfo && (
                         <div className="bg-white/90 p-2 rounded-lg border border-emerald-150 select-text">
                           <span className="text-[8px] font-black text-slate-400 block uppercase mb-0.5">
@@ -4603,6 +5021,22 @@ export function MainDashboard({
                           </div>
                         </div>
                       )}
+
+                      {matchedCashInForVerifiedPayBill && (
+                        <div className="col-span-full bg-emerald-100/80 p-2 rounded-lg border border-emerald-200 flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                            <span className="text-[9px] font-bold text-emerald-950 truncate">
+                              {lang === 'bn' 
+                                ? `${matchedCashInForVerifiedPayBill.accountNumber} ক্যাশ ইন সিম থেকে টাকা কর্তন হয়েছে (বিল পেমেন্ট)`
+                                : `Deducted from ${matchedCashInForVerifiedPayBill.accountNumber} (Bill Payment)`}
+                            </span>
+                          </div>
+                          <span className="text-[8.5px] font-mono font-black text-emerald-800 bg-emerald-200/80 px-1.5 py-0.5 rounded shrink-0">
+                            -{currency}{activePayBillDetails.amount.toFixed(2)}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     
                     {/* Toggle to Unpaid Option inside the modal as well */}
@@ -4625,65 +5059,145 @@ export function MainDashboard({
                     </button>
                   </div>
                 ) : (
-                  <div className="bg-slate-50/50 p-2.5 rounded-xl border border-rose-100 space-y-2.5">
+                  <div className="bg-slate-50/50 p-2.5 rounded-xl border border-rose-100 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[8.5px] font-black text-rose-500 uppercase tracking-wider block">
                         ⏳ {lang === 'bn' ? 'পেমেন্ট ও লাস্ট নাম্বার এন্ট্রি' : 'Payment & Last Number Entry'}
                       </span>
                     </div>
 
-                    {/* 1. Trx ID input */}
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-black text-slate-450 block uppercase leading-none">
-                        {lang === 'bn' ? 'বিকাশ ট্রানজেকশন আইডি লিখুন' : 'Enter bKash Trx ID'}
-                      </label>
-                      <input
-                        type="text"
-                        value={paidInfoText}
-                        onChange={(e) => setPaidInfoText(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-brand-primary font-mono font-bold"
-                      />
+                    {/* Side-by-side inputs: 1. Trx ID (Left) & 2. Last Number (Right) */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-[8.5px] font-black text-slate-450 block uppercase leading-none truncate">
+                          {lang === 'bn' ? 'বিকাশ ট্রানজেকশন আইডি' : 'bKash Trx ID'}
+                        </label>
+                        <input
+                          type="text"
+                          value={paidInfoText}
+                          onChange={(e) => setPaidInfoText(e.target.value)}
+                          placeholder={lang === 'bn' ? 'TrxID লিখুন' : 'Enter TrxID'}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-brand-primary font-mono font-bold"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[8.5px] font-black text-slate-450 block uppercase leading-none truncate">
+                          {lang === 'bn' ? 'লাস্ট নাম্বার লিখুন' : 'Last Number'}
+                        </label>
+                        <input
+                          type="text"
+                          value={paidAccountText}
+                          onChange={(e) => setPaidAccountText(e.target.value)}
+                          placeholder={lang === 'bn' ? 'লাস্ট নাম্বার' : 'Last digits'}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-brand-primary font-bold text-purple-900"
+                        />
+                      </div>
                     </div>
 
-                    {/* 2. Last Number input */}
-                    <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-slate-450 block uppercase leading-none">
-                        {lang === 'bn' ? 'লাস্ট নাম্বার লিখুন' : 'Last Number'}
-                      </label>
-                      <input
-                        type="text"
-                        value={paidAccountText}
-                        onChange={(e) => setPaidAccountText(e.target.value)}
-                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-brand-primary font-bold text-purple-900"
-                      />
-
-                      {/* Saved Tags for instant 1-tap reuse without typing (only shown if user previously saved tags) */}
-                      {allAvailableAccountTags.length > 0 && (
-                        <div className="space-y-1 pt-0.5">
-                          <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pr-0.5 scrollbar-thin">
-                            {allAvailableAccountTags.map((tag) => {
-                              const isSelected = paidAccountText.trim().toLowerCase() === tag.trim().toLowerCase();
-                              return (
-                                <button
-                                  key={tag}
-                                  type="button"
-                                  onClick={() => {
-                                    setPaidAccountText(isSelected ? '' : tag);
-                                  }}
-                                  className={`text-[8.5px] px-2 py-0.5 rounded-md font-bold transition-all cursor-pointer border ${
+                    {/* Saved Tags for instant 1-tap reuse without typing (Top two most paid tags are first and highlighted in light yellow) */}
+                    {allAvailableAccountTags.length > 0 && (
+                      <div className="space-y-1 pt-0.5">
+                        <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pr-0.5 scrollbar-thin">
+                          {allAvailableAccountTags.map((tag, idx) => {
+                            const isSelected = paidAccountText.trim().toLowerCase() === tag.trim().toLowerCase();
+                            const isMostPaid = idx < 2;
+                            const tagStats = accountPaidCountsMap.get(tag.trim().toLowerCase());
+                            return (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={() => {
+                                  setPaidAccountText(isSelected ? '' : tag);
+                                }}
+                                className={`text-[8.5px] px-2 py-0.5 rounded-md font-bold transition-all cursor-pointer border flex items-center gap-1 ${
+                                  isSelected
+                                    ? 'bg-purple-650 text-white border-purple-700 shadow-xs'
+                                    : isMostPaid
+                                    ? 'bg-yellow-100 text-amber-950 border-yellow-300 hover:bg-yellow-200/80 shadow-2xs font-black'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:border-purple-300 hover:text-brand-primary'
+                                }`}
+                                title={
+                                  tagStats && tagStats.totalCount > 0
+                                    ? (lang === 'bn' ? `মোট ${tagStats.totalCount}টি বিল পেইড` : `${tagStats.totalCount} bills paid`)
+                                    : undefined
+                                }
+                              >
+                                <span>{isSelected ? '✓ ' : ''}{tag}</span>
+                                {tagStats && tagStats.totalCount > 0 && (
+                                  <span className={`text-[7.5px] px-1 rounded-full font-mono ${
                                     isSelected
-                                      ? 'bg-purple-650 text-white border-purple-700 shadow-xs'
-                                      : 'bg-white text-slate-700 border-slate-200 hover:border-purple-300 hover:text-brand-primary'
-                                  }`}
-                                >
-                                  {isSelected ? '✓ ' : ''}{tag}
-                                </button>
-                              );
-                            })}
+                                      ? 'bg-white/20 text-white'
+                                      : isMostPaid
+                                      ? 'bg-amber-300/80 text-amber-950 font-black'
+                                      : 'bg-slate-100 text-slate-500'
+                                  }`}>
+                                    {tagStats.totalCount}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Cash In Real-Time Match Indicator */}
+                    {matchedCashInForPayBill && (
+                      <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-2 animate-fade-in">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <div className="min-w-0">
+                            <span className="text-[9.5px] font-black text-emerald-950 block truncate">
+                              {lang === 'bn' ? 'ক্যাশ ইন সিমের সাথে মিল পাওয়া গেছে:' : 'Matched Cash In SIM:'} {matchedCashInForPayBill.accountName ? `${matchedCashInForPayBill.accountName} - ` : ''}{matchedCashInForPayBill.accountNumber}
+                            </span>
+                            <span className="text-[8.5px] font-semibold text-emerald-700">
+                              {lang === 'bn' ? 'বর্তমান ব্যালেন্স:' : 'Current Balance:'} <span className="font-mono font-black">{currency}{matchedCashInForPayBill.balance.toFixed(2)}</span>
+                              {' • '}{lang === 'bn' ? `পরিশোধ করলে ৳${activePayBillDetails.amount.toFixed(2)} কর্তন হবে` : `Will deduct ৳${activePayBillDetails.amount.toFixed(2)}`}
+                            </span>
                           </div>
                         </div>
-                      )}
-                    </div>
+                        <span className="px-1.5 py-0.5 rounded text-[8.5px] font-black bg-emerald-200 text-emerald-900 shrink-0 font-mono">
+                          #{matchedCashInForPayBill.lastDigits}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Baki Ledger Entry Checkbox for Matched Customer */}
+                    {matchedContactForActivePayBill && (
+                      <div 
+                        onClick={() => setAddPayBillToBaki(!addPayBillToBaki)}
+                        className={`p-2.5 rounded-xl border transition-all cursor-pointer select-none flex items-start gap-2.5 ${
+                          addPayBillToBaki
+                            ? 'bg-purple-50/90 border-purple-300 dark:bg-purple-950/40 dark:border-purple-800 shadow-2xs'
+                            : 'bg-white dark:bg-[#151b22] border-slate-200 hover:border-purple-300 dark:border-slate-800'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          id="paybill-add-baki-checkbox"
+                          checked={addPayBillToBaki}
+                          onChange={(e) => setAddPayBillToBaki(e.target.checked)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-0.5 w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer accent-purple-600 shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <label htmlFor="paybill-add-baki-checkbox" className="text-xs font-black text-slate-800 dark:text-slate-100 cursor-pointer">
+                              {lang === 'bn' ? 'কাস্টমারের বাকির খাতায় এন্ট্রি করুন' : 'Add to Customer Baki Ledger'}
+                            </label>
+                            <span className="px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-purple-100 text-purple-900 dark:bg-purple-900/60 dark:text-purple-200 font-mono">
+                              {matchedContactForActivePayBill.name} ({matchedContactForActivePayBill.phone})
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                            {lang === 'bn' 
+                              ? 'টিক দিলে বাকির খাতায় "বিদ্যুৎ বিল পেইড " হিসেবে এন্ট্রি হবে'
+                              : 'If checked, entry will be recorded in baki ledger as "বিদ্যুৎ বিল পেইড "'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
 
                     <button
                       onClick={() => {
@@ -4696,16 +5210,27 @@ export function MainDashboard({
                           setSavedPayBillAccounts(updated);
                         }
 
+                        const shouldAddToBaki = addPayBillToBaki && !!matchedContactForActivePayBill;
                         onSavePayBill({
                           ...activePayBillDetails,
                           isPaid: true,
                           paidAt: paidAtStr,
                           paidInfo: paidInfoText.trim() || undefined,
                           paidAccount: cleanAcc || undefined
-                        });
+                        }, shouldAddToBaki, matchedContactForActivePayBill?.id);
+
+                        if (shouldAddToBaki && matchedContactForActivePayBill) {
+                          showToast(
+                            lang === 'bn' 
+                              ? `বিল পরিশোধ সম্পন্ন এবং ${matchedContactForActivePayBill.name}-এর বাকির খাতায় এন্ট্রি করা হয়েছে` 
+                              : `Payment confirmed and recorded in ${matchedContactForActivePayBill.name}'s ledger`
+                          );
+                        }
+
                         setActivePayBillDetails(null);
                         setPaidInfoText('');
                         setPaidAccountText('');
+                        setAddPayBillToBaki(false);
                       }}
                       className="w-full py-2 bg-brand-hover hover:bg-brand-primary text-white rounded-lg font-black text-xs shadow-md shadow-brand-hover/20 hover:scale-98 transition-all cursor-pointer flex items-center justify-center gap-1"
                     >
@@ -4724,6 +5249,9 @@ export function MainDashboard({
                 <button 
                   onClick={() => {
                     setActivePayBillDetails(null);
+                    setPaidInfoText('');
+                    setPaidAccountText('');
+                    setAddPayBillToBaki(false);
                     startEditPayBill(activePayBillDetails);
                   }}
                   className="px-2.5 py-1.5 text-[9.5px] font-black bg-slate-50 hover:bg-slate-100 text-slate-650 border border-slate-205 rounded-lg transition-all cursor-pointer flex items-center gap-1"
@@ -4736,6 +5264,9 @@ export function MainDashboard({
                 <button 
                   onClick={() => {
                     setActivePayBillDetails(null);
+                    setPaidInfoText('');
+                    setPaidAccountText('');
+                    setAddPayBillToBaki(false);
                     setPayBillToDelete(activePayBillDetails);
                   }}
                   className="px-2.5 py-1.5 text-[9.5px] font-black bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-205 rounded-lg transition-all cursor-pointer flex items-center gap-1"
@@ -4751,6 +5282,8 @@ export function MainDashboard({
                 onClick={() => {
                   setActivePayBillDetails(null);
                   setPaidInfoText('');
+                  setPaidAccountText('');
+                  setAddPayBillToBaki(false);
                 }}
                 className="px-3.5 py-1.5 text-[9.5px] font-black text-slate-500 hover:bg-slate-50 border border-slate-202 rounded-lg transition-all cursor-pointer"
               >
@@ -5369,10 +5902,26 @@ export function MainDashboard({
           products={products}
           onSaveProduct={onSaveProduct}
           onDeleteProduct={onDeleteProduct}
+          shopOrders={shopOrders}
+          onUpdateShopOrderStatus={onUpdateShopOrderStatus}
+          onDeleteShopOrder={onDeleteShopOrder}
+          shopCustomers={shopCustomers}
+          onDeleteShopCustomer={onDeleteShopCustomer}
           currency={currency}
           themeColor={themeColor}
         />
       )}
+
+      {/* OWNER REMOTE TYPE LIVE MONITOR MODAL */}
+      <OwnerRemoteTypeModal
+        isOpen={showRemoteTypeModal}
+        onClose={() => setShowRemoteTypeModal(false)}
+        lang={lang}
+        remoteState={activeRemoteState}
+        onClearLiveNumber={handleClearLiveRemoteNumber}
+        onDeleteSentNumber={handleDeleteSentRemoteNumber}
+        onClearAllSentNumbers={handleClearAllSentRemoteNumbers}
+      />
 
       {/* CHAT AUTO-REPLY & CANNED FAQS SETTINGS MODAL */}
       <ChatAutoReplySettingsModal 

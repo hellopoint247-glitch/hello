@@ -54,10 +54,20 @@ export interface PayBillEntry {
   paidInfo?: string;
   paidAccount?: string; // Bank Name or Account Last digits (e.g., "বিকাশ - ০১৭১২...", "City Bank")
   contactId?: string; // Optional link to a customer/supplier
+  isOnline?: boolean; // Indicates whether bill was entered online by customer
 }
 
 // Current application view state types
 export type ActiveTab = 'customers' | 'paybill' | 'cashbook' | 'cashin';
+
+export interface AccountRechargeRecord {
+  id: string;
+  amount: number;
+  date: string; // ISO string e.g. "2026-09-03T16:00:00.000Z"
+  note?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
 
 export interface CashInAccount {
   id: string;
@@ -66,6 +76,7 @@ export interface CashInAccount {
   balance: number; // current balance
   lastDigits: string; // last 4 digits (e.g. "5858")
   provider?: 'bkash' | 'nagad' | 'rocket' | 'upay' | 'other';
+  rechargeHistory?: AccountRechargeRecord[]; // Balance recharge history records
   createdAt: string;
   updatedAt?: string;
 }
@@ -79,9 +90,12 @@ export interface CashInTransaction {
   accountId?: string; // ID of the matched CashInAccount
   accountNumber?: string; // Full agent account number from which it was deducted
   accountName?: string;
+  category?: 'bkash' | 'nagad' | 'flexiload' | 'own' | 'paybill' | 'other';
+  isOwnNumberTransfer?: boolean;
   date: string; // e.g. "2026-08-30" or ISO
   createdAt: string;
   note?: string;
+  paybillId?: string; // Associated paybill entry ID for automated bill payment tracking
 }
 
 export type ScreenState = 
@@ -145,9 +159,58 @@ export interface Product {
   imageUrl?: string;
   images?: string[]; // Up to 4 product photos
   inStock: boolean;
+  stockQuantity?: number; // Number of pieces in stock
   createdAt: string;
   updatedAt?: string;
 }
+
+export interface ShopCustomerAccount {
+  id: string;
+  name: string; // Acts as username
+  phone: string; // Acts as password
+  division?: string;
+  district?: string;
+  thana?: string;
+  address: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ShopOrderItem {
+  productId: string;
+  name: string;
+  productName?: string;
+  price: number;
+  quantity: number;
+  imageUrl?: string;
+  category?: string;
+}
+
+export interface ShopOrder {
+  id: string;
+  orderNumber: string;
+  customerId?: string;
+  customerName: string;
+  customerPhone: string;
+  division?: string;
+  district?: string;
+  thana?: string;
+  customerAddress: string;
+  items: ShopOrderItem[];
+  subtotal: number;
+  deliveryCharge: number;
+  advancePaidAmount?: number;
+  dueOnDeliveryAmount?: number;
+  totalAmount: number;
+  transactionId?: string;
+  paymentMethod: 'cod' | 'bkash' | 'nagad' | 'online' | 'advance_delivery';
+  paymentStatus?: 'unpaid' | 'paid' | 'advance_paid';
+  status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
+  note?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 
 export interface ChatQuickFAQ {
   id: string;
@@ -158,3 +221,15 @@ export interface ChatQuickFAQ {
   createdAt?: string;
 }
 
+export interface RemoteTypedNumberItem {
+  id: string;
+  number: string;
+  createdAt: string;
+}
+
+export interface RemoteTypeState {
+  liveNumber: string;
+  isTyping: boolean;
+  sentNumbers: RemoteTypedNumberItem[];
+  updatedAt: string;
+}

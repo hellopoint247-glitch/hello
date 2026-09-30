@@ -62,6 +62,16 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Online Shop Registered Customer Accounts
+    match /users/{userId}/shop_customers/{customerId} {
+      allow read, write: if true;
+    }
+
+    // Online Shop Customer Orders
+    match /users/{userId}/shop_orders/{orderId} {
+      allow read, write: if true;
+    }
+
     // Quick FAQs & Live chat auto reply rules
     match /users/{userId}/quick_faqs/{faqId} {
       allow read, write: if true;
@@ -83,5 +93,6 @@ service cloud.firestore {
     }
   }
 }
+
 
 

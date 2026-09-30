@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Contact, Transaction, CashbookEntry, PayBillEntry, Product, ChatQuickFAQ, CashInAccount, CashInTransaction } from '../types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount } from '../types';
 import { safeLocalStorage as localStorage } from './safeStorage';
 
 const CONTACTS_KEY = 'hellopoint_contacts';
@@ -16,6 +16,8 @@ const QUICK_FAQS_KEY = 'hellopoint_quick_faqs';
 const PAYBILL_ACCOUNTS_KEY = 'hellopoint_paybill_accounts';
 const CASHIN_ACCOUNTS_KEY = 'hellopoint_cashin_accounts';
 const CASHIN_TRANSACTIONS_KEY = 'hellopoint_cashin_transactions';
+const SHOP_ORDERS_KEY = 'hellopoint_shop_orders';
+const SHOP_CUSTOMERS_KEY = 'hellopoint_shop_customers';
 
 export const DEFAULT_PAYBILL_ACCOUNTS: string[] = [];
 
@@ -56,6 +58,7 @@ export const DEFAULT_PRODUCTS: Product[] = [
     category: 'অ্যাক্সেসরিজ',
     imageUrl: 'https://images.unsplash.com/photo-1544816155-12df9643f363?w=500&auto=format&fit=crop&q=60',
     inStock: true,
+    stockQuantity: 25,
     createdAt: '2026-05-30T10:00:00Z'
   },
   {
@@ -67,6 +70,7 @@ export const DEFAULT_PRODUCTS: Product[] = [
     category: 'গ্যাজেট',
     imageUrl: 'https://images.unsplash.com/photo-1609592424368-e6b8c9d2fbe5?w=500&auto=format&fit=crop&q=60',
     inStock: true,
+    stockQuantity: 12,
     createdAt: '2026-05-30T11:00:00Z'
   },
   {
@@ -78,6 +82,7 @@ export const DEFAULT_PRODUCTS: Product[] = [
     category: 'অডিও',
     imageUrl: 'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=500&auto=format&fit=crop&q=60',
     inStock: true,
+    stockQuantity: 18,
     createdAt: '2026-05-30T12:00:00Z'
   },
   {
@@ -89,6 +94,7 @@ export const DEFAULT_PRODUCTS: Product[] = [
     category: 'স্মার্ট ওয়াচ',
     imageUrl: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=60',
     inStock: true,
+    stockQuantity: 10,
     createdAt: '2026-05-30T13:00:00Z'
   }
 ];
@@ -329,6 +335,44 @@ export function saveProducts(products: Product[]): void {
   }
 }
 
+export function loadShopOrders(): ShopOrder[] {
+  if (typeof window === 'undefined') return [];
+  const raw = localStorage.getItem(SHOP_ORDERS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export function saveShopOrders(orders: ShopOrder[]): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(SHOP_ORDERS_KEY, JSON.stringify(orders));
+    window.dispatchEvent(new Event('storage'));
+  }
+}
+
+export function loadShopCustomers(): ShopCustomerAccount[] {
+  if (typeof window === 'undefined') return [];
+  const raw = localStorage.getItem(SHOP_CUSTOMERS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export function saveShopCustomers(customers: ShopCustomerAccount[]): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(SHOP_CUSTOMERS_KEY, JSON.stringify(customers));
+    window.dispatchEvent(new Event('storage'));
+  }
+}
+
 export function loadQuickFaqs(): ChatQuickFAQ[] {
   if (typeof window === 'undefined') return DEFAULT_QUICK_FAQS;
   const raw = localStorage.getItem(QUICK_FAQS_KEY);
@@ -458,5 +502,47 @@ export function saveCashInTransactions(txs: CashInTransaction[]): void {
   } catch (e) {
     console.error('Failed to save cashin transactions', e);
   }
+}
+
+/**
+ * Match a given last number or account string against registered Cash-In accounts.
+ * Strictly matches:
+ * 1. Exact match with account's registered lastDigits (e.g. "5454" === "5454")
+ * 2. Or the account's full phone number ends with the entered lastDigits (e.g. "017...5454" ends with "5454")
+ * 3. Or full phone number exact match
+ * Does NOT do loose substring inclusion to prevent unrelated SIMs from falsely matching.
+ */
+export function findMatchingCashInAccount(
+  accountOrLastDigits: string | undefined | null,
+  accounts: CashInAccount[]
+): CashInAccount | undefined {
+  if (!accountOrLastDigits || !accounts || accounts.length === 0) return undefined;
+  const clean = accountOrLastDigits.trim().replace(/\D/g, '');
+  if (!clean) return undefined;
+
+  // 1. Direct exact match by registered lastDigits
+  let matched = accounts.find(acc => {
+    const accLast = (acc.lastDigits || '').trim().replace(/\D/g, '');
+    return accLast.length > 0 && accLast === clean;
+  });
+  if (matched) return matched;
+
+  // 2. Direct exact match by full account number
+  matched = accounts.find(acc => {
+    const accDigits = (acc.accountNumber || '').trim().replace(/\D/g, '');
+    return accDigits.length > 0 && accDigits === clean;
+  });
+  if (matched) return matched;
+
+  // 3. Match if the account number ends with the entered lastDigits (e.g., entered 4 digits matching last 4 digits of phone)
+  if (clean.length >= 3) {
+    matched = accounts.find(acc => {
+      const accDigits = (acc.accountNumber || '').trim().replace(/\D/g, '');
+      return accDigits.length >= clean.length && accDigits.endsWith(clean);
+    });
+    if (matched) return matched;
+  }
+
+  return undefined;
 }
 

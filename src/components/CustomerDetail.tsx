@@ -11,17 +11,13 @@ import {
   FileText, 
   Bell, 
   MessageSquare, 
-  Calendar, 
   Edit3, 
   Trash2, 
   RotateCcw,
-  Share2, 
   PhoneCall,
   Search,
   CheckCircle2,
-  AlertTriangle,
   X,
-  ChevronRight,
   User,
   Camera,
   Eye,
@@ -29,12 +25,15 @@ import {
 } from 'lucide-react';
 import { Contact, Transaction, ChatMessage } from '../types';
 import { getContactSummary } from '../utils/storage';
-import { motion, AnimatePresence } from 'motion/react';
+import { AnimatePresence } from 'motion/react';
 import { ChatBox } from './ChatBox';
 
 interface CustomerDetailProps {
   contact: Contact;
   transactions: Transaction[];
+  allContacts?: Contact[];
+  onSelectContact?: (contactId: string) => void;
+  onSaveTransaction?: (data: any) => Promise<void> | void;
   onBack: () => void;
   onNavigateToForm: (contactId: string, isGaveMode: boolean, transactionId?: string) => void;
   onDeleteTransaction: (id: string) => void;
@@ -52,6 +51,9 @@ interface CustomerDetailProps {
 export function CustomerDetail({
   contact,
   transactions,
+  allContacts = [],
+  onSelectContact,
+  onSaveTransaction,
   onBack,
   onNavigateToForm,
   onDeleteTransaction,
@@ -203,21 +205,29 @@ export function CustomerDetail({
     img.src = objectUrl;
   };
 
-  const [isDesktopMode, setIsDesktopMode] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('hellopoint_desktop_mode') === 'true';
-    } catch {
-      return false;
-    }
-  });
-
   useEffect(() => {
-    const handleChanged = () => {
-      setIsDesktopMode(localStorage.getItem('hellopoint_desktop_mode') === 'true');
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showEditModal) {
+          setShowEditModal(false);
+        } else if (showDeleteContactConfirm) {
+          setShowDeleteContactConfirm(false);
+        } else if (showClearEntriesConfirm) {
+          setShowClearEntriesConfirm(false);
+        } else if (txToDelete) {
+          setTxToDelete(null);
+        } else if (zoomedImage) {
+          setZoomedImage(null);
+        } else if (showChatBox) {
+          setShowChatBox(false);
+        } else {
+          onBack();
+        }
+      }
     };
-    window.addEventListener('desktop_mode_changed', handleChanged);
-    return () => window.removeEventListener('desktop_mode_changed', handleChanged);
-  }, []);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showEditModal, showDeleteContactConfirm, showClearEntriesConfirm, txToDelete, zoomedImage, showChatBox, onBack]);
 
   // Calculate contact balance details
   const summary = useMemo(() => {
@@ -244,10 +254,12 @@ export function CustomerDetail({
     });
     
     // Return order matching screen (newest first)
-    return mapped.reverse().filter(t => 
-      t.note.toLowerCase().includes(searchTxQuery.toLowerCase()) || 
-      (t.billNo && t.billNo.toLowerCase().includes(searchTxQuery.toLowerCase()))
-    );
+    return mapped.reverse().filter(t => {
+      const matchSearch = (t.note || '').toLowerCase().includes(searchTxQuery.toLowerCase()) || 
+        (t.billNo && t.billNo.toLowerCase().includes(searchTxQuery.toLowerCase())) ||
+        (toBengaliNumber(t.amount).includes(searchTxQuery) || t.amount.toString().includes(searchTxQuery));
+      return matchSearch;
+    });
   }, [contact.id, transactions, searchTxQuery]);
 
   const isWeOwe = summary.balance < 0; 
@@ -272,6 +284,109 @@ export function CustomerDetail({
       return dateStr;
     }
   };
+
+  const isDateToday = (dateStr?: string) => {
+    if (!dateStr) return false;
+    const key = getNormalizedDateKey(dateStr);
+    const now = new Date();
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (key === todayKey) return true;
+    try {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        return (
+          d.getFullYear() === now.getFullYear() &&
+          d.getMonth() === now.getMonth() &&
+          d.getDate() === now.getDate()
+        );
+      }
+    } catch {}
+    return false;
+  };
+
+  const getNormalizedDateKey = (dateStr: string) => {
+    if (!dateStr) return 'unknown';
+    if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+      return dateStr.substring(0, 10);
+    }
+    try {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      }
+    } catch {}
+    return dateStr.substring(0, 10);
+  };
+
+  const formatDateHeader = (dateKey: string) => {
+    try {
+      const [yStr, mStr, dStr] = dateKey.split('-');
+      if (!yStr || !mStr || !dStr) return dateKey;
+      
+      const dayNum = parseInt(dStr, 10);
+      const monthNum = parseInt(mStr, 10) - 1;
+      const yearNum = parseInt(yStr, 10);
+      
+      const monthNamesBn = [
+        'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 
+        'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
+      ];
+      const monthName = monthNamesBn[monthNum] || mStr;
+
+      const now = new Date();
+      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      
+      const yesterday = new Date();
+      yesterday.setDate(now.getDate() - 1);
+      const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+      let prefix = '';
+      if (dateKey === todayKey) {
+        prefix = 'আজ, ';
+      } else if (dateKey === yesterdayKey) {
+        prefix = 'গতকাল, ';
+      }
+
+      return `${prefix}${toBengaliNumber(dayNum)} ${monthName} ${toBengaliNumber(yearNum)}`;
+    } catch {
+      return dateKey;
+    }
+  };
+
+  // Group customer transactions by date
+  const dateGroupedTransactions = useMemo(() => {
+    const groups: {
+      dateKey: string;
+      displayDate: string;
+      items: {
+        tx: typeof txsWithRunningBalance[0];
+        globalIndex: number;
+      }[];
+    }[] = [];
+
+    const groupMap = new Map<string, typeof groups[0]>();
+
+    txsWithRunningBalance.forEach((tx, globalIndex) => {
+      const key = getNormalizedDateKey(tx.date || tx.createdAt);
+      let group = groupMap.get(key);
+      if (!group) {
+        group = {
+          dateKey: key,
+          displayDate: formatDateHeader(key),
+          items: []
+        };
+        groupMap.set(key, group);
+        groups.push(group);
+      }
+
+      group.items.push({ tx, globalIndex });
+    });
+
+    return groups;
+  }, [txsWithRunningBalance]);
 
   const copyToClipboard = (txt: string) => {
     if (!txt) return;
@@ -411,7 +526,8 @@ export function CustomerDetail({
           <button 
             id="btn-back"
             onClick={onBack}
-            className="p-1 hover:bg-white/10 rounded-full transition-all text-white"
+            className="p-1 hover:bg-white/10 rounded-full transition-all text-white cursor-pointer"
+            title="ফিরে যান"
           >
             <ArrowLeft className="w-5.5 h-5.5" />
           </button>
@@ -449,491 +565,516 @@ export function CustomerDetail({
             <button 
               id="detail-ellipsis-menu"
               onClick={() => setShowOptionsDropdown(!showOptionsDropdown)}
-              className="p-1.5 hover:bg-white/10 rounded-full transition-all text-white"
+              className="p-1.5 hover:bg-white/10 rounded-full transition-all text-white cursor-pointer"
+              title="মেনু"
             >
               <MoreVertical className="w-5 h-5" />
             </button>
           
-          {showOptionsDropdown && (
-            <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-100 rounded-lg shadow-xl z-20 text-slate-800 overflow-hidden divide-y divide-slate-50">
-              {contact.phone && (
-                <a 
-                  href={`tel:${contact.phone}`}
-                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 block"
+            {showOptionsDropdown && (
+              <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-100 rounded-lg shadow-xl z-20 text-slate-800 overflow-hidden divide-y divide-slate-50">
+                {contact.phone && (
+                  <a 
+                    href={`tel:${contact.phone}`}
+                    className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 block"
+                  >
+                    <PhoneCall className="w-4 h-4 text-emerald-600" /> সরাসরি কল
+                  </a>
+                )}
+                <button 
+                  onClick={() => {
+                    setShowEditModal(true);
+                    setShowOptionsDropdown(false);
+                  }}
+                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 cursor-pointer"
                 >
-                  <PhoneCall className="w-4 h-4 text-emerald-600" /> সরাসরি কল
-                </a>
-              )}
-              <button 
-                onClick={() => {
-                  setShowEditModal(true);
-                  setShowOptionsDropdown(false);
-                }}
-                className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 cursor-pointer"
-              >
-                <Edit3 className="w-4 h-4 text-rose-500" /> তথ্য পরিবর্তন (Edit)
-              </button>
-              <button 
-                onClick={() => {
-                  exportSingleCustomerToGoogleSheet();
-                  setShowOptionsDropdown(false);
-                }}
-                className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 cursor-pointer"
-              >
-                <FileText className="w-4 h-4 text-emerald-600" /> গুগল শিট ডাউনলোড
-              </button>
+                  <Edit3 className="w-4 h-4 text-rose-500" /> তথ্য পরিবর্তন (Edit)
+                </button>
+                <button 
+                  onClick={() => {
+                    exportSingleCustomerToGoogleSheet();
+                    setShowOptionsDropdown(false);
+                  }}
+                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FileText className="w-4 h-4 text-emerald-600" /> গুগল শিট ডাউনলোড
+                </button>
 
-              <button 
-                onClick={() => {
-                  setShowClearEntriesConfirm(true);
-                  setShowOptionsDropdown(false);
-                }}
-                className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-amber-50 text-amber-700 flex items-center gap-1.5 cursor-pointer transition-colors"
-              >
-                <RotateCcw className="w-4 h-4 text-amber-600" /> সব এন্ট্রি ক্লিয়ার
-              </button>
+                <button 
+                  onClick={() => {
+                    setShowClearEntriesConfirm(true);
+                    setShowOptionsDropdown(false);
+                  }}
+                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-amber-50 text-amber-700 flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <RotateCcw className="w-4 h-4 text-amber-600" /> সব এন্ট্রি ক্লিয়ার
+                </button>
 
-              <button 
-                onClick={() => {
-                  setShowDeleteContactConfirm(true);
-                  setShowOptionsDropdown(false);
-                }}
-                className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-red-50 text-red-600 flex items-center gap-1.5 cursor-pointer animate-pulse"
-              >
-                <Trash2 className="w-4 h-4 text-red-600" /> কাস্টমার ডিলিট (Delete)
-              </button>
-            </div>
-          )}
+                <button 
+                  onClick={() => {
+                    setShowDeleteContactConfirm(true);
+                    setShowOptionsDropdown(false);
+                  }}
+                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-red-50 text-red-600 flex items-center gap-1.5 cursor-pointer animate-pulse"
+                >
+                  <Trash2 className="w-4 h-4 text-red-600" /> কাস্টমার ডিলিট (Delete)
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
 
       {/* Floating Alert Banner if feedback is stored */}
       {feedbackMsg && (
-        <div className="fixed top-12 left-4 right-4 bg-purple-900 text-white text-[11px] font-bold px-3 py-2.5 rounded-lg shadow-lg z-30 flex items-center gap-1.5 border border-purple-500 animate-bounce print:hidden">
-          <CheckCircle2 className="w-4 h-4 text-yellow-300" />
+        <div className="fixed top-14 left-4 right-4 max-w-md mx-auto bg-purple-900 text-white text-xs font-bold px-4 py-3 rounded-xl shadow-2xl z-40 flex items-center gap-2 border border-purple-500 animate-bounce print:hidden">
+          <CheckCircle2 className="w-4.5 h-4.5 text-yellow-300 shrink-0" />
           <span>{feedbackMsg}</span>
         </div>
       )}
 
-      {/* Main ledger controls (Compact-friendly styled) */}
-      <div className={`p-3 flex-1 ${isDesktopMode ? 'max-w-7xl' : 'max-w-sm'} mx-auto w-full space-y-2.5 print:hidden`}>
-        
-        {/* UNIFIED CUSTOMER PROFILE & BALANCE CARD (Total balance moved next to customer name to save vertical space) */}
-        <div className="bg-gradient-to-r from-brand-primary via-brand-primary to-brand-hover rounded-2xl p-3 sm:p-4 text-white shadow-md flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 relative overflow-hidden select-none border border-brand-primary/10">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-10 -mt-10 blur-xl pointer-events-none" />
-          
-          {/* Left / Info Section: Avatar + Name + Phone + Badges */}
-          <div className="flex items-center gap-3 min-w-0 flex-1">
-            {/* Interactive profile picture inside CustomerDetail */}
-            <div className="relative group shrink-0">
-              <div 
-                onClick={() => {
-                  if (contact.photoUrl) {
-                    setZoomedImage({ url: contact.photoUrl, name: contact.name });
-                  }
-                }}
-                className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-white/80 overflow-hidden bg-white/10 relative flex items-center justify-center shadow-lg ring-2 ring-white/20 ${contact.photoUrl ? 'cursor-pointer hover:scale-105 active:scale-95 transition-all' : ''}`}
-              >
-                {contact.photoUrl ? (
-                  <img 
-                    src={contact.photoUrl} 
-                    alt={contact.name} 
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover" 
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-500 via-indigo-600 to-blue-600 text-white font-black text-xl sm:text-2xl relative uppercase tracking-wider select-none">
-                    <span className="drop-shadow-md">{contact.name.trim().charAt(0).toUpperCase()}</span>
-                    <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/25 to-transparent pointer-events-none" />
-                  </div>
-                )}
-                
-                {/* Overlay on hover */}
-                {contact.photoUrl && (
-                  <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[7.5px] font-black uppercase text-center p-0.5 text-white">
-                    বড় করুন
-                  </div>
-                )}
-              </div>
-              
-              {/* Input camera triggers */}
-              <label 
-                className="absolute -bottom-1 -right-1 bg-yellow-400 hover:bg-yellow-350 text-slate-900 p-1 rounded-full shadow-md cursor-pointer hover:scale-110 active:scale-95 transition-all border border-brand-primary flex items-center justify-center"
-                title="প্রোফাইল ছবি পরিবর্তন করুন"
-              >
-                <Camera className="w-3 h-3" />
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  onChange={handlePhotoUpload}
-                  className="hidden" 
-                />
-              </label>
-            </div>
+      {/* Main Container - Responsive Single Column on Mobile, Dual Column Desktop Workspace on md: and above */}
+      <div className="p-3 flex-1 max-w-full md:max-w-6xl mx-auto w-full print:hidden pb-24 md:pb-8">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-5 items-start">
 
-            {/* Customer Name & Info */}
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <h3 className="text-sm sm:text-base font-black tracking-tight leading-tight text-white truncate">
-                  {contact.name}
-                </h3>
-                <button
-                  onClick={() => setShowEditModal(true)}
-                  className="p-1 hover:bg-white/20 active:scale-90 text-yellow-300 hover:text-yellow-250 rounded-full transition-all cursor-pointer flex items-center justify-center shrink-0"
-                  title="সম্পাদন করুন"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
+          {/* LEFT COLUMN (ON DESKTOP): Transaction History Feed & Search */}
+          <div className="order-2 md:order-1 md:col-span-7 lg:col-span-7 space-y-2.5">
+            {/* Small search within customer transaction entries */}
+            <div className="bg-white flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200/80 shadow-tiny">
+              <Search className="w-3.5 h-3.5 text-slate-400" />
+              <input 
+                type="text" 
+                value={searchTxQuery}
+                onChange={(e) => setSearchTxQuery(e.target.value)}
+                placeholder="নোট বা বিবরণ দিয়ে খুঁজুন..."
+                className="w-full bg-transparent border-none text-[10.5px] outline-none placeholder:text-slate-400 font-bold"
+              />
+              {searchTxQuery && (
+                <button onClick={() => setSearchTxQuery('')} className="text-slate-400">
+                  <X className="w-3.5 h-3.5" />
                 </button>
-                {contact.photoUrl && (
-                  <span className="text-[7.5px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-black border border-white/15 uppercase tracking-widest shrink-0">ছবিযুক্ত</span>
-                )}
-              </div>
-              <p className="text-[10px] sm:text-[11px] font-bold text-white/85 flex items-center gap-1 mt-0.5 font-mono truncate">
-                <PhoneCall className="w-3 h-3 text-yellow-300 shrink-0" />
-                <span>{contact.phone || 'মোবাইল নং নেই'}</span>
-              </p>
-              <div className="flex items-center gap-1 mt-1">
-                <span className="text-[7.5px] sm:text-[8px] text-white/80 tracking-wider uppercase font-black bg-white/15 px-2 py-0.5 rounded-full inline-block">
-                  {contact.type === 'customer' ? 'গ্রাহক খতিয়ান' : 'সরবরাহকারী'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Section: Total Balance Box (Directly next to Name) & Quick Actions */}
-          <div className="flex items-center justify-between sm:justify-end bg-white/10 backdrop-blur-xs px-3 py-2 rounded-xl border border-white/20 shrink-0 gap-3">
-            <div className="flex flex-col items-start sm:items-end">
-              <div className="flex items-center gap-1">
-                <span className="text-[8.5px] sm:text-[9px] font-extrabold uppercase tracking-wider text-white/80">চলতি জের:</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[8px] sm:text-[8.5px] font-black tracking-wide ${
-                  isTheyOwe ? 'bg-rose-500 text-white shadow-xs' :
-                  isWeOwe ? 'bg-emerald-500 text-white shadow-xs' :
-                  'bg-white/20 text-white'
-                }`}>
-                  {isTheyOwe ? 'আপনি পাবেন' :
-                   isWeOwe ? 'আপনি দেবেন' :
-                   'সমতা হিসাব'}
-                </span>
-              </div>
-              <h1 className={`text-lg sm:text-xl font-black font-mono tracking-tight ${
-                isTheyOwe ? 'text-rose-200' :
-                isWeOwe ? 'text-emerald-200' :
-                'text-white'
-              }`}>
-                {currency} {absBalance.toFixed(2)}
-              </h1>
+              )}
             </div>
 
-            {/* Quick Action Buttons */}
-            <div className="flex items-center gap-1 border-l border-white/20 pl-2">
-              <button 
-                id="action-report-download"
-                onClick={exportSingleCustomerToGoogleSheet}
-                title="গুগল শিট ডাউনলোড"
-                className="p-1.5 sm:px-2 sm:py-1 bg-white/15 hover:bg-white/25 active:scale-95 rounded-lg text-[9px] font-bold text-white transition-all flex items-center gap-1 cursor-pointer"
-              >
-                <FileText className="w-3.5 h-3.5 text-emerald-300" />
-                <span className="hidden sm:inline">শিট</span>
-              </button>
-              <button 
-                id="action-reminder-alert"
-                onClick={triggerWhatsAppReminder}
-                title="ওয়াটসঅ্যাপ তাগাদা"
-                className="p-1.5 sm:px-2 sm:py-1 bg-white/15 hover:bg-white/25 active:scale-95 rounded-lg text-[9px] font-bold text-white transition-all flex items-center gap-1 cursor-pointer"
-              >
-                <Bell className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
-                <span className="hidden sm:inline">ওয়াটসঅ্যাপ</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Small search within customer transaction entries */}
-        <div className="bg-white flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200/80 shadow-tiny">
-          <Search className="w-3.5 h-3.5 text-slate-400" />
-          <input 
-            type="text" 
-            value={searchTxQuery}
-            onChange={(e) => setSearchTxQuery(e.target.value)}
-            placeholder="নোট বা বিবরণ দিয়ে খুঁজুন..."
-            className="w-full bg-transparent border-none text-[10.5px] outline-none placeholder:text-slate-400 font-bold"
-          />
-          {searchTxQuery && (
-            <button onClick={() => setSearchTxQuery('')} className="text-slate-400">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-
-        {/* Ledger Entries List */}
-        <div>
-          <div className="flex justify-between items-center text-[9px] font-black tracking-widest text-slate-400 uppercase px-1 mb-1.5 pb-1 border-b border-slate-100">
-            <div className="flex items-center gap-1.5">
-              <span>লেনদেন খতিয়ান তালিকা ({txsWithRunningBalance.length})</span>
-              <button 
-                type="button"
-                onClick={toggleHideRunningBalance}
-                title={hideRunningBalance ? 'জের ব্যালেন্স দেখান' : 'জের ব্যালেন্স লুকান'}
-                className="p-0.5 hover:bg-slate-100 active:scale-95 text-slate-500 rounded transition-all cursor-pointer inline-flex items-center justify-center shrink-0"
-              >
-                {hideRunningBalance ? (
-                  <EyeOff className="w-3.5 h-3.5 text-slate-400 hover:text-purple-600" />
-                ) : (
-                  <Eye className="w-3.5 h-3.5 text-slate-400 hover:text-purple-600" />
-                )}
-              </button>
-            </div>
-            <span className="flex gap-2">
-              <span className="text-emerald-600">● পেয়েছি (+)</span>
-              <span className="text-rose-500">● দিয়েছি (-)</span>
-            </span>
-          </div>
-
-          <div id="ledger-rows-wrapper" className="space-y-1 sm:space-y-1.5 w-full flex flex-col">
-            {txsWithRunningBalance.length === 0 ? (
-              <div className="text-center py-6 bg-white rounded-lg border border-slate-100 shadow-tiny text-slate-400 text-[9.5px] font-bold col-span-full">
-                কোনো লেনদেনের এন্ট্রি পাওয়া যায়নি।
-              </div>
-            ) : (
-              txsWithRunningBalance.map((t, index) => {
-                const isGaveType = t.type === 'GAVE';
-                
-                // Card density mapping configurations for transaction rows
-                const rowStyles = {
-                  compact: {
-                    containerPadding: "px-2 py-0.5 sm:py-1 gap-1",
-                    circle: "w-1 h-1",
-                    dateText: "text-[7.5px]",
-                    separator: "text-[8px]",
-                    noteText: "text-[9.5px]",
-                    rightContainer: "w-[122px] gap-1",
-                    amountCol: "w-[58px]",
-                    amountText: "text-[8.5px]",
-                    balanceCol: "w-[60px] justify-end",
-                    balanceText: "text-[7.2px]"
-                  },
-                  comfortable: {
-                    containerPadding: "px-2.5 py-1.5 gap-1.5",
-                    circle: "w-1.2 h-1.2",
-                    dateText: "text-[8.5px]",
-                    separator: "text-[9px]",
-                    noteText: "text-[11px]",
-                    rightContainer: "w-[138px] gap-1",
-                    amountCol: "w-[70px]",
-                    amountText: "text-[10px]",
-                    balanceCol: "w-[64px] justify-end",
-                    balanceText: "text-[8.5px]"
-                  },
-                  large: {
-                    containerPadding: "px-3.5 py-2.5 gap-2",
-                    circle: "w-2 h-2",
-                    dateText: "text-[9.5px]",
-                    separator: "text-[10px]",
-                    noteText: "text-[12.5px]",
-                    rightContainer: "w-[158px] gap-1.5",
-                    amountCol: "w-[80px]",
-                    amountText: "text-[11.5px]",
-                    balanceCol: "w-[74px] justify-end",
-                    balanceText: "text-[9.5px]"
-                  }
-                };
-
-                const style = rowStyles[cardDensity] || rowStyles.comfortable;
-
-                return (
-                  <div 
-                    key={t.id}
-                    onClick={() => {
-                      setExpandedTxId(expandedTxId === t.id ? null : t.id);
-                    }}
-                    className="bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-all shadow-tiny hover:border-purple-300 select-none text-left flex flex-col overflow-hidden"
-                    id={`tx-card-${t.id}`}
+            {/* Ledger Entries List */}
+            <div>
+              <div className="flex justify-between items-center text-[9px] font-black tracking-widest text-slate-400 uppercase px-1 mb-1.5 pb-1 border-b border-slate-100">
+                <div className="flex items-center gap-1.5">
+                  <span>লেনদেন খতিয়ান তালিকা ({txsWithRunningBalance.length})</span>
+                  <button 
+                    type="button"
+                    onClick={toggleHideRunningBalance}
+                    title={hideRunningBalance ? 'জের ব্যালেন্স দেখান' : 'জের ব্যালেন্স লুকান'}
+                    className="p-0.5 hover:bg-slate-100 active:scale-95 text-slate-500 rounded transition-all cursor-pointer inline-flex items-center justify-center shrink-0"
                   >
-                    {/* Compact Top-Row: Serial, Status, Date, Comment, Amount */}
-                    <div className={`${style.containerPadding} flex items-center justify-between cursor-pointer`}>
-                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                        {/* Serial Number: Clean typography without background or border */}
-                        <span 
-                          className="font-black font-mono text-[11px] sm:text-xs text-slate-700 dark:text-slate-200 shrink-0 min-w-[16px] text-center select-none"
-                          title={`ক্রমিক নং: ${toBengaliNumber(index + 1)}`}
-                        >
-                          {toBengaliNumber(index + 1)}
-                        </span>
+                    {hideRunningBalance ? (
+                      <EyeOff className="w-3.5 h-3.5 text-slate-400 hover:text-purple-600" />
+                    ) : (
+                      <Eye className="w-3.5 h-3.5 text-slate-400 hover:text-purple-600" />
+                    )}
+                  </button>
+                </div>
+                <span className="flex gap-2">
+                  <span className="text-emerald-600">● পেয়েছি (+)</span>
+                  <span className="text-rose-500">● দিয়েছি (-)</span>
+                </span>
+              </div>
 
-                        {/* Compact status indicator circle */}
-                        <span className={`${style.circle} rounded-full shrink-0 ${isGaveType ? 'bg-rose-500 ring-2 ring-rose-400/20' : 'bg-emerald-500 ring-2 ring-emerald-400/20'}`} />
-                        
-                        {/* Date */}
-                        <span className={`${style.dateText} text-slate-400 font-bold font-mono shrink-0`}>
-                          {displayTime(t.date || t.createdAt)}
-                        </span>
-                        
-                        <span className={`text-slate-300 ${style.separator} shrink-0 font-light`}>|</span>
+              <div id="ledger-rows-wrapper" className="space-y-3 sm:space-y-3.5 w-full flex flex-col">
+                {dateGroupedTransactions.length === 0 ? (
+                  <div className="text-center py-6 bg-white rounded-lg border border-slate-100 shadow-tiny text-slate-400 text-[9.5px] font-bold col-span-full">
+                    কোনো লেনদেনের এন্ট্রি পাওয়া যায়নি।
+                  </div>
+                ) : (
+                  dateGroupedTransactions.map((group) => {
+                    // Card density mapping configurations for transaction rows
+                    const rowStyles = {
+                      compact: {
+                        containerPadding: "px-2 py-0.5 sm:py-1 gap-1",
+                        dateText: "text-[7.5px] sm:text-[8px]",
+                        separator: "text-[7.5px]",
+                        noteText: "text-[9.5px] sm:text-[10px]",
+                        amountText: "text-[10px] sm:text-[10.5px]",
+                        balanceText: "text-[10px] sm:text-[10.5px]"
+                      },
+                      comfortable: {
+                        containerPadding: "px-2.5 py-1 sm:py-1.5 gap-1.5",
+                        dateText: "text-[8px] sm:text-[8.5px]",
+                        separator: "text-[8px]",
+                        noteText: "text-[10.5px] sm:text-[11px]",
+                        amountText: "text-[11px] sm:text-[11.5px]",
+                        balanceText: "text-[11px] sm:text-[11.5px]"
+                      },
+                      large: {
+                        containerPadding: "px-3 py-1.5 sm:py-2 gap-2",
+                        dateText: "text-[9px] sm:text-[9.5px]",
+                        separator: "text-[9px]",
+                        noteText: "text-[11.5px] sm:text-[12px]",
+                        amountText: "text-[12px] sm:text-[12.5px]",
+                        balanceText: "text-[12px] sm:text-[12.5px]"
+                      }
+                    };
 
-                        {/* Note / Comment */}
-                        <span className={`${style.noteText} font-extrabold text-slate-800 truncate min-w-0`}>
-                          {t.note || (isGaveType ? 'দিলেন (GAVE)' : 'পেলেন (RECEIVED)')}
-                        </span>
-                      </div>
+                    const style = rowStyles[cardDensity] || rowStyles.comfortable;
 
-                      {/* Account: Amount & Running Balance (perfect inline layout, zero wrapping) */}
-                      <div className={`shrink-0 flex items-center justify-end ${style.rightContainer} select-none`}>
-                        {/* Amount Column - Clean high-contrast text without background or border */}
-                        <div className={`${style.amountCol} shrink-0 text-right`}>
-                          <span className={`${style.amountText} font-black font-mono tracking-tight block text-right w-full whitespace-nowrap overflow-visible ${
-                            !isGaveType 
-                              ? 'text-emerald-600 dark:text-emerald-400' 
-                              : 'text-rose-600 dark:text-rose-400'
-                          }`}>
-                            {!isGaveType ? '+' : '-'}{currency}{t.amount.toFixed(2)}
-                          </span>
-                        </div>
-                        
-                        {/* Running Balance Column - Clean high-contrast typography */}
-                        <div className={`${style.balanceCol} shrink-0 text-right flex`}>
-                          {!hideRunningBalance ? (
-                            <span className={`${style.balanceText} font-bold tracking-tight leading-none inline-flex items-center gap-0.5 shrink-0`}>
-                              <span className="text-slate-400 dark:text-slate-400 font-normal">(</span>
-                              <span className={`font-black font-mono ${
-                                t.runningBalance < 0 
-                                  ? 'text-emerald-600 dark:text-emerald-400' 
-                                  : t.runningBalance > 0
-                                  ? 'text-rose-600 dark:text-rose-400'
-                                  : 'text-slate-600 dark:text-slate-400'
-                              }`}>
-                                {t.runningBalance < 0 ? '+' : t.runningBalance > 0 ? '-' : ''}
-                                {currency}{Math.abs(t.runningBalance).toFixed(1)}
-                              </span>
-                              <span className="text-slate-400 dark:text-slate-400 font-normal">)</span>
-                            </span>
-                          ) : (
-                            <span className="text-[7.5px] font-extrabold text-slate-300 dark:text-slate-500 tracking-wider leading-none shrink-0">
-                              (•••)
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                    return (
+                      <div key={group.dateKey} className="space-y-1 sm:space-y-1.5 flex flex-col">
+                        {/* Transaction items belonging to this specific date */}
+                        {group.items.map(({ tx: t, globalIndex: index }) => {
+                          const isGaveType = t.type === 'GAVE';
+                          const isToday = isDateToday(t.date || t.createdAt);
 
-                    {/* Expandable Area: All extra details inside the card */}
-                    {expandedTxId === t.id && (
-                      <div 
-                        onClick={(e) => e.stopPropagation()}
-                        className="border-t border-slate-100 bg-slate-50/50 p-3 space-y-3 animate-fade-in text-left select-text cursor-default"
-                      >
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[10.5px] text-slate-600">
-                          {/* Left Details block */}
-                          <div className="space-y-1">
-                            <p className="font-bold">
-                              ⚖️ <span className="text-slate-400">লেনদেন পরবর্তী ব্যালেন্স (জের):</span> <span className={`font-mono font-extrabold ${t.runningBalance > 0 ? 'text-rose-600 dark:text-rose-400' : t.runningBalance < 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>
-                                {currency}{Math.abs(t.runningBalance).toFixed(2)}
-                                {t.runningBalance > 0 ? ' (পাওনা/Receivable)' : t.runningBalance < 0 ? ' (জমা/Deposit)' : ' (সমতা/Balanced)'}
-                              </span>
-                            </p>
-                            {t.billNo && (
-                              <p className="font-bold">
-                                📝 <span className="text-slate-400">ভাউচার / রসিদ নং:</span> <span className="font-mono text-xs text-purple-900 font-extrabold">{t.billNo}</span>
-                              </p>
-                            )}
-                            <p className="font-bold">
-                              📅 <span className="text-slate-400">লেনদেনের আসল সময়:</span> <span className="text-slate-700">{new Date(t.date || t.createdAt).toLocaleDateString('bn-BD', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                            </p>
-                            <p className="font-bold">
-                              📊 <span className="text-slate-400">নিট হিসাবের প্রভাব:</span> <span className={isGaveType ? 'text-rose-600' : 'text-emerald-600'}>
-                                {isGaveType ? 'কাস্টমার বকেয়া বৃদ্ধি পেয়েছে' : 'কাস্টমার বকেয়া পরিশোধ করেছে/জমা দিয়েছে'}
-                              </span>
-                            </p>
-                          </div>
+                          return (
+                            <div 
+                              key={t.id}
+                              onClick={() => {
+                                setExpandedTxId(expandedTxId === t.id ? null : t.id);
+                              }}
+                              className="bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-all shadow-tiny hover:border-purple-300 select-none text-left flex flex-col overflow-hidden"
+                              id={`tx-card-${t.id}`}
+                            >
+                              {/* Top-Row: Serial, Date, Category/Note, Mul Balance, and Jer Balance */}
+                              <div className={`${style.containerPadding} flex items-center justify-between cursor-pointer`}>
+                                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+                                  {/* Serial Number: Clean typography without background or border */}
+                                  <span 
+                                    className="font-black font-mono text-[10px] sm:text-[11px] text-slate-700 dark:text-slate-200 shrink-0 min-w-[14px] text-center select-none"
+                                    title={`ক্রমিক নং: ${toBengaliNumber(index + 1)}`}
+                                  >
+                                    {toBengaliNumber(index + 1)}
+                                  </span>
 
-                          {/* Signature and Attachment section */}
-                          <div className="flex gap-3 justify-start sm:justify-end items-center flex-wrap">
-                            {t.attachFile && (
-                              <div className="text-center">
-                                <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">সংযুক্ত রশিদ</span>
-                                <div className="border border-slate-200 bg-white p-0.5 rounded-lg shadow-tiny overflow-hidden">
-                                  <img 
-                                    src={t.attachFile} 
-                                    alt="Bill Attachment" 
-                                    className="h-14 w-14 object-cover hover:scale-105 transition-all duration-300 rounded cursor-zoom-in" 
-                                    referrerPolicy="no-referrer"
-                                    onClick={() => {
-                                      const win = window.open();
-                                      if (win) {
-                                        win.document.write(`<img src="${t.attachFile}" style="max-width:100%; max-height:100vh; margin:auto; display:block;" />`);
-                                      }
-                                    }}
-                                  />
+                                  {/* Date: Light yellow/amber for today, muted slate for previous days */}
+                                  <span 
+                                    className={`${style.dateText} font-mono shrink-0 ${
+                                      isToday 
+                                        ? 'text-amber-500 dark:text-yellow-300 font-black' 
+                                        : 'text-slate-400 dark:text-slate-400 font-bold'
+                                    }`}
+                                    title={isToday ? 'আজকের লেনদেন' : undefined}
+                                  >
+                                    {displayTime(t.date || t.createdAt)}
+                                  </span>
+                                  
+                                  <span className={`text-slate-300 dark:text-slate-600 ${style.separator} shrink-0 font-light`}>|</span>
+
+                                  {/* Note / Category & Main Balance (মুল ব্যালেন্স ক্যাটাগরির ডান পাশে) */}
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                    <span className={`${style.noteText} font-extrabold text-slate-800 dark:text-slate-100 truncate`}>
+                                      {t.note || (isGaveType ? 'দিলেন (GAVE)' : 'পেলেন (RECEIVED)')}
+                                    </span>
+
+                                    {/* Main Balance (মুল ব্যালেন্স) right next to Category */}
+                                    <span className={`${style.amountText} font-black font-mono tracking-tight shrink-0 whitespace-nowrap ${
+                                      !isGaveType 
+                                        ? 'text-emerald-600 dark:text-emerald-400' 
+                                        : 'text-rose-600 dark:text-rose-400'
+                                    }`}>
+                                      {!isGaveType ? '+' : '-'}{currency}{t.amount.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Running Balance Column (জের ব্যালেন্স একটু বড় হবে) */}
+                                <div className="shrink-0 text-right flex items-center justify-end select-none pl-1.5">
+                                  {!hideRunningBalance ? (
+                                    <span className={`${style.balanceText} font-bold tracking-tight leading-none inline-flex items-center gap-0.5 shrink-0`}>
+                                      <span className="text-slate-400 dark:text-slate-500 font-normal">(</span>
+                                      <span className={`font-black font-mono ${
+                                        t.runningBalance < 0 
+                                          ? 'text-emerald-600 dark:text-emerald-400' 
+                                          : t.runningBalance > 0
+                                          ? 'text-rose-600 dark:text-rose-400'
+                                          : 'text-slate-600 dark:text-slate-400'
+                                      }`}>
+                                        {t.runningBalance < 0 ? '+' : t.runningBalance > 0 ? '-' : ''}
+                                        {currency}{Math.abs(t.runningBalance).toFixed(1)}
+                                      </span>
+                                      <span className="text-slate-400 dark:text-slate-500 font-normal">)</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] font-extrabold text-slate-300 dark:text-slate-500 tracking-wider leading-none shrink-0">
+                                      (•••)
+                                    </span>
+                                  )}
                                 </div>
                               </div>
-                            )}
 
-                            {t.signature && (
-                              <div className="text-center">
-                                <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">ডিজিটাল স্বাক্ষর</span>
-                                <div className="border border-slate-200 bg-white p-0.5 rounded-lg shadow-tiny overflow-hidden flex items-center justify-center">
-                                  <img 
-                                    src={t.signature} 
-                                    alt="Signature" 
-                                    className="h-14 w-14 object-contain opacity-85 rounded bg-slate-50" 
-                                    referrerPolicy="no-referrer"
-                                  />
+                              {/* Expandable Area: All extra details inside the card */}
+                              {expandedTxId === t.id && (
+                                <div 
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="border-t border-slate-100 bg-slate-50/50 p-3 space-y-3 animate-fade-in text-left select-text cursor-default"
+                                >
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[10.5px] text-slate-600">
+                                    {/* Left Details block */}
+                                    <div className="space-y-1">
+                                      <p className="font-bold">
+                                        ⚖️ <span className="text-slate-400">লেনদেন পরবর্তী ব্যালেন্স (জের):</span> <span className={`font-mono font-extrabold ${t.runningBalance > 0 ? 'text-rose-600 dark:text-rose-400' : t.runningBalance < 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>
+                                          {currency}{Math.abs(t.runningBalance).toFixed(2)}
+                                          {t.runningBalance > 0 ? ' (পাওনা/Receivable)' : t.runningBalance < 0 ? ' (জমা/Deposit)' : ' (সমতা/Balanced)'}
+                                        </span>
+                                      </p>
+                                      {t.billNo && (
+                                        <p className="font-bold">
+                                          📝 <span className="text-slate-400">ভাউচার / রসিদ নং:</span> <span className="font-mono text-xs text-purple-900 font-extrabold">{t.billNo}</span>
+                                        </p>
+                                      )}
+                                      <p className="font-bold">
+                                        📅 <span className="text-slate-400">লেনদেনের আসল সময়:</span> <span className="text-slate-700">{new Date(t.date || t.createdAt).toLocaleDateString('bn-BD', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                                      </p>
+                                      <p className="font-bold">
+                                        📊 <span className="text-slate-400">নিট হিসাবের প্রভাব:</span> <span className={isGaveType ? 'text-rose-600' : 'text-emerald-600'}>
+                                          {isGaveType ? 'কাস্টমার বকেয়া বৃদ্ধি পেয়েছে' : 'কাস্টমার বকেয়া পরিশোধ করেছে/জমা দিয়েছে'}
+                                        </span>
+                                      </p>
+                                    </div>
+
+                                    {/* Signature and Attachment section */}
+                                    <div className="flex gap-3 justify-start sm:justify-end items-center flex-wrap">
+                                      {t.attachFile && (
+                                        <div className="text-center">
+                                          <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">সংযুক্ত রশিদ</span>
+                                          <div className="border border-slate-200 bg-white p-0.5 rounded-lg shadow-tiny overflow-hidden">
+                                            <img 
+                                              src={t.attachFile} 
+                                              alt="Bill Attachment" 
+                                              className="h-14 w-14 object-cover hover:scale-105 transition-all duration-300 rounded cursor-zoom-in" 
+                                              referrerPolicy="no-referrer"
+                                              onClick={() => {
+                                                const win = window.open();
+                                                if (win) {
+                                                  win.document.write(`<img src="${t.attachFile}" style="max-width:100%; max-height:100vh; margin:auto; display:block;" />`);
+                                                }
+                                              }}
+                                            />
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {t.signature && (
+                                        <div className="text-center">
+                                          <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">ডিজিটাল স্বাক্ষর</span>
+                                          <div className="border border-slate-200 bg-white p-0.5 rounded-lg shadow-tiny overflow-hidden flex items-center justify-center">
+                                            <img 
+                                              src={t.signature} 
+                                              alt="Signature" 
+                                              className="h-14 w-14 object-contain opacity-85 rounded bg-slate-50" 
+                                              referrerPolicy="no-referrer"
+                                            />
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Action buttons inside card */}
+                                  <div className="pt-2 border-t border-slate-200/60 flex items-center justify-end gap-2 text-xs">
+                                    <button
+                                      onClick={() => {
+                                        onNavigateToForm(contact.id, isGaveType, t.id);
+                                      }}
+                                      className="px-3 py-1.5 font-bold text-slate-650 bg-white hover:bg-slate-100 border border-slate-205 rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-tiny"
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                                      <span>সম্পাদন</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => {
+                                        setTxToDelete(t);
+                                      }}
+                                      className="px-3 py-1.5 font-bold text-rose-600 bg-rose-50 hover:bg-rose-100/80 border border-rose-200 rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-tiny"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                      <span>মুছুন</span>
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
 
-                        {/* Action buttons inside card */}
-                        <div className="pt-2 border-t border-slate-200/60 flex items-center justify-end gap-2 text-xs">
-                          <button
-                            onClick={() => {
-                              onNavigateToForm(contact.id, isGaveType, t.id);
-                            }}
-                            className="px-3 py-1.5 font-bold text-slate-650 bg-white hover:bg-slate-100 border border-slate-205 rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-tiny"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 text-slate-500" />
-                            <span>সম্পাদন</span>
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setTxToDelete(t);
-                            }}
-                            className="px-3 py-1.5 font-bold text-rose-600 bg-rose-50 hover:bg-rose-100/80 border border-rose-200 rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-tiny"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                            <span>ডিলিট করুন</span>
-                          </button>
-                        </div>
+          {/* RIGHT COLUMN (ON DESKTOP): Customer Profile, Balance Card & Desktop Cash Out/Cash In */}
+          <div className="order-1 md:order-2 md:col-span-5 lg:col-span-5 space-y-3 md:sticky md:top-3">
+            {/* UNIFIED CUSTOMER PROFILE & BALANCE CARD (Original Exact Design) */}
+            <div className="bg-gradient-to-r from-brand-primary via-brand-primary to-brand-hover rounded-2xl p-3 sm:p-4 text-white shadow-md flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 relative overflow-hidden select-none border border-brand-primary/10">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-10 -mt-10 blur-xl pointer-events-none" />
+              
+              {/* Left / Info Section: Avatar + Name + Phone + Badges */}
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                {/* Interactive profile picture inside CustomerDetail */}
+                <div className="relative group shrink-0">
+                  <div 
+                    onClick={() => {
+                      if (contact.photoUrl) {
+                        setZoomedImage({ url: contact.photoUrl, name: contact.name });
+                      }
+                    }}
+                    className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-white/80 overflow-hidden bg-white/10 relative flex items-center justify-center shadow-lg ring-2 ring-white/20 ${contact.photoUrl ? 'cursor-pointer hover:scale-105 active:scale-95 transition-all' : ''}`}
+                  >
+                    {contact.photoUrl ? (
+                      <img 
+                        src={contact.photoUrl} 
+                        alt={contact.name} 
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover" 
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-500 via-indigo-600 to-blue-600 text-white font-black text-xl sm:text-2xl relative uppercase tracking-wider select-none">
+                        <span className="drop-shadow-md">{contact.name.trim().charAt(0).toUpperCase()}</span>
+                        <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/25 to-transparent pointer-events-none" />
+                      </div>
+                    )}
+                    
+                    {/* Overlay on hover */}
+                    {contact.photoUrl && (
+                      <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[7.5px] font-black uppercase text-center p-0.5 text-white">
+                        বড় করুন
                       </div>
                     )}
                   </div>
-                );
-              })
-            )}
-          </div>
-        </div>
+                  
+                  {/* Input camera triggers */}
+                  <label 
+                    className="absolute -bottom-1 -right-1 bg-yellow-400 hover:bg-yellow-350 text-slate-900 p-1 rounded-full shadow-md cursor-pointer hover:scale-110 active:scale-95 transition-all border border-brand-primary flex items-center justify-center"
+                    title="প্রোফাইল ছবি পরিবর্তন করুন"
+                  >
+                    <Camera className="w-3 h-3" />
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={handlePhotoUpload}
+                      className="hidden" 
+                    />
+                  </label>
+                </div>
 
+                {/* Customer Name & Info */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <h3 className="text-sm sm:text-base font-black tracking-tight leading-tight text-white truncate">
+                      {contact.name}
+                    </h3>
+                    <button
+                      onClick={() => setShowEditModal(true)}
+                      className="p-1 hover:bg-white/20 active:scale-90 text-yellow-300 hover:text-yellow-250 rounded-full transition-all cursor-pointer flex items-center justify-center shrink-0"
+                      title="সম্পাদন করুন"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                    {contact.photoUrl && (
+                      <span className="text-[7.5px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-black border border-white/15 uppercase tracking-widest shrink-0">ছবিযুক্ত</span>
+                    )}
+                  </div>
+                  <p className="text-[10px] sm:text-[11px] font-bold text-white/85 flex items-center gap-1 mt-0.5 font-mono truncate">
+                    <PhoneCall className="w-3 h-3 text-yellow-300 shrink-0" />
+                    <span>{contact.phone || 'মোবাইল নং নেই'}</span>
+                  </p>
+                  <div className="flex items-center gap-1 mt-1">
+                    <span className="text-[7.5px] sm:text-[8px] text-white/80 tracking-wider uppercase font-black bg-white/15 px-2 py-0.5 rounded-full inline-block">
+                      {contact.type === 'customer' ? 'গ্রাহক খতিয়ান' : 'সরবরাহকারী'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Section: Total Balance Box & Quick Actions */}
+              <div className="flex items-center justify-between sm:justify-end bg-white/10 backdrop-blur-xs px-3 py-2 rounded-xl border border-white/20 shrink-0 gap-3">
+                <div className="flex flex-col items-start sm:items-end">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[8.5px] sm:text-[9px] font-extrabold uppercase tracking-wider text-white/80">চলতি জের:</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[8px] sm:text-[8.5px] font-black tracking-wide ${
+                      isTheyOwe ? 'bg-rose-500 text-white shadow-xs' :
+                      isWeOwe ? 'bg-emerald-500 text-white shadow-xs' :
+                      'bg-white/20 text-white'
+                    }`}>
+                      {isTheyOwe ? 'আপনি পাবেন' :
+                       isWeOwe ? 'আপনি দেবেন' :
+                       'সমতা হিসাব'}
+                    </span>
+                  </div>
+                  <h1 className={`text-lg sm:text-xl font-black font-mono tracking-tight ${
+                    isTheyOwe ? 'text-rose-200' :
+                    isWeOwe ? 'text-emerald-200' :
+                    'text-white'
+                  }`}>
+                    {currency} {absBalance.toFixed(2)}
+                  </h1>
+                </div>
+
+                {/* Quick Action Buttons */}
+                <div className="flex items-center gap-1 border-l border-white/20 pl-2">
+                  <button 
+                    id="action-report-download"
+                    onClick={exportSingleCustomerToGoogleSheet}
+                    title="গুগল শিট ডাউনলোড"
+                    className="p-1.5 sm:px-2 sm:py-1 bg-white/15 hover:bg-white/25 active:scale-95 rounded-lg text-[9px] font-bold text-white transition-all flex items-center gap-1 cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-emerald-300" />
+                    <span className="hidden sm:inline">শিট</span>
+                  </button>
+                  <button 
+                    id="action-reminder-alert"
+                    onClick={triggerWhatsAppReminder}
+                    title="ওয়াটসঅ্যাপ তাগাদা"
+                    className="p-1.5 sm:px-2 sm:py-1 bg-white/15 hover:bg-white/25 active:scale-95 rounded-lg text-[9px] font-bold text-white transition-all flex items-center gap-1 cursor-pointer"
+                  >
+                    <Bell className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
+                    <span className="hidden sm:inline">ওয়াটসঅ্যাপ</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Desktop-only Cash In / Cash Out Action buttons in the Right Column */}
+            <div className="hidden md:flex gap-2.5 pt-1">
+              <button 
+                id="desktop-btn-you-got"
+                onClick={() => onNavigateToForm(contact.id, false)} 
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white py-2.5 px-3 rounded-xl font-black tracking-wide text-xs flex items-center justify-center gap-1.5 shadow transition-all cursor-pointer"
+              >
+                YOU GOT (+) পেয়েছি
+              </button>
+              <button 
+                id="desktop-btn-you-gave"
+                onClick={() => onNavigateToForm(contact.id, true)} 
+                className="flex-1 bg-rose-500 hover:bg-rose-600 active:scale-98 text-white py-2.5 px-3 rounded-xl font-black tracking-wide text-xs flex items-center justify-center gap-1.5 shadow transition-all cursor-pointer"
+              >
+                YOU GAVE (-) দিয়েছি
+              </button>
+            </div>
+          </div>
+
+        </div>
       </div>
 
-      {/* Persistent Bottom Action split layout buttons - Hides on print */}
-      <footer className={`fixed bottom-0 left-0 right-0 p-2.5 bg-white border-t border-slate-100 flex gap-2 shadow-[0_-4px_10px_rgba(0,0,0,0.02)] z-10 ${isDesktopMode ? 'max-w-7xl' : 'max-w-sm'} mx-auto rounded-t-xl print:hidden`}>
+      {/* Persistent Bottom Action split layout buttons (Mobile only, hidden on desktop where buttons are on the left) */}
+      <footer className="md:hidden fixed bottom-0 left-0 right-0 p-2.5 bg-white border-t border-slate-100 flex gap-2 shadow-[0_-4px_10px_rgba(0,0,0,0.02)] z-10 max-w-sm mx-auto rounded-t-xl print:hidden">
         <button 
           id="btn-you-got"
           onClick={() => onNavigateToForm(contact.id, false)} 
-          className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white py-2 px-3 rounded-lg font-black tracking-wide text-xs flex items-center justify-center gap-0.5 shadow transition-all"
+          className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white py-2 px-3 rounded-lg font-black tracking-wide text-xs flex items-center justify-center gap-0.5 shadow transition-all cursor-pointer"
         >
           YOU GOT (+) পেয়েছি
         </button>
         <button 
           id="btn-you-gave"
           onClick={() => onNavigateToForm(contact.id, true)} 
-          className="flex-1 bg-rose-500 hover:bg-rose-600 active:scale-98 text-white py-2 px-3 rounded-lg font-black tracking-wide text-xs flex items-center justify-center gap-0.5 shadow transition-all"
+          className="flex-1 bg-rose-500 hover:bg-rose-600 active:scale-98 text-white py-2 px-3 rounded-lg font-black tracking-wide text-xs flex items-center justify-center gap-0.5 shadow transition-all cursor-pointer"
         >
           YOU GAVE (-) দিয়েছি
         </button>
       </footer>
+
 
       {/* Hidden printable layout for single customer statement ledger formatting as PDF receipt */}
       <div className="hidden print:block font-sans text-slate-900 p-6 max-w-4xl mx-auto">
