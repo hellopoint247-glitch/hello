@@ -19,7 +19,8 @@ import {
   Volume2,
   RotateCw,
   Lock,
-  Heart
+  Heart,
+  AlertTriangle
 } from 'lucide-react';
 import { RemoteTypeState, RemoteTypedNumberItem, PermanentTypedNumberItem } from '../types';
 import { db } from '../utils/firebase';
@@ -260,6 +261,32 @@ export const getOperatorBadge = (num: string, lang: 'bn' | 'en') => {
   return null;
 };
 
+/**
+ * Detects if the entered number has an invalid operator prefix or non-mobile starting digits.
+ * User requested:
+ * "অপারেটর ছাড়া যদি কোনো নাম্বার টাইপ করা হয় তাহলে চার কোনা বর্ডার লাল হয়ে ওয়ার্মিং দেবে"
+ */
+export const isInvalidOperatorNumber = (num: string): boolean => {
+  if (!num) return false;
+  const clean = num.replace(/\D/g, '');
+  if (!clean) return false;
+
+  // Bangladeshi phone numbers always start with 0
+  if (clean.length >= 1 && clean[0] !== '0') return true;
+  // Second digit must be 1 (01)
+  if (clean.length >= 2 && clean.slice(0, 2) !== '01') return true;
+  // If 3 or more digits, third digit must be a valid operator:
+  // 3 or 7 (Grameenphone), 8 (Robi), 6 (Circle), 9 or 4 (Banglalink), 5 (Teletalk)
+  if (clean.length >= 3) {
+    const thirdDigit = clean[2];
+    const validThirdDigits = ['3', '4', '5', '6', '7', '8', '9'];
+    if (!validThirdDigits.includes(thirdDigit)) {
+      return true;
+    }
+  }
+  return false;
+};
+
 export const copyTextToClipboard = async (text: string): Promise<boolean> => {
   if (!text) return false;
   try {
@@ -305,13 +332,19 @@ export const formatDigits = (n: number | string, lang: 'bn' | 'en') => {
  */
 const ElevenRoundDotsIndicator = memo(function ElevenRoundDotsIndicator({
   count,
-  isElevenDigits
+  isElevenDigits,
+  isInvalidOperator
 }: {
   count: number;
   isElevenDigits: boolean;
+  isInvalidOperator?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-center gap-1.5 xs:gap-2 sm:gap-2.5 py-1.5 px-3.5 rounded-full bg-[#0C1220] border border-white/10 shadow-[inset_0_2px_4px_rgba(0,0,0,0.6)] select-none">
+    <div className={`flex items-center justify-center gap-1.5 xs:gap-2 sm:gap-2.5 py-1.5 px-3.5 rounded-full select-none transition-colors ${
+      isInvalidOperator
+        ? 'bg-[#1C070A] border border-rose-500/50 shadow-[inset_0_2px_4px_rgba(0,0,0,0.6)]'
+        : 'bg-[#0C1220] border border-white/10 shadow-[inset_0_2px_4px_rgba(0,0,0,0.6)]'
+    }`}>
       {Array.from({ length: 11 }).map((_, i) => {
         const filled = i < count;
         const isCurrentActive = i === count - 1;
@@ -319,7 +352,9 @@ const ElevenRoundDotsIndicator = memo(function ElevenRoundDotsIndicator({
           <div
             key={i}
             className={`w-3 h-3 xs:w-3.5 xs:h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center transition-all duration-150 border ${
-              isElevenDigits
+              isInvalidOperator && filled
+                ? 'bg-gradient-to-tr from-rose-500 to-red-400 border-rose-300 shadow-[0_0_8px_rgba(244,63,94,0.8)]'
+                : isElevenDigits
                 ? 'bg-gradient-to-tr from-emerald-400 to-teal-300 border-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.85)] scale-110'
                 : filled
                 ? isCurrentActive
@@ -331,7 +366,9 @@ const ElevenRoundDotsIndicator = memo(function ElevenRoundDotsIndicator({
             {filled && (
               <span
                 className={`rounded-full transition-transform ${
-                  isElevenDigits
+                  isInvalidOperator
+                    ? 'w-1 h-1 bg-white'
+                    : isElevenDigits
                     ? 'w-1.5 h-1.5 bg-emerald-950'
                     : isCurrentActive
                     ? 'w-1.5 h-1.5 bg-slate-900'
@@ -540,6 +577,7 @@ export function VisitorRemoteTypeModal({
     amount: '',
     operator: ''
   });
+  const [greetingCountdownSec, setGreetingCountdownSec] = useState<number>(0);
 
   const liveNumberRef = useRef<string>(localLiveNumber);
   const liveAmountRef = useRef<string>(localLiveAmount);
@@ -553,6 +591,7 @@ export function VisitorRemoteTypeModal({
   const ownerCopiedAutoClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const greetingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const greetingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     onUpdateRemoteStateRef.current = onUpdateRemoteState;
@@ -619,6 +658,9 @@ export function VisitorRemoteTypeModal({
       }
       if (greetingTimerRef.current) {
         clearTimeout(greetingTimerRef.current);
+      }
+      if (greetingIntervalRef.current) {
+        clearInterval(greetingIntervalRef.current);
       }
     };
   }, []);
@@ -752,6 +794,23 @@ export function VisitorRemoteTypeModal({
   // Stable callbacks for Dialpad
   const handleDigitPress = useCallback(
     (digit: string) => {
+      // Dismiss thank-you greeting if active so customer can type next number immediately
+      setThankYouGreeting((prev) => {
+        if (prev.show) {
+          if (greetingTimerRef.current) {
+            clearTimeout(greetingTimerRef.current);
+            greetingTimerRef.current = null;
+          }
+          if (greetingIntervalRef.current) {
+            clearInterval(greetingIntervalRef.current);
+            greetingIntervalRef.current = null;
+          }
+          setGreetingCountdownSec(0);
+          return { show: false, number: '', amount: '', operator: '' };
+        }
+        return prev;
+      });
+
       if (activeFieldRef.current === 'amount') {
         const curAmt = liveAmountRef.current;
         if (!curAmt && digit === '0') return; // no leading 0
@@ -798,7 +857,11 @@ export function VisitorRemoteTypeModal({
       const nextNum = current + digit;
       liveNumberRef.current = nextNum;
       setLocalLiveNumber(nextNum);
-      soundEngine.playDialpadTone(digit, nextNum.length);
+      if (isInvalidOperatorNumber(nextNum)) {
+        soundEngine.playPinErrorSound();
+      } else {
+        soundEngine.playDialpadTone(digit, nextNum.length);
+      }
 
       // When customer completes 11 digits:
       if (nextNum.length === 11) {
@@ -990,8 +1053,11 @@ export function VisitorRemoteTypeModal({
     setJustSentToast(true);
     setTimeout(() => setJustSentToast(false), 1500);
 
-    // Show beautiful appreciation & thank you greeting
-    // User requested: "কাস্টমার সেন্ড বাটনে ক্লিক করলে কাস্টমার কে, হ্যালো পয়েন্ট এর সাথে থাকার জন্য ধন্যবাদ,আবার আসবেন। এই রকম কিছু শুভেচ্ছা কাস্টমারকে জানাতে হবে।"
+    // Show in-page appreciation & thank you greeting for 10 seconds
+    // User requested:
+    // "শুভেচ্ছা আলাদা পপ আপে শো না হয়ে,একই পেইজে উপরে খালি জায়গায় টুকু কাজে লাগাও প্রয়োজনে চার কোনা বর্ডার বড় করো।"
+    // "লক্ষ রাখবে সেন্ড বাটনে ক্লিক করার পর শুভেচ্ছা জানাবে, লিখা গুলি 10s স্ক্রিনে থাকবে, 10s পর স্ক্রিন আবার ক্লিন হয়ে যাবে।"
+    // "ধন্যবাদ আবার আসবেন, হবে।"
     const opBadge = getOperatorBadge(cleanNum, lang);
     setThankYouGreeting({
       show: true,
@@ -999,19 +1065,50 @@ export function VisitorRemoteTypeModal({
       amount: cleanAmt,
       operator: opBadge?.name
     });
+    setGreetingCountdownSec(10);
 
     if (greetingTimerRef.current) {
       clearTimeout(greetingTimerRef.current);
     }
+    if (greetingIntervalRef.current) {
+      clearInterval(greetingIntervalRef.current);
+    }
+
+    greetingIntervalRef.current = setInterval(() => {
+      setGreetingCountdownSec((prev) => {
+        if (prev <= 1) {
+          if (greetingIntervalRef.current) {
+            clearInterval(greetingIntervalRef.current);
+            greetingIntervalRef.current = null;
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
     greetingTimerRef.current = setTimeout(() => {
-      setThankYouGreeting((prev) => ({ ...prev, show: false }));
-    }, 4500);
+      setThankYouGreeting({ show: false, number: '', amount: '', operator: '' });
+      setGreetingCountdownSec(0);
+      if (greetingIntervalRef.current) {
+        clearInterval(greetingIntervalRef.current);
+        greetingIntervalRef.current = null;
+      }
+    }, 10000);
   }, [commitStateChange, remoteState, lang]);
 
   const handleCloseModal = useCallback(() => {
     if (parentSyncTimerRef.current) {
       clearTimeout(parentSyncTimerRef.current);
       parentSyncTimerRef.current = null;
+    }
+    if (greetingTimerRef.current) {
+      clearTimeout(greetingTimerRef.current);
+      greetingTimerRef.current = null;
+    }
+    if (greetingIntervalRef.current) {
+      clearInterval(greetingIntervalRef.current);
+      greetingIntervalRef.current = null;
     }
     const finalState: RemoteTypeState = {
       liveNumber: liveNumberRef.current,
@@ -1054,6 +1151,7 @@ export function VisitorRemoteTypeModal({
   if (!isOpen) return null;
 
   const isElevenDigits = localLiveNumber.length === 11;
+  const isInvalidOperator = isInvalidOperatorNumber(localLiveNumber);
   const isRotated = Boolean(remoteState.isRotated);
   const liveOpBadge = getOperatorBadge(localLiveNumber, lang);
 
@@ -1067,73 +1165,7 @@ export function VisitorRemoteTypeModal({
           'radial-gradient(circle at 10% 10%, rgba(147, 51, 234, 0.18), transparent 45%), radial-gradient(circle at 90% 35%, rgba(79, 70, 229, 0.15), transparent 45%), radial-gradient(circle at 30% 95%, rgba(16, 185, 129, 0.12), transparent 45%)'
       }}
     >
-      {/* CUSTOMER THANK YOU GREETING OVERLAY (কাস্টমার শুভেচ্ছা কার্ড - হ্যালো পয়েন্ট এর সাথে থাকার জন্য ধন্যবাদ, আবার আসবেন) */}
-      {thankYouGreeting.show && (
-        <div 
-          onClick={() => setThankYouGreeting((prev) => ({ ...prev, show: false }))}
-          className="fixed inset-0 z-[10006] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 cursor-pointer"
-        >
-          <div 
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-sm rounded-3xl bg-gradient-to-b from-[#141E34] via-[#0E1628] to-[#0A0F1D] border-2 border-amber-400/80 p-5 sm:p-6 shadow-[0_0_50px_rgba(245,158,11,0.3)] flex flex-col items-center text-center animate-in zoom-in-95 duration-200 select-none cursor-default"
-          >
-            {/* Celebratory Heart Icon with Glow */}
-            <div className="relative mb-3">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-amber-500 via-yellow-400 to-amber-300 flex items-center justify-center shadow-lg shadow-amber-500/40">
-                <Heart className="w-8 h-8 text-slate-950 fill-slate-950" />
-              </div>
-              <span className="absolute -top-1 -right-1 flex h-4 w-4">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-4 w-4 bg-yellow-300 items-center justify-center text-[10px]">✨</span>
-              </span>
-            </div>
 
-            {/* Shop Greeting Title */}
-            <h3 className="text-lg sm:text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-400 leading-tight">
-              {lang === 'bn' ? 'হ্যালো পয়েন্ট এর সাথে থাকার জন্য ধন্যবাদ!' : 'Thank You for Choosing Hello Point!'}
-            </h3>
-
-            {/* Parting Warm Wishes */}
-            <p className="text-xs sm:text-sm font-bold text-amber-100/90 mt-1.5 leading-relaxed">
-              {lang === 'bn' ? 'আপনার নম্বরটি সফলভাবে পাঠানো হয়েছে। আবার আসবেন।' : 'Your number has been submitted successfully. Please visit again!'}
-            </p>
-
-            {/* Summary Box */}
-            <div className="w-full mt-4 p-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between text-left">
-              <div className="min-w-0 flex-1">
-                <span className="text-[10px] font-black uppercase text-slate-400 block">
-                  {lang === 'bn' ? 'প্রেরিত নম্বর' : 'Sent Number'}
-                </span>
-                <span className="font-mono text-base font-black text-emerald-300 tracking-wider truncate block">
-                  {thankYouGreeting.number}
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                {thankYouGreeting.operator && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-500/20 text-cyan-300 border border-cyan-400/40">
-                    {thankYouGreeting.operator}
-                  </span>
-                )}
-                {thankYouGreeting.amount && (
-                  <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-500/20 text-amber-300 border border-amber-400/40">
-                    ৳{formatDigits(thankYouGreeting.amount, lang)}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Close / Action Button */}
-            <button
-              type="button"
-              onClick={() => setThankYouGreeting((prev) => ({ ...prev, show: false }))}
-              className="mt-5 w-full py-2.5 px-4 rounded-xl font-black text-sm bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 hover:brightness-110 active:scale-95 transition-all shadow-md cursor-pointer flex items-center justify-center gap-1.5"
-            >
-              <Check className="w-4 h-4 stroke-[3]" />
-              <span>{lang === 'bn' ? 'ঠিক আছে (ধন্যবাদ)' : 'OK (Thank You)'}</span>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* PERMANENT NUMBER TOP POPUP (একদম উপরে পপ আপ) */}
       {permanentAlertInfo.show && (
@@ -1178,10 +1210,20 @@ export function VisitorRemoteTypeModal({
 
             {/* OPERATOR BADGE (কার্ডের উপরে সুন্দরভাবে সাজানো) */}
             <div>
-              {liveOpBadge ? (
+              {thankYouGreeting.show ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-amber-400/80 bg-amber-500/25 text-amber-200 text-[11px] font-black tracking-wide animate-pulse shadow-[0_0_12px_rgba(245,158,11,0.35)]">
+                  <Heart className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                  <span>{lang === 'bn' ? 'ধন্যবাদ, আবার আসবেন' : 'Thank You!'}</span>
+                </div>
+              ) : liveOpBadge ? (
                 <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-black tracking-wide animate-in fade-in zoom-in-95 duration-150 ${liveOpBadge.darkColor}`}>
                   <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
                   <span>{liveOpBadge.name}</span>
+                </div>
+              ) : isInvalidOperator ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-rose-500/70 bg-rose-500/20 text-rose-300 text-[11px] font-black tracking-wide animate-pulse shadow-[0_0_12px_rgba(244,63,94,0.35)]">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-400 stroke-[2.5]" />
+                  <span>{lang === 'bn' ? 'সঠিক অপারেটর নয়' : 'Invalid Operator'}</span>
                 </div>
               ) : (
                 <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
@@ -1215,17 +1257,89 @@ export function VisitorRemoteTypeModal({
           ) : null}
         </div>
 
-        {/* BUTTON PHONE MAIN DISPLAY FRAME (চার কোনা বর্ডার - চার কোণায় নিখুঁত ফ্রেম ও স্কয়ার কার্ড) */}
-        <div className="relative flex-1 my-1.5 rounded-lg border-2 border-cyan-400/80 bg-[#070C16] p-2.5 sm:p-3 flex flex-col justify-between shadow-[0_0_20px_rgba(6,182,212,0.22),inset_0_2px_12px_rgba(0,0,0,0.9)] min-h-[175px] xs:min-h-[195px] max-h-[235px]">
+        {/* BUTTON PHONE MAIN DISPLAY FRAME (চার কোনা বর্ডার - চার কোণায় নিখুঁত ফ্রেম ও স্কয়ার কার্ড; প্রয়োজনে বড় করা হয়েছে) */}
+        <div className={`relative flex-1 my-1.5 rounded-lg border-2 p-2.5 sm:p-3 flex flex-col justify-between min-h-[210px] xs:min-h-[230px] sm:min-h-[250px] max-h-[295px] transition-all duration-200 ${
+          thankYouGreeting.show
+            ? 'border-amber-400 ring-2 ring-amber-400/50 bg-[#120F08] shadow-[0_0_28px_rgba(245,158,11,0.35),inset_0_2px_12px_rgba(0,0,0,0.9)]'
+            : isInvalidOperator
+            ? 'border-rose-500 ring-2 ring-rose-500/50 bg-[#160608] shadow-[0_0_25px_rgba(244,63,94,0.45),inset_0_2px_12px_rgba(0,0,0,0.9)]'
+            : isElevenDigits
+            ? 'border-emerald-400/90 ring-2 ring-emerald-400/40 bg-[#041510] shadow-[0_0_20px_rgba(16,185,129,0.3),inset_0_2px_12px_rgba(0,0,0,0.9)]'
+            : 'border-cyan-400/80 bg-[#070C16] shadow-[0_0_20px_rgba(6,182,212,0.22),inset_0_2px_12px_rgba(0,0,0,0.9)]'
+        }`}>
           {/* Decorative Sharp Four-Corner L-Accents (চার কোনা বর্ডার হাইলাইট) */}
-          <span className="absolute -top-1 -left-1 w-2.5 h-2.5 border-t-2 border-l-2 border-cyan-300 pointer-events-none" />
-          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 border-t-2 border-r-2 border-cyan-300 pointer-events-none" />
-          <span className="absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 border-cyan-300 pointer-events-none" />
-          <span className="absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 border-cyan-300 pointer-events-none" />
+          <span className={`absolute -top-1 -left-1 w-2.5 h-2.5 border-t-2 border-l-2 pointer-events-none transition-colors duration-200 ${
+            thankYouGreeting.show ? 'border-amber-300 animate-pulse' : isInvalidOperator ? 'border-rose-400 animate-pulse' : isElevenDigits ? 'border-emerald-300' : 'border-cyan-300'
+          }`} />
+          <span className={`absolute -top-1 -right-1 w-2.5 h-2.5 border-t-2 border-r-2 pointer-events-none transition-colors duration-200 ${
+            thankYouGreeting.show ? 'border-amber-300 animate-pulse' : isInvalidOperator ? 'border-rose-400 animate-pulse' : isElevenDigits ? 'border-emerald-300' : 'border-cyan-300'
+          }`} />
+          <span className={`absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 pointer-events-none transition-colors duration-200 ${
+            thankYouGreeting.show ? 'border-amber-300 animate-pulse' : isInvalidOperator ? 'border-rose-400 animate-pulse' : isElevenDigits ? 'border-emerald-300' : 'border-cyan-300'
+          }`} />
+          <span className={`absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 pointer-events-none transition-colors duration-200 ${
+            thankYouGreeting.show ? 'border-amber-300 animate-pulse' : isInvalidOperator ? 'border-rose-400 animate-pulse' : isElevenDigits ? 'border-emerald-300' : 'border-cyan-300'
+          }`} />
 
-          {/* ১. চার কোনা বর্ডারের শীর্ষে: ১১ ডিজিট তোলা হয়ে গেলে বড় করে মিলিয়ে নেওয়ার ডিসপ্লে */}
-          <div className="min-h-[46px] flex items-center justify-center w-full">
-            {isElevenDigits ? (
+          {/* ১. চার কোনা বর্ডারের শীর্ষে: সেন্ড বাটনে ক্লিক করার পর শুভেচ্ছা (১০ সেকেন্ড থাকবে), অপারেটর ওয়ার্নিং অথবা ১১ ডিজিট প্রিভিউ */}
+          <div className="min-h-[52px] flex items-center justify-center w-full">
+            {thankYouGreeting.show ? (
+              <div className="w-full py-2 px-3 rounded-md bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-amber-500/20 border-2 border-amber-400/90 shadow-[0_0_25px_rgba(245,158,11,0.35)] flex flex-col items-center justify-center text-center animate-in zoom-in-95 fade-in duration-200">
+                <div className="flex items-center justify-between w-full mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-300 flex items-center justify-center shadow-md">
+                      <Heart className="w-3 h-3 text-slate-950 fill-slate-950" />
+                    </span>
+                    <span className="text-[10px] font-black text-amber-300 uppercase tracking-wider">
+                      {lang === 'bn' ? 'হ্যালো পয়েন্ট' : 'Hello Point'}
+                    </span>
+                  </div>
+                  {/* 10s countdown indicator badge */}
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/25 border border-amber-400/50 text-amber-200 text-[10px] font-mono font-bold animate-pulse">
+                    <span>⏱️</span>
+                    <span>
+                      {lang === 'bn' ? `${formatDigits(greetingCountdownSec, lang)} সেকেন্ড` : `${greetingCountdownSec}s`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* User requested greeting text: ধন্যবাদ আবার আসবেন / হ্যালো পয়েন্ট এর সাথে থাকার জন্য ধন্যবাদ, আবার আসবেন। */}
+                <p className="text-xs sm:text-sm font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-400 leading-snug">
+                  {lang === 'bn'
+                    ? 'হ্যালো পয়েন্ট এর সাথে থাকার জন্য ধন্যবাদ, আবার আসবেন।'
+                    : 'Thank you for being with Hello Point, please visit again.'}
+                </p>
+
+                {/* Sent Number & Operator Badges */}
+                <div className="flex items-center justify-center gap-1.5 mt-1.5 flex-wrap">
+                  <span className="font-mono text-xs font-black text-emerald-300 bg-emerald-950/80 border border-emerald-400/50 px-2 py-0.5 rounded tracking-wider">
+                    {thankYouGreeting.number}
+                  </span>
+                  {thankYouGreeting.operator && (
+                    <span className="text-[9.5px] font-bold text-cyan-300 bg-cyan-950/70 border border-cyan-400/40 px-1.5 py-0.5 rounded">
+                      {thankYouGreeting.operator}
+                    </span>
+                  )}
+                  {thankYouGreeting.amount && (
+                    <span className="text-[9.5px] font-bold text-amber-300 bg-amber-950/70 border border-amber-400/40 px-1.5 py-0.5 rounded">
+                      ৳{formatDigits(thankYouGreeting.amount, lang)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : isInvalidOperator ? (
+              <div className="w-full py-1.5 px-3 rounded-md bg-[#2B0A0E] border-2 border-rose-500/90 shadow-[0_0_18px_rgba(244,63,94,0.4)] flex items-center justify-center gap-2 animate-pulse">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 stroke-[2.5]" />
+                <div className="text-center min-w-0">
+                  <span className="font-black text-xs sm:text-sm text-rose-200 block leading-tight">
+                    {lang === 'bn' ? 'সঠিক অপারেটরের নম্বর দিন!' : 'Enter valid operator number!'}
+                  </span>
+                  <span className="text-[10px] font-mono text-rose-300/90 block mt-0.5 font-bold">
+                    {lang === 'bn' ? 'সঠিক কোড: ০১৩, ০১৭, ০১৮, ০১৬, ০১৯, ০১৫' : 'Valid codes: 013, 017, 018, 016, 019, 015'}
+                  </span>
+                </div>
+              </div>
+            ) : isElevenDigits ? (
               <div className="w-full py-1.5 px-3 rounded-md bg-[#062419] border-2 border-emerald-400/90 shadow-[0_0_18px_rgba(16,185,129,0.35)] flex flex-col items-center justify-center animate-in zoom-in-95 duration-150">
                 <div className="flex items-center gap-1 text-emerald-300 text-[10px] font-black tracking-wider uppercase mb-0.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -1246,22 +1360,34 @@ export function VisitorRemoteTypeModal({
                 role="button"
                 tabIndex={0}
                 onClick={() => setActiveField('number')}
-                className={`flex-1 min-w-0 rounded-md border-2 px-2.5 sm:px-3 py-2 sm:py-2.5 flex items-center justify-between transition-all duration-150 cursor-pointer select-none bg-[#070C14] shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] ${
-                  activeField === 'number' && !isElevenDigits
+                className={`flex-1 min-w-0 rounded-md border-2 px-2.5 sm:px-3 py-2 sm:py-2.5 flex items-center justify-between transition-all duration-150 cursor-pointer select-none shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] ${
+                  isInvalidOperator
+                    ? 'border-rose-500 ring-2 ring-rose-500/70 bg-[#22070A] shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_15px_rgba(244,63,94,0.45)]'
+                    : activeField === 'number' && !isElevenDigits
                     ? 'border-cyan-400 ring-2 ring-cyan-400/60 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_15px_rgba(6,182,212,0.4)] bg-[#04151F]'
                     : isElevenDigits
                     ? 'border-emerald-400 ring-2 ring-emerald-400/70 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_16px_rgba(16,185,129,0.5)] bg-[#051C14]'
-                    : 'border-slate-700 hover:border-slate-600'
+                    : 'border-slate-700 hover:border-slate-600 bg-[#070C14]'
                 }`}
               >
                 <div className="font-mono text-[16px] xs:text-[18px] sm:text-xl font-bold tracking-tight text-white flex items-center min-w-0 overflow-x-auto no-scrollbar whitespace-nowrap">
                   {localLiveNumber ? (
                     <>
-                      <span className={isElevenDigits ? 'text-emerald-300 font-black' : activeField === 'number' ? 'text-cyan-200 font-black' : 'text-slate-100 font-bold'}>
+                      <span className={
+                        isInvalidOperator
+                          ? 'text-rose-300 font-black'
+                          : isElevenDigits
+                          ? 'text-emerald-300 font-black'
+                          : activeField === 'number'
+                          ? 'text-cyan-200 font-black'
+                          : 'text-slate-100 font-bold'
+                      }>
                         {localLiveNumber}
                       </span>
                       {activeField === 'number' && !isElevenDigits && (
-                        <span className="inline-block text-cyan-400 font-mono font-black ml-0.5 animate-pulse leading-none">
+                        <span className={`inline-block font-mono font-black ml-0.5 animate-pulse leading-none ${
+                          isInvalidOperator ? 'text-rose-400' : 'text-cyan-400'
+                        }`}>
                           _
                         </span>
                       )}
@@ -1279,7 +1405,13 @@ export function VisitorRemoteTypeModal({
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0 ml-1">
-                  {isElevenDigits && (
+                  {isInvalidOperator && (
+                    <div className="w-5 h-5 rounded-full bg-rose-500/20 border border-rose-400/80 flex items-center justify-center text-rose-300 animate-pulse shrink-0" title={lang === 'bn' ? 'ভুল অপারেটর' : 'Invalid operator'}>
+                      <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5]" />
+                    </div>
+                  )}
+
+                  {!isInvalidOperator && isElevenDigits && (
                     <div className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-emerald-300 animate-in zoom-in-75 shrink-0">
                       <Check className="w-3.5 h-3.5 stroke-[3]" />
                     </div>
@@ -1355,21 +1487,27 @@ export function VisitorRemoteTypeModal({
               <button
                 type="button"
                 onPointerDown={(e) => {
-                  if (!localLiveNumber.trim()) return;
+                  if (!localLiveNumber.trim() || isInvalidOperator) return;
                   e.preventDefault();
                   handleSendNumber();
                 }}
-                disabled={!localLiveNumber.trim()}
-                className={`w-12 sm:w-14 rounded-md border-2 flex items-center justify-center transition-all duration-75 transform-gpu cursor-pointer shrink-0 active:scale-95 touch-manipulation shadow-md ${
-                  isElevenDigits
-                    ? 'bg-gradient-to-br from-emerald-500 to-teal-600 border-emerald-300 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.5)] ring-1 ring-emerald-300'
+                disabled={!localLiveNumber.trim() || isInvalidOperator}
+                className={`w-12 sm:w-14 rounded-md border-2 flex items-center justify-center transition-all duration-75 transform-gpu shrink-0 active:scale-95 touch-manipulation shadow-md ${
+                  isInvalidOperator
+                    ? 'bg-[#25080B] border-rose-500/70 text-rose-400 cursor-not-allowed opacity-80'
+                    : isElevenDigits
+                    ? 'bg-gradient-to-br from-emerald-500 to-teal-600 border-emerald-300 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.5)] ring-1 ring-emerald-300 cursor-pointer'
                     : localLiveNumber.trim().length > 0
-                    ? 'bg-[#151C2F] hover:bg-cyan-600 border-cyan-400 text-cyan-200 shadow-md'
+                    ? 'bg-[#151C2F] hover:bg-cyan-600 border-cyan-400 text-cyan-200 shadow-md cursor-pointer'
                     : 'bg-[#070C14] text-slate-700 border-slate-800 cursor-not-allowed'
                 }`}
-                title={lang === 'bn' ? 'পাঠিয়ে দিন' : 'Send'}
+                title={isInvalidOperator ? (lang === 'bn' ? 'অপারেটর সঠিক নয়' : 'Invalid operator') : (lang === 'bn' ? 'পাঠিয়ে দিন' : 'Send')}
               >
-                <Send className="w-5 h-5 pointer-events-none" />
+                {isInvalidOperator ? (
+                  <AlertTriangle className="w-5 h-5 text-rose-400 pointer-events-none" />
+                ) : (
+                  <Send className="w-5 h-5 pointer-events-none" />
+                )}
               </button>
             </div>
           </div>
@@ -1379,6 +1517,7 @@ export function VisitorRemoteTypeModal({
             <ElevenRoundDotsIndicator
               count={localLiveNumber.length}
               isElevenDigits={isElevenDigits}
+              isInvalidOperator={isInvalidOperator}
             />
           </div>
         </div>
@@ -1436,6 +1575,7 @@ export function OwnerRemoteTypeModal({
   const sentNumbers = (remoteState.sentNumbers || []).slice(0, MAX_REMOTE_HISTORY_ITEMS);
   const permanentNumbers = (remoteState.permanentNumbers || []).slice(0, MAX_PERMANENT_HISTORY_ITEMS);
   const isElevenDigits = liveNumber.length === 11;
+  const isInvalidOperator = isInvalidOperatorNumber(liveNumber);
   const liveOpBadge = getOperatorBadge(liveNumber, lang);
   const isRotated = Boolean(remoteState.isRotated);
 
@@ -1599,16 +1739,23 @@ export function OwnerRemoteTypeModal({
                 />
                 {lang === 'bn' ? 'কাস্টমার Air Typing লাইভ' : 'CUSTOMER AIR TYPING LIVE'}
               </span>
-              {liveOpBadge && (
+              {liveOpBadge ? (
                 <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${liveOpBadge.darkColor}`}>
                   {liveOpBadge.name}
                 </span>
-              )}
+              ) : isInvalidOperator ? (
+                <span className="text-[9px] font-black px-2 py-0.5 rounded-full border border-rose-500/70 bg-rose-500/20 text-rose-300 animate-pulse flex items-center gap-1">
+                  <AlertTriangle className="w-2.5 h-2.5" />
+                  {lang === 'bn' ? 'ভুল অপারেটর' : 'Invalid Operator'}
+                </span>
+              ) : null}
             </div>
 
             <span
               className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border transition-colors ${
-                isElevenDigits
+                isInvalidOperator
+                  ? 'bg-rose-500/25 text-rose-300 border-rose-400/50'
+                  : isElevenDigits
                   ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/50 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
                   : liveNumber.length > 11
                   ? 'bg-amber-500/25 text-amber-300 border-amber-400/50'
@@ -1617,19 +1764,25 @@ export function OwnerRemoteTypeModal({
             >
               {formatDigits(liveNumber.length, lang)}/{formatDigits(11, lang)}{' '}
               {lang === 'bn' ? 'ডিজিট' : 'Digits'}
-              {isElevenDigits && ' ✓'}
+              {isElevenDigits && !isInvalidOperator && ' ✓'}
             </span>
           </div>
 
           {/* 11 Round Glowing Circles Indicator */}
-          <ElevenRoundDotsIndicator count={liveNumber.length} isElevenDigits={isElevenDigits} />
+          <ElevenRoundDotsIndicator
+            count={liveNumber.length}
+            isElevenDigits={isElevenDigits}
+            isInvalidOperator={isInvalidOperator}
+          />
 
           {/* Live Number & Amount Boxes + Copy Buttons */}
           <div className="flex items-stretch gap-2 pt-0.5">
             {/* Number Box */}
             <div
               className={`flex-1 min-w-0 rounded-2xl border-2 px-3 py-2 min-h-[46px] flex items-center justify-between transition-colors ${
-                isElevenDigits
+                isInvalidOperator
+                  ? 'bg-[#22070A] border-rose-500/80 shadow-[0_0_20px_rgba(244,63,94,0.3)]'
+                  : isElevenDigits
                   ? 'bg-[#0D2824] border-emerald-400/85 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
                   : liveNumber
                   ? 'bg-[#171E33] border-purple-400/70 shadow-[0_0_16px_rgba(168,85,247,0.15)]'
@@ -1988,6 +2141,7 @@ export function OwnerRemoteTypeInlineBanner({
   if (!liveNumber && sentNumbers.length === 0) return null;
 
   const isElevenDigits = liveNumber.length === 11;
+  const isInvalidOperator = isInvalidOperatorNumber(liveNumber);
 
   const handleToggleRotate = () => {
     soundEngine.playSuccessSound();
@@ -2072,27 +2226,33 @@ export function OwnerRemoteTypeInlineBanner({
       {liveNumber && (
         <div
           className={`rounded-xl border px-2.5 py-1.5 flex items-center justify-between gap-2 ${
-            isElevenDigits
+            isInvalidOperator
+              ? 'bg-[#22070A] border-rose-500/80 shadow-[0_0_15px_rgba(244,63,94,0.3)]'
+              : isElevenDigits
               ? 'bg-emerald-950/50 border-emerald-400/70'
               : 'bg-white/[0.07] border-purple-400/50'
           }`}
         >
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-purple-600 text-white shrink-0">
-              {lang === 'bn' ? 'লাইভ' : 'LIVE'}
-            </span>
-            <span className="font-mono text-sm sm:text-base font-black text-white tracking-wide truncate">
-              {liveNumber}
-            </span>
-            {remoteState.liveAmount && (
-              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shrink-0">
-                ৳{formatDigits(remoteState.liveAmount, lang)}
+            <div className="flex items-center gap-2 min-w-0">
+              <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded text-white shrink-0 ${
+                isInvalidOperator ? 'bg-rose-600 animate-pulse' : 'bg-purple-600'
+              }`}>
+                {isInvalidOperator ? (lang === 'bn' ? 'ভুল নম্বর' : 'INVALID') : (lang === 'bn' ? 'লাইভ' : 'LIVE')}
               </span>
-            )}
-            <span className="text-[9px] font-bold text-slate-300 shrink-0">
-              ({formatDigits(liveNumber.length, lang)}/11)
-            </span>
-          </div>
+              <span className={`font-mono text-sm sm:text-base font-black tracking-wide truncate ${
+                isInvalidOperator ? 'text-rose-200' : 'text-white'
+              }`}>
+                {liveNumber}
+              </span>
+              {remoteState.liveAmount && (
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 shrink-0">
+                  ৳{formatDigits(remoteState.liveAmount, lang)}
+                </span>
+              )}
+              <span className="text-[9px] font-bold text-slate-300 shrink-0">
+                ({formatDigits(liveNumber.length, lang)}/11)
+              </span>
+            </div>
 
           <div className="flex items-center gap-1 shrink-0">
             <button
