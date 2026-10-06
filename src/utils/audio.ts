@@ -337,93 +337,47 @@ class SoundEngine {
   }
 
   /**
-   * Sound 13: Melodic Crystal Dialpad Key Tone (with 11-digit completion sparkle)
+   * Sound 13: Melodic Crystal Dialpad Key Tone (Ultra-low latency non-blocking)
    */
   public playDialpadTone(digit: string, newLength?: number) {
-    try {
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(10);
-      }
-    } catch {
-      // ignore
-    }
-
+    if (!this.getSoundEnabled()) return;
     const ctx = this.getAudioContext();
     if (!ctx) return;
 
     try {
       const now = ctx.currentTime;
-
-      // Pleasant musical pentatonic/major crystal frequencies per digit
       const noteMap: Record<string, number> = {
-        '1': 523.25, // C5
-        '2': 587.33, // D5
-        '3': 659.25, // E5
-        '4': 698.46, // F5
-        '5': 783.99, // G5
-        '6': 880.00, // A5
-        '7': 987.77, // B5
-        '8': 1046.50, // C6
-        '9': 1174.66, // D6
-        '0': 659.25  // E5 warm center
+        '1': 523.25,
+        '2': 587.33,
+        '3': 659.25,
+        '4': 698.46,
+        '5': 783.99,
+        '6': 880.00,
+        '7': 987.77,
+        '8': 1046.50,
+        '9': 1174.66,
+        '0': 659.25
       };
       const baseFreq = noteMap[digit] || 783.99;
 
-      // 1. Soft mechanical "thock" transient for tactile button feel
-      const popOsc = ctx.createOscillator();
-      const popGain = ctx.createGain();
-      popOsc.type = 'triangle';
-      popOsc.frequency.setValueAtTime(190, now);
-      popOsc.frequency.exponentialRampToValueAtTime(420, now + 0.025);
-      popGain.gain.setValueAtTime(0.001, now);
-      popGain.gain.linearRampToValueAtTime(0.14, now + 0.004);
-      popGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.032);
-      popOsc.connect(popGain);
-      popGain.connect(ctx.destination);
-      popOsc.start(now);
-      popOsc.stop(now + 0.035);
-
-      // 2. Main crystal bell note
       const mainOsc = ctx.createOscillator();
       const mainGain = ctx.createGain();
       mainOsc.type = 'sine';
       mainOsc.frequency.setValueAtTime(baseFreq, now);
       mainGain.gain.setValueAtTime(0.001, now);
-      mainGain.gain.linearRampToValueAtTime(0.24, now + 0.006);
-      mainGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+      mainGain.gain.linearRampToValueAtTime(0.18, now + 0.003);
+      mainGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
       mainOsc.connect(mainGain);
       mainGain.connect(ctx.destination);
       mainOsc.start(now);
-      mainOsc.stop(now + 0.17);
+      mainOsc.stop(now + 0.055);
 
-      // 3. Subtle octave shimmer overtone
-      const harmOsc = ctx.createOscillator();
-      const harmGain = ctx.createGain();
-      harmOsc.type = 'sine';
-      harmOsc.frequency.setValueAtTime(baseFreq * 2, now);
-      harmGain.gain.setValueAtTime(0.001, now);
-      harmGain.gain.linearRampToValueAtTime(0.06, now + 0.004);
-      harmGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
-      harmOsc.connect(harmGain);
-      harmGain.connect(ctx.destination);
-      harmOsc.start(now);
-      harmOsc.stop(now + 0.1);
-
-      // 4. Special 11-digit mobile number completion sparkle chord!
       if (newLength === 11) {
-        const chordTime = now + 0.065;
-        const sparkleFreq = 1567.98; // G6
-        const spOsc = ctx.createOscillator();
-        const spGain = ctx.createGain();
-        spOsc.type = 'sine';
-        spOsc.frequency.setValueAtTime(sparkleFreq, chordTime);
-        spGain.gain.setValueAtTime(0.001, chordTime);
-        spGain.gain.linearRampToValueAtTime(0.22, chordTime + 0.008);
-        spGain.gain.exponentialRampToValueAtTime(0.0001, chordTime + 0.28);
-        spOsc.connect(spGain);
-        spGain.connect(ctx.destination);
-        spOsc.start(chordTime);
-        spOsc.stop(chordTime + 0.3);
+        try {
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate([12, 40, 15]);
+          }
+        } catch {}
       }
     } catch {
       // ignore
@@ -431,17 +385,10 @@ class SoundEngine {
   }
 
   /**
-   * Sound 14: Tactile Backspace Key Sound
+   * Sound 14: Tactile Backspace Key Sound (Non-blocking)
    */
   public playBackspaceSound() {
-    try {
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(8);
-      }
-    } catch {
-      // ignore
-    }
-
+    if (!this.getSoundEnabled()) return;
     const ctx = this.getAudioContext();
     if (!ctx) return;
 
@@ -451,18 +398,18 @@ class SoundEngine {
       const gain = ctx.createGain();
 
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(460, now);
-      osc.frequency.exponentialRampToValueAtTime(290, now + 0.06);
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(280, now + 0.035);
 
       gain.gain.setValueAtTime(0.001, now);
-      gain.gain.linearRampToValueAtTime(0.16, now + 0.005);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.07);
+      gain.gain.linearRampToValueAtTime(0.12, now + 0.003);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
 
       osc.connect(gain);
       gain.connect(ctx.destination);
 
       osc.start(now);
-      osc.stop(now + 0.075);
+      osc.stop(now + 0.045);
     } catch {
       // ignore
     }

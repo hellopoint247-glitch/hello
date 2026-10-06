@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { safeLocalStorage as localStorage } from './utils/safeStorage';
 import { motion, AnimatePresence } from 'motion/react';
 import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount, RemoteTypeState } from './types';
@@ -41,8 +41,10 @@ import { PinLockScreen } from './components/PinLockScreen';
 import { CheckCircle2 } from 'lucide-react';
 import { CustomerPortal } from './components/CustomerPortal';
 import { PremiumAppLoader } from './components/PremiumAppLoader';
+import { NotificationPermissionPrompt } from './components/NotificationPermissionPrompt';
 import { ThemeMode, getSavedThemeMode, saveThemeMode, applyTheme } from './utils/theme';
 import { soundEngine } from './utils/audio';
+import { notifyWithDeduplication } from './utils/notifications';
 
 // Firebase core integration imports
 import { 
@@ -415,17 +417,89 @@ export default function App() {
       }
     });
 
+    let lastPromotedLiveNumber = '';
+
+    const applyRemoteTypeIfChanged = (incoming: RemoteTypeState) => {
+      let nextSent = (incoming.sentNumbers || []).slice(0, 15);
+      const cleanLive = (incoming.liveNumber || '').trim();
+      const cleanAmt = (incoming.liveAmount || '').trim();
+
+      // A device is recognized as the Owner (উইনার) if Gmail (Google Sign-In) is connected
+      const isOwnerDevice = Boolean((user && user.email) || (auth.currentUser && auth.currentUser.email));
+
+      if (isOwnerDevice && cleanLive.length === 11 && cleanLive !== lastPromotedLiveNumber) {
+        lastPromotedLiveNumber = cleanLive;
+        // User requested: "উইনার air typing আইকনের ভেতর ছাড়া অন্য কোথাও কোনো ফিচার শো হবে না।"
+        // Do not pop external notifications outside the Air Typing icon.
+        if (nextSent[0]?.number !== cleanLive) {
+          nextSent = [
+            {
+              id: 'rt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+              number: cleanLive,
+              amount: cleanAmt || '',
+              createdAt: incoming.updatedAt || new Date().toISOString()
+            },
+            ...nextSent
+          ].slice(0, 15);
+          const autoUpdated: RemoteTypeState = {
+            ...incoming,
+            sentNumbers: nextSent
+          };
+          try {
+            localStorage.setItem(REMOTE_TYPE_STORAGE_KEY, JSON.stringify(autoUpdated));
+          } catch {}
+        }
+      } else if (cleanLive.length < 11) {
+        lastPromotedLiveNumber = '';
+      }
+
+      const normalizedIncoming: RemoteTypeState = {
+        ...incoming,
+        sentNumbers: nextSent,
+        permanentNumbers: Array.isArray(incoming.permanentNumbers)
+          ? incoming.permanentNumbers.slice(0, 100)
+          : [],
+        numberStats: incoming.numberStats || {},
+        ownerCopied: Boolean(incoming.ownerCopied),
+        ownerCopiedAt: typeof incoming.ownerCopiedAt === 'string' ? incoming.ownerCopiedAt : undefined
+      };
+
+      setRemoteTypeState((prev) => {
+        if (
+          prev.liveNumber === normalizedIncoming.liveNumber &&
+          prev.liveAmount === normalizedIncoming.liveAmount &&
+          prev.isTyping === normalizedIncoming.isTyping &&
+          prev.isRotated === normalizedIncoming.isRotated &&
+          prev.ownerCopied === normalizedIncoming.ownerCopied &&
+          prev.ownerCopiedAt === normalizedIncoming.ownerCopiedAt &&
+          prev.sentNumbers.length === normalizedIncoming.sentNumbers.length &&
+          prev.sentNumbers[0]?.id === normalizedIncoming.sentNumbers[0]?.id &&
+          (prev.permanentNumbers || []).length === (normalizedIncoming.permanentNumbers || []).length &&
+          (prev.permanentNumbers || [])[0]?.id === (normalizedIncoming.permanentNumbers || [])[0]?.id
+        ) {
+          return prev;
+        }
+        return normalizedIncoming;
+      });
+    };
+
     // Ultra-fast real-time listener for Remote Type (public/remote_type)
     const unsubRemoteType = onSnapshot(doc(db, 'public', 'remote_type'), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data() as any;
         const incoming: RemoteTypeState = {
           liveNumber: typeof data.liveNumber === 'string' ? data.liveNumber : '',
+          liveAmount: typeof data.liveAmount === 'string' ? data.liveAmount : '',
           isTyping: Boolean(data.isTyping),
-          sentNumbers: Array.isArray(data.sentNumbers) ? data.sentNumbers : [],
+          isRotated: Boolean(data.isRotated),
+          ownerCopied: Boolean(data.ownerCopied),
+          ownerCopiedAt: typeof data.ownerCopiedAt === 'string' ? data.ownerCopiedAt : undefined,
+          sentNumbers: Array.isArray(data.sentNumbers) ? data.sentNumbers.slice(0, 15) : [],
+          permanentNumbers: Array.isArray(data.permanentNumbers) ? data.permanentNumbers.slice(0, 100) : [],
+          numberStats: typeof data.numberStats === 'object' && data.numberStats !== null ? data.numberStats : {},
           updatedAt: data.updatedAt || new Date().toISOString()
         };
-        setRemoteTypeState(incoming);
+        applyRemoteTypeIfChanged(incoming);
         try {
           localStorage.setItem(REMOTE_TYPE_STORAGE_KEY, JSON.stringify(incoming));
         } catch {}
@@ -435,9 +509,9 @@ export default function App() {
     const handleLocalRemoteEvent = (e: Event) => {
       const custom = e as CustomEvent<RemoteTypeState>;
       if (custom.detail) {
-        setRemoteTypeState(custom.detail);
+        applyRemoteTypeIfChanged(custom.detail);
       } else {
-        setRemoteTypeState(getInitialRemoteTypeState());
+        applyRemoteTypeIfChanged(getInitialRemoteTypeState());
       }
     };
 
@@ -449,7 +523,7 @@ export default function App() {
         bc = new BroadcastChannel('hellopoint_remote_type_channel');
         bc.onmessage = (ev) => {
           if (ev.data && typeof ev.data.liveNumber === 'string') {
-            setRemoteTypeState(ev.data);
+            applyRemoteTypeIfChanged(ev.data);
           }
         };
       }
@@ -523,12 +597,47 @@ export default function App() {
       handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/contacts`);
     });
 
+    let isTransInitial = true;
     const qTransactions = collection(db, 'users', activeUid, 'transactions');
     const unsubTransactions = onSnapshot(qTransactions, (snapshot) => {
       const list: Transaction[] = [];
       snapshot.forEach((snapDoc) => {
         list.push(snapDoc.data() as Transaction);
       });
+
+      if (!isTransInitial) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const tx = change.doc.data() as Transaction;
+            const isOwnerDevice = Boolean((user && user.email) || (auth.currentUser && auth.currentUser.email));
+            const isCustDevice = !isOwnerDevice;
+            const activeCustId = (sessionRole === 'customer' && loggedInCustomerId)
+              ? loggedInCustomerId
+              : (localStorage.getItem('hellopoint_session_customer_id') || localStorage.getItem('hellopoint_remembered_cust_id'));
+
+            if (isCustDevice && activeCustId && tx.contactId === activeCustId) {
+              const isDue = tx.type === 'GAVE';
+              notifyWithDeduplication({
+                title: isDue
+                  ? (lang === 'bn' ? '📒 বাকির খাতায় নতুন বাকি যোগ হয়েছে' : '📒 New Due Added to Ledger')
+                  : (lang === 'bn' ? '💵 বাকির খাতায় জমা যোগ হয়েছে ✓' : '💵 Payment Credited to Ledger ✓'),
+                body: isDue
+                  ? (lang === 'bn'
+                      ? `আপনার বাকির খাতায় ৳${tx.amount} টাকা যোগ করা হয়েছে। ${tx.note ? `বিবরণ: ${tx.note}` : ''}`
+                      : `৳${tx.amount} has been added to your due balance.`)
+                  : (lang === 'bn'
+                      ? `আপনার বাকির খাতায় ৳${tx.amount} টাকা জমা গ্রহণ করা হয়েছে। ${tx.note ? `বিবরণ: ${tx.note}` : ''}`
+                      : `৳${tx.amount} payment has been credited to your balance.`),
+                tag: `ledger-tx-${change.doc.id}`,
+                dedupeKey: `ledger-tx-${change.doc.id}`,
+                playSound: true
+              });
+            }
+          }
+        });
+      }
+      isTransInitial = false;
+
       setTransactions(list);
       saveTransactions(list);
     }, (error) => {
@@ -594,11 +703,40 @@ export default function App() {
     });
 
     const qReminders = collection(db, 'users', activeUid, 'reminders');
+    let isRemindersInitial = true;
     const unsubReminders = onSnapshot(qReminders, (snapshot) => {
       const list: any[] = [];
       snapshot.forEach((snapDoc) => {
         list.push(snapDoc.data());
       });
+
+      const isOwnerDevice = Boolean((user && user.email) || (auth.currentUser && auth.currentUser.email));
+      const isCustDevice = !isOwnerDevice;
+      const activeCustId = (sessionRole === 'customer' && loggedInCustomerId) 
+        ? loggedInCustomerId 
+        : (localStorage.getItem('hellopoint_session_customer_id') || localStorage.getItem('hellopoint_remembered_cust_id'));
+
+      // Customer-specific due reminder / tagada alert (for non-Gmail customer devices)
+      if (!isRemindersInitial && isCustDevice && activeCustId) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added' || change.type === 'modified') {
+            const r = change.doc.data() as any;
+            if (r.contactId === activeCustId && !r.isCompleted && r.isTriggered) {
+              notifyWithDeduplication({
+                title: lang === 'bn' ? '⏰ বাকির তাগাদা!' : '⏰ Payment Reminder Alert!',
+                body: lang === 'bn' 
+                  ? `সম্মানিত গ্রাহক, আপনার বাকির হিসাব পরিশোধের জন্য অনুরোধ জানানো হচ্ছে। (${r.text})` 
+                  : `Valued customer, you have a payment reminder for your account. (${r.text})`,
+                tag: `cust-tagada-${change.doc.id}`,
+                dedupeKey: `cust-tagada-${change.doc.id}`,
+                playSound: true
+              });
+            }
+          }
+        });
+      }
+      isRemindersInitial = false;
+
       try {
         const localSaved = localStorage.getItem('hellopoint_reminders');
         const localList = localSaved ? JSON.parse(localSaved) : [];
@@ -635,10 +773,17 @@ export default function App() {
       console.error('Failed to subscribe to reminders:', error);
     });
 
+    const isOwnerDevice = Boolean((user && user.email) || (auth.currentUser && auth.currentUser.email));
+    const isCustDevice = !isOwnerDevice;
+    const activeCustId = (sessionRole === 'customer' && loggedInCustomerId) 
+      ? loggedInCustomerId 
+      : (localStorage.getItem('hellopoint_session_customer_id') || localStorage.getItem('hellopoint_remembered_cust_id'));
+
     const qRecharges = (sessionRole === 'customer' && loggedInCustomerId)
       ? query(collection(db, 'users', activeUid, 'recharge_requests'), where('contactId', '==', loggedInCustomerId))
       : collection(db, 'users', activeUid, 'recharge_requests');
 
+    let isRechargesInitial = true;
     const unsubRecharges = onSnapshot(qRecharges, (snapshot) => {
       const list: RechargeRequest[] = [];
       snapshot.forEach((snapDoc) => {
@@ -648,6 +793,57 @@ export default function App() {
           id: data.id || snapDoc.id
         } as RechargeRequest);
       });
+
+      if (!isRechargesInitial) {
+        snapshot.docChanges().forEach((change) => {
+          if (isCustDevice && activeCustId) {
+            // Customer receives alert when their recharge is completed or cancelled
+            if (change.type === 'modified') {
+              const req = change.doc.data() as RechargeRequest;
+              if (req.contactId === activeCustId) {
+                if (req.status === 'completed') {
+                  const methodStr = req.method === 'bkash' ? 'বিকাশ' : req.method === 'nagad' ? 'নগদ' : 'ফ্লেক্সিলোড';
+                  notifyWithDeduplication({
+                    title: lang === 'bn' ? '⚡ মোবাইল রিচার্জ সফল! ✓' : '⚡ Recharge Completed! ✓',
+                    body: lang === 'bn' 
+                      ? `আপনার ৳${req.amount} টাকা (${methodStr}) রিচার্জ সফল হয়েছে।`
+                      : `Your ৳${req.amount} recharge (${req.method}) has been successfully completed.`,
+                    tag: `recharge-${change.doc.id}`,
+                    dedupeKey: `recharge-${change.doc.id}-${req.status}`,
+                    playSound: true
+                  });
+                } else if (req.status === 'cancelled') {
+                  notifyWithDeduplication({
+                    title: lang === 'bn' ? '❌ রিচার্জ অনুরোধ বাতিল' : '❌ Recharge Cancelled',
+                    body: lang === 'bn' 
+                      ? `আপনার ৳${req.amount} টাকার রিচার্জ অনুরোধটি বাতিল করা হয়েছে।`
+                      : `Your ৳${req.amount} recharge request was cancelled.`,
+                    tag: `recharge-${change.doc.id}`,
+                    dedupeKey: `recharge-${change.doc.id}-${req.status}`,
+                    playSound: true
+                  });
+                }
+              }
+            }
+          } else if (!isCustDevice) {
+            // Owner receives alert for incoming pending recharges
+            if (change.type === 'added') {
+              const data = change.doc.data() as any;
+              if (data.status === 'pending') {
+                notifyWithDeduplication({
+                  title: '⚡ নতুন মোবাইল রিচার্জ অনুরোধ!',
+                  body: `${data.customerName || 'কাস্টমার'} • ${data.rechargePhone} (৳${data.amount})`,
+                  tag: `recharge-${change.doc.id}`,
+                  dedupeKey: `recharge-${change.doc.id}`,
+                  playSound: true
+                });
+              }
+            }
+          }
+        });
+      }
+      isRechargesInitial = false;
+
       setRechargeRequests(list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       localStorage.setItem('hellopoint_recharge_requests', JSON.stringify(list));
       window.dispatchEvent(new Event('storage'));
@@ -660,6 +856,7 @@ export default function App() {
       ? query(collection(db, 'users', activeUid, 'paybill_requests'), where('contactId', '==', loggedInCustomerId))
       : collection(db, 'users', activeUid, 'paybill_requests');
 
+    let isPaybillsInitial = true;
     const unsubPaybillRequests = onSnapshot(qPaybillRequests, (snapshot) => {
       const list: PayBillRequest[] = [];
       snapshot.forEach((snapDoc) => {
@@ -669,6 +866,59 @@ export default function App() {
           id: data.id || snapDoc.id
         } as PayBillRequest);
       });
+
+      if (!isPaybillsInitial) {
+        snapshot.docChanges().forEach((change) => {
+          if (isCustDevice && activeCustId) {
+            // Customer receives alert when their bill payment is completed or cancelled
+            if (change.type === 'modified') {
+              const req = change.doc.data() as PayBillRequest;
+              if (req.contactId === activeCustId) {
+                if (req.status === 'accepted') {
+                  const billName = req.billerDetails || req.billerNumber || 'বিল';
+                  notifyWithDeduplication({
+                    title: lang === 'bn' ? '💡 বিল পরিশোধ সম্পন্ন! ✓' : '💡 Bill Payment Completed! ✓',
+                    body: lang === 'bn' 
+                      ? `আপনার ৳${req.amount} টাকা (${billName}) বিল সফলভাবে পরিশোধ হয়েছে।`
+                      : `Your ৳${req.amount} bill (${billName}) was successfully paid.`,
+                    tag: `paybill-${change.doc.id}`,
+                    dedupeKey: `paybill-${change.doc.id}-${req.status}`,
+                    playSound: true
+                  });
+                } else if (req.status === 'rejected') {
+                  const billName = req.billerDetails || req.billerNumber || 'বিল';
+                  notifyWithDeduplication({
+                    title: lang === 'bn' ? '❌ বিল পরিশোধ বাতিল' : '❌ Bill Payment Rejected',
+                    body: lang === 'bn' 
+                      ? `আপনার ${billName} বিল পরিশোধের অনুরোধটি বাতিল করা হয়েছে।`
+                      : `Your bill payment request (${billName}) was rejected.`,
+                    tag: `paybill-${change.doc.id}`,
+                    dedupeKey: `paybill-${change.doc.id}-${req.status}`,
+                    playSound: true
+                  });
+                }
+              }
+            }
+          } else if (!isCustDevice) {
+            // Owner receives alert for incoming bill requests
+            if (change.type === 'added') {
+              const data = change.doc.data() as any;
+              if (data.status === 'pending') {
+                const billName = data.billerDetails || data.billerNumber || 'বিল';
+                notifyWithDeduplication({
+                  title: '💡 নতুন বিল পেমেন্ট অনুরোধ!',
+                  body: `${data.customerName || 'কাস্টমার'} • ${billName} (৳${data.amount})`,
+                  tag: `paybill-${change.doc.id}`,
+                  dedupeKey: `paybill-${change.doc.id}`,
+                  playSound: true
+                });
+              }
+            }
+          }
+        });
+      }
+      isPaybillsInitial = false;
+
       setPaybillRequests(list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       localStorage.setItem('hellopoint_paybill_requests', JSON.stringify(list));
       window.dispatchEvent(new Event('storage'));
@@ -681,6 +931,7 @@ export default function App() {
       ? query(collection(db, 'users', activeUid, 'chats'), where('contactId', '==', loggedInCustomerId))
       : collection(db, 'users', activeUid, 'chats');
 
+    let isChatsInitial = true;
     const unsubChats = onSnapshot(qChats, (snapshot) => {
       const list: ChatMessage[] = [];
       const expiredMsgs: ChatMessage[] = [];
@@ -694,6 +945,39 @@ export default function App() {
           expiredMsgs.push(msgWithId);
         }
       });
+
+      if (!isChatsInitial) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const data = change.doc.data() as any;
+            if (isCustDevice && activeCustId) {
+              // Customer receives message sent by shop owner
+              if (data.senderRole === 'owner' && data.contactId === activeCustId) {
+                notifyWithDeduplication({
+                  title: lang === 'bn' ? '💬 দোকান থেকে নতুন মেসেজ!' : '💬 New Message from Shop!',
+                  body: data.text || 'নতুন বার্তা এসেছে',
+                  tag: `chat-${change.doc.id}`,
+                  dedupeKey: `chat-${change.doc.id}`,
+                  playSound: true
+                });
+              }
+            } else if (!isCustDevice) {
+              // Owner receives message sent by customer
+              if (data.senderRole === 'customer') {
+                notifyWithDeduplication({
+                  title: `💬 কাস্টমার মেসেজ: ${data.senderName || 'কাস্টমার'}`,
+                  body: data.text || 'নতুন বার্তা এসেছে',
+                  tag: `chat-${change.doc.id}`,
+                  dedupeKey: `chat-${change.doc.id}`,
+                  playSound: true
+                });
+              }
+            }
+          }
+        });
+      }
+      isChatsInitial = false;
+
       const sorted = list.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       setChatMessages(sorted);
       localStorage.setItem('hellopoint_chat_messages', JSON.stringify(sorted));
@@ -710,6 +994,7 @@ export default function App() {
       console.error('Failed to subscribe to chats:', error);
     });
 
+    let isProductsInitial = true;
     const qProducts = collection(db, 'users', activeUid, 'products');
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
       const list: Product[] = [];
@@ -717,6 +1002,31 @@ export default function App() {
         const data = snapDoc.data() as Product;
         list.push({ ...data, id: data.id || snapDoc.id });
       });
+
+      // Special promotional offers notification for visitors & customers
+      if (!isProductsInitial) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const p = change.doc.data() as Product;
+            const hasDiscount = Boolean(p.originalPrice && p.originalPrice > p.price);
+            notifyWithDeduplication({
+              title: hasDiscount 
+                ? (lang === 'bn' ? '🎉 নতুন স্পেশাল অফার!' : '🎉 Special Offer Alert!')
+                : (lang === 'bn' ? '🛍️ নতুন পণ্য যুক্ত হয়েছে!' : '🛍️ New Product Added!'),
+              body: hasDiscount
+                ? (lang === 'bn' 
+                    ? `${p.name} - মাত্র ৳${p.price} (আগের দাম ৳${p.originalPrice})` 
+                    : `${p.name} - now only ৳${p.price} (was ৳${p.originalPrice})`)
+                : `${p.name} - ৳${p.price}`,
+              tag: `product-offer-${change.doc.id}`,
+              dedupeKey: `product-offer-${change.doc.id}`,
+              playSound: true
+            });
+          }
+        });
+      }
+      isProductsInitial = false;
+
       list.sort((a, b) => {
         const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
         const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
@@ -741,6 +1051,7 @@ export default function App() {
       console.error('Failed to subscribe to quick_faqs:', error);
     });
 
+    let isOrdersInitial = true;
     const qShopOrders = collection(db, 'users', activeUid, 'shop_orders');
     const unsubShopOrders = onSnapshot(qShopOrders, (snapshot) => {
       const list: ShopOrder[] = [];
@@ -748,6 +1059,51 @@ export default function App() {
         const data = snapDoc.data() as ShopOrder;
         list.push({ ...data, id: data.id || snapDoc.id });
       });
+
+      if (!isOrdersInitial) {
+        snapshot.docChanges().forEach((change) => {
+          if (isCustDevice && activeCustId) {
+            // Customer receives update when their order status is modified
+            if (change.type === 'modified') {
+              const order = change.doc.data() as ShopOrder;
+              if (order.customerId === activeCustId) {
+                const statusBn = order.status === 'delivered' 
+                  ? 'ডেলিভারি সম্পন্ন হয়েছে ✓' 
+                  : order.status === 'shipped' 
+                  ? 'পাঠানো হয়েছে (Shipped)' 
+                  : order.status === 'confirmed' 
+                  ? 'নিশ্চিত করা হয়েছে (Confirmed)' 
+                  : order.status === 'cancelled' 
+                  ? 'বাতিল করা হয়েছে' 
+                  : 'প্রসেসিং হচ্ছে';
+                notifyWithDeduplication({
+                  title: lang === 'bn' ? `📦 অর্ডার আপডেট (#${order.orderNumber || ''})` : `📦 Order Update (#${order.orderNumber || ''})`,
+                  body: lang === 'bn' 
+                    ? `আপনার অর্ডার #${order.orderNumber || ''} ${statusBn}` 
+                    : `Your order #${order.orderNumber || ''} is now ${order.status}`,
+                  tag: `order-${change.doc.id}`,
+                  dedupeKey: `order-${change.doc.id}-${order.status}`,
+                  playSound: true
+                });
+              }
+            }
+          } else if (!isCustDevice) {
+            // Owner receives alert for new incoming orders
+            if (change.type === 'added') {
+              const data = change.doc.data() as any;
+              notifyWithDeduplication({
+                title: '🛍️ নতুন শপ অর্ডার এসেছে!',
+                body: `অর্ডার #${data.orderNumber || ''}: ৳${data.totalAmount || 0}`,
+                tag: `order-${change.doc.id}`,
+                dedupeKey: `order-${change.doc.id}`,
+                playSound: true
+              });
+            }
+          }
+        });
+      }
+      isOrdersInitial = false;
+
       list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       setShopOrders(list);
       saveShopOrders(list);
@@ -1022,12 +1378,32 @@ export default function App() {
       setSignupRequests([]);
       return;
     }
+    let isSignupInitial = true;
     const q = collection(db, 'signup_requests');
     const unsub = onSnapshot(q, (snapshot) => {
       const list: SignUpRequest[] = [];
       snapshot.forEach((snapDoc) => {
         list.push({ id: snapDoc.id, ...snapDoc.data() } as SignUpRequest);
       });
+
+      if (!isSignupInitial) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const data = change.doc.data() as any;
+            if (data.status === 'pending') {
+              notifyWithDeduplication({
+                title: '👤 নতুন রেজিস্ট্রেশন অনুরোধ!',
+                body: `${data.name || 'কাস্টমার'} (${data.phone || ''}) অ্যাকাউন্ট খোলার অনুরোধ করেছেন`,
+                tag: `signup-${change.doc.id}`,
+                dedupeKey: `signup-${change.doc.id}`,
+                playSound: true
+              });
+            }
+          }
+        });
+      }
+      isSignupInitial = false;
+
       setSignupRequests(list);
     }, (error) => {
       console.error("Failed to subscribe to signup requests:", error);
@@ -1404,23 +1780,56 @@ export default function App() {
   // Fetching customer's outstanding ledger entries live from Firestore
   useEffect(() => {
     const activeUid = user?.uid || ownerUid;
-    if (sessionRole === 'customer' && loggedInCustomerId && activeUid) {
+    // A device is Owner if connected with Gmail; otherwise it's a Customer device
+    const isOwnerDevice = Boolean((user && user.email) || (auth.currentUser && auth.currentUser.email));
+    const targetCustId = (sessionRole === 'customer' && loggedInCustomerId) 
+      ? loggedInCustomerId 
+      : (localStorage.getItem('hellopoint_session_customer_id') || localStorage.getItem('hellopoint_remembered_cust_id'));
+
+    if (targetCustId && activeUid && !isOwnerDevice) {
       const qTxs = query(
         collection(db, 'users', activeUid, 'transactions'),
-        where('contactId', '==', loggedInCustomerId)
+        where('contactId', '==', targetCustId)
       );
+      let isCustTxsInitial = true;
       const unsubCustTxs = onSnapshot(qTxs, (snapshot) => {
         const list: Transaction[] = [];
         snapshot.forEach((docSnap) => {
           list.push(docSnap.data() as Transaction);
         });
+
+        if (!isCustTxsInitial) {
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === 'added') {
+              const tx = change.doc.data() as Transaction;
+              const isGave = tx.type === 'GAVE';
+              notifyWithDeduplication({
+                title: isGave 
+                  ? (lang === 'bn' ? '📖 বাকির খাতায় নতুন এন্ট্রি!' : '📖 New Due Added!') 
+                  : (lang === 'bn' ? '✅ টাকা জমা গ্রহণ!' : '✅ Payment Received!'),
+                body: isGave
+                  ? (lang === 'bn' 
+                      ? `আপনার হিসাবে ৳${tx.amount} টাকা বাকি যোগ হয়েছে।${tx.note ? ` (${tx.note})` : ''}` 
+                      : `৳${tx.amount} was added to your ledger.${tx.note ? ` (${tx.note})` : ''}`)
+                  : (lang === 'bn' 
+                      ? `আপনার হিসাবে ৳${tx.amount} টাকা জমা নেওয়া হয়েছে।${tx.note ? ` (${tx.note})` : ''}` 
+                      : `৳${tx.amount} payment received.${tx.note ? ` (${tx.note})` : ''}`),
+                tag: `cust-tx-${change.doc.id}`,
+                dedupeKey: `cust-tx-${change.doc.id}`,
+                playSound: true
+              });
+            }
+          });
+        }
+        isCustTxsInitial = false;
+
         setCustomerTransactions(list);
       }, (err) => {
         console.error('Failed to sync customer transactions:', err);
       });
       return unsubCustTxs;
     }
-  }, [sessionRole, loggedInCustomerId, user, ownerUid]);
+  }, [sessionRole, loggedInCustomerId, user, ownerUid, lang]);
 
   // Migrate local details to cloud securely upon sign-in
   const migrateLocalToCloud = async (uid: string) => {
@@ -1959,10 +2368,20 @@ export default function App() {
     }
   };
 
-  const handleUpdateRemoteTypeState = (nextState: RemoteTypeState) => {
-    setRemoteTypeState(nextState);
+  const handleUpdateRemoteTypeState = useCallback((nextState: RemoteTypeState) => {
+    setRemoteTypeState((prev) => {
+      if (
+        prev.liveNumber === nextState.liveNumber &&
+        prev.isTyping === nextState.isTyping &&
+        prev.sentNumbers.length === nextState.sentNumbers.length &&
+        prev.sentNumbers[0]?.id === nextState.sentNumbers[0]?.id
+      ) {
+        return prev;
+      }
+      return nextState;
+    });
     syncRemoteTypeStateInstant(nextState);
-  };
+  }, []);
 
   const handleSaveQuickFaqs = async (faqs: ChatQuickFAQ[]) => {
     setQuickFaqs(faqs);
@@ -2767,32 +3186,37 @@ export default function App() {
 
   if (!isLocked && sessionRole === 'customer' && loggedInCustomerObj) {
     return (
-      <CustomerPortal 
-        customer={loggedInCustomerObj}
-        allTransactions={user ? transactions : customerTransactions}
-        lang={lang}
-        currency={currency}
-        onLogout={handleCustomerLogout}
-        setLang={setLang}
-        themeColor={themeColor}
-        onUpdatePhoto={handleUpdateContactPhoto}
-        rechargeRequests={rechargeRequests}
-        onCreateRechargeRequest={handleCreateRechargeRequest}
-        onClearRechargeRequest={handleClearRechargeRequest}
-        chatMessages={chatMessages}
-        onSendChatMessage={handleSendChatMessage}
-        onMarkChatsAsRead={handleMarkChatsAsRead}
-        paybills={paybills}
-        onSavePayBill={handleSavePayBill}
-        onCreatePayBillRequest={handleCreatePayBillRequest}
-        paybillRequests={paybillRequests}
-      />
+      <>
+        <NotificationPermissionPrompt lang={lang} />
+        <CustomerPortal 
+          customer={loggedInCustomerObj}
+          allTransactions={user ? transactions : customerTransactions}
+          lang={lang}
+          currency={currency}
+          onLogout={handleCustomerLogout}
+          setLang={setLang}
+          themeColor={themeColor}
+          onUpdatePhoto={handleUpdateContactPhoto}
+          rechargeRequests={rechargeRequests}
+          onCreateRechargeRequest={handleCreateRechargeRequest}
+          onClearRechargeRequest={handleClearRechargeRequest}
+          chatMessages={chatMessages}
+          onSendChatMessage={handleSendChatMessage}
+          onMarkChatsAsRead={handleMarkChatsAsRead}
+          paybills={paybills}
+          onSavePayBill={handleSavePayBill}
+          onCreatePayBillRequest={handleCreatePayBillRequest}
+          paybillRequests={paybillRequests}
+        />
+      </>
     );
   }
 
   return (
     <div className="relative min-h-screen select-none selection:bg-purple-100 antialiased overflow-x-hidden transition-colors duration-300 bg-[#eaeff5] dark:bg-[#252B33] text-slate-800 dark:text-[#F1F3F5]">
-      
+      {/* Global Notification Permission Prompt for all visitors to HelloPoint.online */}
+      <NotificationPermissionPrompt lang={lang} />
+
       <AnimatePresence mode="wait">
         {/* SCREEN ONE: MAIN DASHBOARD ROUTING */}
         {!isLocked && screen.type === 'dashboard' && (

@@ -65,14 +65,22 @@ import {
   Globe,
   Smartphone,
   CheckCircle2,
-  Radio
+  Radio,
+  Volume2,
+  BellRing
 } from 'lucide-react';
+import { 
+  getNotificationPermission, 
+  requestNotificationPermission, 
+  sendTestNotification, 
+  notifyWithDeduplication 
+} from '../utils/notifications';
 import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount, RemoteTypeState } from '../types';
 import { ThemeMode } from '../utils/theme';
 import { ChatBox } from './ChatBox';
 import { ShopManagementModal } from './ShopManagementModal';
 import { downloadParcelLabelImage } from '../utils/parcelLabelGenerator';
-import { OwnerRemoteTypeModal, OwnerRemoteTypeInlineBanner, getInitialRemoteTypeState, syncRemoteTypeStateInstant } from './RemoteTypeModals';
+import { OwnerRemoteTypeModal, getInitialRemoteTypeState, syncRemoteTypeStateInstant } from './RemoteTypeModals';
 import ChatAutoReplySettingsModal from './ChatAutoReplySettingsModal';
 import { getContactSummary, loadQuickFaqs, saveQuickFaqs, loadSavedPayBillAccounts, addSavedPayBillAccount, findMatchingCashInAccount } from '../utils/storage';
 import BanglaCalendar from './BanglaCalendar';
@@ -263,11 +271,33 @@ export function MainDashboard({
   const activeRemoteState = propRemoteTypeState || getInitialRemoteTypeState();
   const updateRemoteState = onUpdateRemoteTypeState || syncRemoteTypeStateInstant;
 
+  const handleToggleRotateRemote = () => {
+    const nextRotated = !activeRemoteState.isRotated;
+    updateRemoteState({
+      ...activeRemoteState,
+      isRotated: nextRotated,
+      updatedAt: new Date().toISOString()
+    });
+  };
+
   const handleClearLiveRemoteNumber = () => {
+    const cleanLive = (activeRemoteState.liveNumber || '').trim();
+    let nextSent = (activeRemoteState.sentNumbers || []).slice(0, 15);
+    if (cleanLive && nextSent[0]?.number !== cleanLive) {
+      nextSent = [
+        {
+          id: 'rt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          number: cleanLive,
+          createdAt: new Date().toISOString()
+        },
+        ...nextSent
+      ].slice(0, 15);
+    }
     updateRemoteState({
       ...activeRemoteState,
       liveNumber: '',
       isTyping: false,
+      sentNumbers: nextSent,
       updatedAt: new Date().toISOString()
     });
   };
@@ -393,6 +423,28 @@ export function MainDashboard({
   const [editingReminderId, setEditingReminderId] = useState<string | null>(null);
   const [zoomedImage, setZoomedImage] = useState<{ url: string; name: string } | null>(null);
   const [nowTicker, setNowTicker] = useState<Date>(new Date());
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
+  const [testNotificationSent, setTestNotificationSent] = useState(false);
+
+  useEffect(() => {
+    setNotifPermission(getNotificationPermission());
+  }, []);
+
+  const handleRequestNotifPermission = async () => {
+    const res = await requestNotificationPermission();
+    setNotifPermission(res);
+    if (res === 'granted') {
+      await sendTestNotification(lang);
+      setTestNotificationSent(true);
+      setTimeout(() => setTestNotificationSent(false), 4000);
+    }
+  };
+
+  const handleSendTestNotification = async () => {
+    setTestNotificationSent(true);
+    await sendTestNotification(lang);
+    setTimeout(() => setTestNotificationSent(false), 4000);
+  };
 
   // Check reminders every 3 seconds for scheduled trigger wiggling & update tick time (Highly optimized functional updates)
   useEffect(() => {
@@ -407,6 +459,13 @@ export function MainDashboard({
             const rDate = new Date(r.datetime);
             if (now >= rDate) {
               updated = true;
+              notifyWithDeduplication({
+                title: lang === 'bn' ? '⏰ বাকির তাগাদা / রিমাইন্ডার অ্যালার্ট!' : '⏰ Reminder Alarm Alert!',
+                body: `${r.text} ${r.customerName ? `(${r.customerName})` : ''}`,
+                tag: `reminder-${r.id}`,
+                dedupeKey: `reminder-${r.id}`,
+                playSound: true
+              });
               return { ...r, isTriggered: true };
             }
           }
@@ -1367,65 +1426,52 @@ export function MainDashboard({
     }));
   }, [selectedMonthPaybills]);
 
-  // Combine stored tags + existing paybill accounts + cash-in accounts for instant 1-tap re-use,
-  // sorted so the Last Number with the most paid bills is always first
+  // Monthly-scoped Last Number tags:
+  // 1. Starts fresh every month (only includes last numbers used to pay bills in the target month)
+  // 2. Newly adds whichever last number the user pays with in that month
+  // 3. Keeps the top 2 most-paid last numbers of that month at the very top
   const { allAvailableAccountTags, accountPaidCountsMap } = useMemo(() => {
     const legacyPresets = ['bkash', 'nagad', 'rocket', 'upay', 'বিকাশ', 'নগদ', 'রকেট', 'উপায়', 'ইসলামী ব্যাংক', 'সিটি ব্যাংক', 'ডাচ বাংলা ব্যাংক'];
+    const targetMonthKey = activePayBillDetails ? getPayBillMonthKey(activePayBillDetails) : selectedPayBillMonth;
     const list: string[] = [];
-
-    // Registered Cash-In accounts first
-    (cashInAccounts || []).forEach(acc => {
-      const clean = acc.lastDigits?.trim();
-      if (clean && !list.some(item => item.toLowerCase() === clean.toLowerCase())) {
-        list.push(clean);
-      }
-    });
-
-    [...savedPayBillAccounts].forEach(acc => {
-      const clean = acc.trim();
-      if (clean && !legacyPresets.some(p => clean.toLowerCase() === p.toLowerCase()) && !list.some(item => item.toLowerCase() === clean.toLowerCase())) {
-        list.push(clean);
-      }
-    });
+    const countsMap = new Map<string, { monthCount: number; totalCount: number; totalAmount: number; lastPaidTime: number }>();
 
     (paybills || []).forEach(pb => {
-      if (pb.paidAccount && pb.paidAccount.trim()) {
+      if (pb.isPaid && pb.paidAccount && pb.paidAccount.trim() && getPayBillMonthKey(pb) === targetMonthKey) {
         const clean = pb.paidAccount.trim();
-        if (!legacyPresets.some(p => clean.toLowerCase() === p.toLowerCase()) && !list.some(item => item.toLowerCase() === clean.toLowerCase())) {
+        const key = clean.toLowerCase();
+        if (legacyPresets.some(p => key === p.toLowerCase())) return;
+
+        if (!list.some(item => item.toLowerCase() === key)) {
           list.push(clean);
         }
-      }
-    });
 
-    // Count paid bills per last number (prioritizing selected month, then all-time paid bills)
-    const countsMap = new Map<string, { monthCount: number; totalCount: number; totalAmount: number }>();
-    (paybills || []).forEach(pb => {
-      if (pb.isPaid && pb.paidAccount && pb.paidAccount.trim()) {
-        const key = pb.paidAccount.trim().toLowerCase();
-        const curr = countsMap.get(key) || { monthCount: 0, totalCount: 0, totalAmount: 0 };
+        const curr = countsMap.get(key) || { monthCount: 0, totalCount: 0, totalAmount: 0, lastPaidTime: 0 };
+        curr.monthCount += 1;
         curr.totalCount += 1;
         curr.totalAmount += Number(pb.amount) || 0;
-        if (getPayBillMonthKey(pb) === selectedPayBillMonth) {
-          curr.monthCount += 1;
+        const t = new Date(pb.createdAt || pb.date || 0).getTime() || 0;
+        if (t > curr.lastPaidTime) {
+          curr.lastPaidTime = t;
         }
         countsMap.set(key, curr);
       }
     });
 
     const sortedList = [...list].sort((a, b) => {
-      const statA = countsMap.get(a.trim().toLowerCase()) || { monthCount: 0, totalCount: 0, totalAmount: 0 };
-      const statB = countsMap.get(b.trim().toLowerCase()) || { monthCount: 0, totalCount: 0, totalAmount: 0 };
-      if (statB.totalCount !== statA.totalCount) {
-        return statB.totalCount - statA.totalCount;
-      }
+      const statA = countsMap.get(a.trim().toLowerCase()) || { monthCount: 0, totalCount: 0, totalAmount: 0, lastPaidTime: 0 };
+      const statB = countsMap.get(b.trim().toLowerCase()) || { monthCount: 0, totalCount: 0, totalAmount: 0, lastPaidTime: 0 };
       if (statB.monthCount !== statA.monthCount) {
         return statB.monthCount - statA.monthCount;
       }
-      return statB.totalAmount - statA.totalAmount;
+      if (statB.totalAmount !== statA.totalAmount) {
+        return statB.totalAmount - statA.totalAmount;
+      }
+      return statB.lastPaidTime - statA.lastPaidTime;
     });
 
     return { allAvailableAccountTags: sortedList, accountPaidCountsMap: countsMap };
-  }, [savedPayBillAccounts, paybills, cashInAccounts, selectedPayBillMonth]);
+  }, [paybills, selectedPayBillMonth, activePayBillDetails]);
 
   // Monthly account breakdown statistics for the currently selected month (only for bills with a specified last number)
   const monthlyAccountStats = useMemo(() => {
@@ -1936,11 +1982,11 @@ export function MainDashboard({
               whileHover={{ scale: 1.15 }}
               whileTap={{ scale: 0.90 }}
               className={`p-1.5 rounded-full transition-all focus:outline-none relative cursor-pointer ${
-                activeRemoteState.liveNumber || (activeRemoteState.sentNumbers && activeRemoteState.sentNumbers.length > 0)
+                activeRemoteState.liveNumber
                   ? 'animate-bell-glow scale-110 shadow-lg text-white ring-2 ring-amber-400/60'
                   : 'bg-white/10 hover:bg-white/20 text-yellow-300'
               }`}
-              title={lang === 'bn' ? 'রিমট টাইপ লাইভ নাম্বার দেখুন' : 'View Remote Type Live Numbers'}
+              title={lang === 'bn' ? 'Air Typing লাইভ নাম্বার ও টাকা দেখুন' : 'View Air Typing Live Numbers'}
             >
               <Radio
                 className={`w-5 h-5 ${
@@ -1949,9 +1995,9 @@ export function MainDashboard({
                     : 'text-yellow-300'
                 }`}
               />
-              {(activeRemoteState.liveNumber || (activeRemoteState.sentNumbers && activeRemoteState.sentNumbers.length > 0)) && (
+              {activeRemoteState.liveNumber && (
                 <span className="absolute -top-1 -right-1 min-w-4.5 h-4.5 bg-red-650 text-white rounded-full text-[8.5px] font-black flex items-center justify-center px-1 border border-brand-primary shadow-md animate-bounce">
-                  {activeRemoteState.sentNumbers?.length || '•'}
+                  1
                 </span>
               )}
             </motion.button>
@@ -2427,16 +2473,6 @@ export function MainDashboard({
 
       {/* Main Content Scroll View (Styled optimally compact) */}
       <main id="main-content" className={`flex-1 px-3 py-2 ${isDesktopMode ? 'max-w-7xl' : 'max-w-sm'} mx-auto w-full pb-20 overflow-y-auto`}>
-        
-        {/* LIVE REMOTE TYPE INLINE RECEIVER & SENT NUMBERS ON MAIN PAGE */}
-        <OwnerRemoteTypeInlineBanner
-          lang={lang}
-          remoteState={activeRemoteState}
-          onOpenModal={() => setShowRemoteTypeModal(true)}
-          onClearLiveNumber={handleClearLiveRemoteNumber}
-          onDeleteSentNumber={handleDeleteSentRemoteNumber}
-          onClearAllSentNumbers={handleClearAllSentRemoteNumbers}
-        />
 
         {/* NEW SHOP ORDERS LIVE DETAILS & PARCEL REPORT DOWNLOAD BANNER */}
         {shopOrders.filter(o => o.status === 'pending').length > 0 && (
@@ -3892,6 +3928,76 @@ export function MainDashboard({
 
             {/* List of active (triggered / due) notifications */}
             <div className="flex-1 overflow-y-auto space-y-3.5 min-h-0 pr-1 select-none">
+              {/* Background / Device Notification System Banner */}
+              <div className={`p-3.5 rounded-2xl border transition-all ${
+                notifPermission === 'granted'
+                  ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                  : 'bg-amber-50/80 border-amber-200 text-amber-950 shadow-sm'
+              }`}>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                      notifPermission === 'granted'
+                        ? 'bg-emerald-100 text-emerald-600'
+                        : 'bg-amber-100 text-amber-600 animate-pulse'
+                    }`}>
+                      {notifPermission === 'granted' ? (
+                        <CheckCircle2 className="w-5 h-5" />
+                      ) : (
+                        <Smartphone className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div className="text-left space-y-0.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4 className="text-[11px] font-black leading-tight">
+                          {lang === 'bn' ? 'মোবাইল ব্যাকগ্রাউন্ড নোটিফিকেশন' : 'Mobile Background Notifications'}
+                        </h4>
+                        <span className={`text-[8.5px] font-black px-1.5 py-0.5 rounded-full ${
+                          notifPermission === 'granted'
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-amber-200 text-amber-900'
+                        }`}>
+                          {notifPermission === 'granted'
+                            ? (lang === 'bn' ? '✓ সক্রিয়' : '✓ Active')
+                            : (lang === 'bn' ? 'অনুমতি প্রয়োজন' : 'Action Needed')}
+                        </span>
+                      </div>
+                      <p className="text-[9px] text-slate-600 leading-relaxed font-medium">
+                        {notifPermission === 'granted'
+                          ? (lang === 'bn' 
+                              ? 'অ্যাপ বন্ধ বা স্ক্রিন লক থাকলেও নতুন নম্বর, রিচার্জ বা অর্ডারের সাউন্ড ও ভাইব্রেশন সরাসরি আপনার মোবাইলের নোটিফিকেশন বারে পৌঁছাবে।'
+                              : 'System alerts with sound & vibration will ring on your lockscreen even when the app is backgrounded.')
+                          : (lang === 'bn'
+                              ? 'অ্যাপ থেকে বের হয়ে গেলেও যাতে কাস্টমার নম্বর টাইপ করলে বা নতুন রিচার্জ এলে সাথে সাথে অ্যালার্ট পান, সেজন্য ব্যাকগ্রাউন্ড নোটিফিকেশন চালু করুন।'
+                              : 'Enable background alerts to receive notifications on your device status bar when away from the app.')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 flex items-center gap-2 self-end sm:self-auto w-full sm:w-auto justify-end">
+                    {notifPermission === 'granted' ? (
+                      <button
+                        type="button"
+                        onClick={handleSendTestNotification}
+                        disabled={testNotificationSent}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-[9px] font-black transition-all shadow-xs cursor-pointer flex items-center gap-1"
+                      >
+                        <Volume2 className="w-3 h-3" />
+                        <span>{testNotificationSent ? (lang === 'bn' ? 'পাঠানো হয়েছে ✓' : 'Sent ✓') : (lang === 'bn' ? 'টেস্ট অ্যালার্ট পাঠান' : 'Send Test')}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleRequestNotifPermission}
+                        className="px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 active:scale-95 text-white rounded-xl text-[9.5px] font-black transition-all shadow-md cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Bell className="w-3.5 h-3.5 animate-bounce" />
+                        <span>{lang === 'bn' ? 'নোটিফিকেশন চালু করুন' : 'Enable Notifications'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
               {totalNotificationsCount === 0 ? (
                 <div className="text-center py-14 px-4 border border-dashed border-slate-200 rounded-2.5xl flex flex-col items-center justify-center text-slate-400">
                   <div className="bg-slate-50 p-4 rounded-full mb-3.5 border border-slate-100">
@@ -5118,13 +5224,13 @@ export function MainDashboard({
                                     : 'bg-white text-slate-700 border-slate-200 hover:border-purple-300 hover:text-brand-primary'
                                 }`}
                                 title={
-                                  tagStats && tagStats.totalCount > 0
-                                    ? (lang === 'bn' ? `মোট ${tagStats.totalCount}টি বিল পেইড` : `${tagStats.totalCount} bills paid`)
+                                  tagStats && tagStats.monthCount > 0
+                                    ? (lang === 'bn' ? `এই মাসে মোট ${tagStats.monthCount}টি বিল পেইড` : `${tagStats.monthCount} bills paid this month`)
                                     : undefined
                                 }
                               >
                                 <span>{isSelected ? '✓ ' : ''}{tag}</span>
-                                {tagStats && tagStats.totalCount > 0 && (
+                                {tagStats && tagStats.monthCount > 0 && (
                                   <span className={`text-[7.5px] px-1 rounded-full font-mono ${
                                     isSelected
                                       ? 'bg-white/20 text-white'
@@ -5132,7 +5238,7 @@ export function MainDashboard({
                                       ? 'bg-amber-300/80 text-amber-950 font-black'
                                       : 'bg-slate-100 text-slate-500'
                                   }`}>
-                                    {tagStats.totalCount}
+                                    {tagStats.monthCount}
                                   </span>
                                 )}
                               </button>
@@ -5921,6 +6027,7 @@ export function MainDashboard({
         onClearLiveNumber={handleClearLiveRemoteNumber}
         onDeleteSentNumber={handleDeleteSentRemoteNumber}
         onClearAllSentNumbers={handleClearAllSentRemoteNumbers}
+        onToggleRotate={handleToggleRotateRemote}
       />
 
       {/* CHAT AUTO-REPLY & CANNED FAQS SETTINGS MODAL */}

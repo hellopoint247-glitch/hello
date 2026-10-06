@@ -543,7 +543,7 @@ export function PinLockScreen({
                 >
                   <Radio className="w-3 h-3 text-amber-600 group-hover:scale-110 transition-transform shrink-0 animate-pulse" />
                   <span className="text-[9.5px] sm:text-[10px] font-bold tracking-tight whitespace-nowrap">
-                    {lang === 'bn' ? 'রিমট টাইপ' : 'Remote Type'}
+                    {lang === 'bn' ? 'Air Typing' : 'Air Typing'}
                   </span>
                 </button>
               </div>

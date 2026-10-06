@@ -1237,7 +1237,11 @@ export function CustomerPortal({
                         <div 
                           key={tx.id}
                           onClick={() => setSelectedTx(tx)}
-                          className={`bg-white hover:bg-slate-50 border border-slate-200/50 rounded-lg ${style.containerPadding} flex items-center justify-between cursor-pointer transition-all shadow-tiny hover:border-purple-300 select-none text-left`}
+                          className={`${
+                            !isGave
+                              ? 'bg-emerald-50/70 hover:bg-emerald-100/60 border-emerald-200/80'
+                              : 'bg-white hover:bg-slate-50 border-slate-200/50'
+                          } border rounded-lg ${style.containerPadding} flex items-center justify-between cursor-pointer transition-all shadow-tiny hover:border-purple-300 select-none text-left`}
                         >
                           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
                             {/* Date: Light yellow/amber for today, muted slate for other days */}

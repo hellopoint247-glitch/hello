@@ -34,7 +34,8 @@ import {
   Sparkles,
   User,
   Phone,
-  Calendar
+  Calendar,
+  ClipboardPaste
 } from 'lucide-react';
 import { CashInAccount, CashInTransaction, Contact, AccountRechargeRecord } from '../types';
 import { isTxOwnNumberTransfer, isPhoneOwnAccount, findOwnAccountByPhone, getTransactionCommission } from '../utils/cashInUtils';
@@ -87,6 +88,23 @@ export const cleanBangladeshiPhoneNumber = (raw: string): string => {
   return digits.slice(0, 11);
 };
 
+/**
+ * Allows mobile number along with Name or Transaction ID in the same field:
+ * - Converts Bengali numerals ০-৯ to 0-9
+ * - Cleans +88/88 prefixes and hyphens on phone numbers if present
+ * - Preserves names, letters, spaces, and Transaction IDs intact
+ */
+export const normalizePhoneNameOrTrxInput = (raw: string): string => {
+  if (!raw) return '';
+  const bnDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+  let text = String(raw).replace(/[০-৯]/g, (d) => String(bnDigits.indexOf(d)));
+  // Strip +88 or 0088 right before 01[3-9]
+  text = text.replace(/(?:\+?88|0088)(01[3-9]\d{8})/g, '$1');
+  // Strip hyphen inside 01712-345678 format
+  text = text.replace(/\b(01[3-9]\d{2})-(\d{6})\b/g, '$1$2');
+  return text;
+};
+
 interface CashInViewProps {
   accounts: CashInAccount[];
   transactions: CashInTransaction[];
@@ -136,13 +154,40 @@ export function CashInView({
   // Category selection: বিকাশ (bkash), নগদ (nagad), ফ্লেক্সিলোড (flexiload), নিজ (own)
   const [selectedCategory, setSelectedCategory] = useState<'bkash' | 'nagad' | 'flexiload' | 'own'>('bkash');
 
-  // New Baki Auto-Entry Feature via + button beside Amount
+  // New Baki Auto-Entry Feature
   const [bakiAutoEntryContact, setBakiAutoEntryContact] = useState<Contact | null>(null);
   const [showBakiSearchModal, setShowBakiSearchModal] = useState(false);
   const [bakiSearchQuery, setBakiSearchQuery] = useState('');
+  const [bakiCustomLabel, setBakiCustomLabel] = useState<string>('বিকাশ');
   const [isPostCashInBakiSearch, setIsPostCashInBakiSearch] = useState(false);
   const [isSavingPostBaki, setIsSavingPostBaki] = useState(false);
   const [targetTxForBaki, setTargetTxForBaki] = useState<CashInTransaction | null>(null);
+
+  // Desktop mode state synced with MainDashboard
+  const [isDesktopMode, setIsDesktopMode] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('hellopoint_desktop_mode');
+      if (saved !== null) return saved === 'true';
+      return typeof window !== 'undefined' && window.innerWidth >= 1024;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const syncDesktop = () => {
+      try {
+        const saved = localStorage.getItem('hellopoint_desktop_mode');
+        if (saved !== null) setIsDesktopMode(saved === 'true');
+      } catch {}
+    };
+    window.addEventListener('desktop_mode_changed', syncDesktop);
+    window.addEventListener('storage', syncDesktop);
+    return () => {
+      window.removeEventListener('desktop_mode_changed', syncDesktop);
+      window.removeEventListener('storage', syncDesktop);
+    };
+  }, []);
 
   // Processing & Loading State
   const [isProcessing, setIsProcessing] = useState(false);
@@ -201,6 +246,7 @@ export function CashInView({
 
   // Unified History states: filter, search, copy & inline accordion
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [justPastedPhone, setJustPastedPhone] = useState(false);
   const [expandedAccIdForHistory, setExpandedAccIdForHistory] = useState<string | null>(null);
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
   const [hideRunningBalance, setHideRunningBalance] = useState<boolean>(() => {
@@ -387,19 +433,34 @@ export function CashInView({
     });
   }, [contacts, bakiSearchQuery]);
 
+  // Post-Cash-In Category Update Handler (inside Success Modal)
+  const handleUpdateSuccessTxCategory = async (newCat: 'bkash' | 'nagad' | 'flexiload' | 'own') => {
+    setSelectedCategory(newCat);
+    if (!successTx) return;
+    const isOwn = newCat === 'own' || isPhoneOwnAccount(successTx.tx.customerPhone, accounts);
+    const updatedTx: CashInTransaction = {
+      ...successTx.tx,
+      category: newCat,
+      isOwnNumberTransfer: isOwn,
+      note: isOwn && !successTx.tx.note
+        ? (lang === 'bn' ? 'নিজ নাম্বারে লেনদেন' : 'Own number transfer')
+        : successTx.tx.note
+    };
+    setSuccessTx(prev => prev ? { ...prev, tx: updatedTx } : null);
+    try {
+      await onSaveTransaction(updatedTx, successTx.account);
+    } catch (err) {
+      console.error('Failed to update post-cashin category:', err);
+    }
+  };
+
   const handleSelectBakiCustomer = async (contact: Contact) => {
+    const serviceLabel = bakiCustomLabel.trim() || (lang === 'bn' ? 'বিকাশ' : 'bKash');
+
     // If selecting for a specific transaction (via + button on transaction card)
     if (targetTxForBaki) {
       setIsSavingPostBaki(true);
       try {
-        const catLabels: Record<string, string> = {
-          bkash: lang === 'bn' ? 'বিকাশ' : 'bKash',
-          nagad: lang === 'bn' ? 'নগদ' : 'Nagad',
-          flexiload: lang === 'bn' ? 'ফ্লেক্সিলোড' : 'Flexiload',
-          own: lang === 'bn' ? 'নিজ' : 'Own'
-        };
-        const catKey = targetTxForBaki.category || 'bkash';
-        const serviceLabel = catLabels[catKey] || (lang === 'bn' ? 'বিকাশ' : 'bKash');
         const phone = targetTxForBaki.customerPhone || '';
         const ownTag = targetTxForBaki.isOwnNumberTransfer ? (lang === 'bn' ? ' [নিজ নম্বর]' : ' [Own Number]') : '';
 
@@ -408,7 +469,7 @@ export function CashInView({
           await onSaveCustomerTransaction({
             amount: targetTxForBaki.amount,
             type: 'GAVE',
-            note: `${serviceLabel} (${phone})${ownTag}`,
+            note: phone ? `${serviceLabel} (${phone})${ownTag}` : `${serviceLabel}${ownTag}`,
             billNo: phone,
             date: targetTxForBaki.date ? targetTxForBaki.date.split('T')[0] : new Date().toISOString().split('T')[0],
             contactId: contact.id
@@ -437,14 +498,6 @@ export function CashInView({
     if (isPostCashInBakiSearch && successTx) {
       setIsSavingPostBaki(true);
       try {
-        const catLabels: Record<string, string> = {
-          bkash: lang === 'bn' ? 'বিকাশ' : 'bKash',
-          nagad: lang === 'bn' ? 'নগদ' : 'Nagad',
-          flexiload: lang === 'bn' ? 'ফ্লেক্সিলোড' : 'Flexiload',
-          own: lang === 'bn' ? 'নিজ' : 'Own'
-        };
-        const catKey = successTx.tx.category || selectedCategory;
-        const serviceLabel = catLabels[catKey] || (lang === 'bn' ? 'বিকাশ' : 'bKash');
         const phone = successTx.tx.customerPhone || '';
         const ownTag = successTx.tx.isOwnNumberTransfer ? (lang === 'bn' ? ' [নিজ নম্বর]' : ' [Own Number]') : '';
 
@@ -453,7 +506,7 @@ export function CashInView({
           await onSaveCustomerTransaction({
             amount: successTx.tx.amount,
             type: 'GAVE',
-            note: `${serviceLabel} (${phone})${ownTag}`,
+            note: phone ? `${serviceLabel} (${phone})${ownTag}` : `${serviceLabel}${ownTag}`,
             billNo: phone,
             date: successTx.tx.date || new Date().toISOString().split('T')[0],
             contactId: contact.id
@@ -555,9 +608,35 @@ export function CashInView({
 
   // Copy helper
   const handleCopy = (text: string, id: string) => {
+    try {
+      localStorage.setItem('hellopoint_clipboard_fallback', text);
+    } catch {}
     navigator.clipboard?.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // Paste helper for Customer Number / Name / TrxID input
+  const handlePasteCustomerPhone = async () => {
+    let pastedText = '';
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        pastedText = await navigator.clipboard.readText();
+      }
+    } catch {
+      // Fallback if clipboard read permission is blocked by browser/iframe
+    }
+    if (!pastedText || !pastedText.trim()) {
+      try {
+        pastedText = localStorage.getItem('hellopoint_clipboard_fallback') || '';
+      } catch {}
+    }
+    if (pastedText && pastedText.trim()) {
+      setCustomerPhone(normalizePhoneNameOrTrxInput(pastedText.trim()));
+      setFormError('');
+      setJustPastedPhone(true);
+      setTimeout(() => setJustPastedPhone(false), 1200);
+    }
   };
 
   // Find matching account by last 4 digits (or exact match)
@@ -849,7 +928,9 @@ export function CashInView({
     e.preventDefault();
     setFormError('');
 
-    const cleanPhone = cleanBangladeshiPhoneNumber(customerPhone) || customerPhone.trim();
+    const normalizedEntry = normalizePhoneNameOrTrxInput(customerPhone).trim();
+    const extractedPhone = cleanBangladeshiPhoneNumber(normalizedEntry);
+    const cleanPhone = normalizedEntry || extractedPhone;
     const numAmount = parseFloat(amount);
     const cleanLastDigits = lastDigits.trim().replace(/\D/g, '');
 
@@ -927,7 +1008,7 @@ export function CashInView({
       const shouldRecordBaki = Boolean(targetBaki);
 
       // Auto-recharge destination SIM if this is an own-number transfer
-      const destAccount = findOwnAccountByPhone(cleanPhone, accounts);
+      const destAccount = findOwnAccountByPhone(extractedPhone || cleanPhone, accounts);
       let updatedDestAccount: CashInAccount | undefined = undefined;
 
       if (destAccount) {
@@ -955,6 +1036,10 @@ export function CashInView({
         };
       }
 
+      // Always default to 'bkash' on initial entry so even if the post-tx modal is closed immediately, it stays recorded as bKash
+      const defaultCat: 'bkash' | 'nagad' | 'flexiload' | 'own' = 'bkash';
+      const initialIsOwn = Boolean(destAccount) || isDetectedOwnNumber;
+
       const newTx: CashInTransaction = {
         id: 'tx-cashin-' + Date.now(),
         customerPhone: cleanPhone,
@@ -966,8 +1051,8 @@ export function CashInView({
         accountId: matchedAccount?.id,
         accountNumber: matchedAccount?.accountNumber,
         accountName: matchedAccount?.accountName,
-        category: selectedCategory,
-        isOwnNumberTransfer: isOwnNumber,
+        category: defaultCat,
+        isOwnNumberTransfer: initialIsOwn,
         date: new Date().toISOString().split('T')[0],
         createdAt: new Date().toISOString(),
         note: shouldRecordBaki 
@@ -976,7 +1061,7 @@ export function CashInView({
               ? (lang === 'bn' 
                   ? `এক সিম থেকে অন্য সিমে ট্রান্সফার (অটো রিচার্জ: ${destAccount.accountNumber})` 
                   : `Transfer between own SIMs (Auto recharge: ${destAccount.accountNumber})`)
-              : (isOwnNumber ? (lang === 'bn' ? 'নিজ নাম্বারে লেনদেন' : 'Own number transfer') : undefined))
+              : (initialIsOwn ? (lang === 'bn' ? 'নিজ নাম্বারে লেনদেন' : 'Own number transfer') : undefined))
       };
 
       try {
@@ -1740,10 +1825,16 @@ export function CashInView({
                 <div
                   key={item.id}
                   onClick={() => setExpandedHistoryId(isExpanded ? null : item.id)}
-                  className={`bg-white dark:bg-slate-800/90 hover:bg-slate-50 dark:hover:bg-slate-800 border ${
+                  className={`${
+                    !isCashIn
+                      ? 'bg-emerald-50/70 dark:bg-emerald-950/25 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/40'
+                      : 'bg-white dark:bg-slate-800/90 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  } border ${
                     isExpanded 
                       ? 'border-purple-400 dark:border-purple-500 shadow-sm' 
-                      : 'border-slate-200/90 dark:border-slate-700/90 hover:border-purple-300 dark:hover:border-purple-600 shadow-tiny'
+                      : !isCashIn
+                        ? 'border-emerald-200/80 dark:border-emerald-800/50 hover:border-emerald-300 dark:hover:border-emerald-600 shadow-tiny'
+                        : 'border-slate-200/90 dark:border-slate-700/90 hover:border-purple-300 dark:hover:border-purple-600 shadow-tiny'
                   } rounded-lg transition-all select-none text-left flex flex-col cursor-pointer`}
                   id={`history-card-${item.id}`}
                 >
@@ -2033,6 +2124,7 @@ export function CashInView({
                                         onClick={() => {
                                           setTargetTxForBaki(item.rawTx!);
                                           setIsPostCashInBakiSearch(false);
+                                          setBakiCustomLabel('বিকাশ');
                                           setBakiSearchQuery(item.rawTx!.customerPhone || item.rawTx!.customerName || '');
                                           setShowBakiSearchModal(true);
                                         }}
@@ -2254,49 +2346,76 @@ export function CashInView({
           </div>
         </div>
 
-        {/* The Form Fields: Compact, Professional, Space-Efficient */}
+        {/* The Form Fields: Ultra-Compact Single Row + Direct SIM Selection Below */}
         <form onSubmit={handleSubmitCashIn} className="space-y-2">
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
             
-            {/* 1. Mobile Number (Left) */}
+            {/* 1. Mobile Number / Name / TrxID (Left) with Paste Button beside it */}
             <div className="col-span-1">
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-[10px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider truncate">
-                  {lang === 'bn' ? 'মোবাইল নম্বর' : 'Mobile number'}
+                  {lang === 'bn' ? 'নম্বর / নাম / TrxID' : 'Number / Name / TrxID'}
                 </label>
                 {isDetectedOwnNumber && (
                   <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-200 dark:border-purple-800 animate-in fade-in">
-                    {lang === 'bn' ? 'নিজ সিম (অটো রিচার্জ)' : 'Own SIM (Auto Transfer)'}
+                    {lang === 'bn' ? 'নিজ সিম' : 'Own SIM'}
                   </span>
                 )}
               </div>
-              <input
-                type="tel"
-                value={customerPhone}
-                onChange={(e) => {
-                  const cleaned = cleanBangladeshiPhoneNumber(e.target.value);
-                  setCustomerPhone(cleaned);
-                }}
-                onPaste={(e) => {
-                  e.preventDefault();
-                  const pasted = e.clipboardData.getData('text');
-                  const cleaned = cleanBangladeshiPhoneNumber(pasted);
-                  setCustomerPhone(cleaned);
-                }}
-                placeholder="01xxxxxxxxx"
-                className={`w-full bg-slate-50 dark:bg-[#151b22] border rounded-xl px-2.5 sm:px-3 py-2 text-xs font-mono font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${
-                  isDetectedOwnNumber 
-                    ? 'border-purple-400 dark:border-purple-700 focus:ring-purple-500 bg-purple-50/20' 
-                    : 'border-slate-200 dark:border-slate-700 focus:ring-emerald-500'
-                }`}
-              />
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={customerPhone}
+                  onChange={(e) => {
+                    setCustomerPhone(normalizePhoneNameOrTrxInput(e.target.value));
+                  }}
+                  onPaste={(e) => {
+                    e.preventDefault();
+                    const pasted = e.clipboardData.getData('text');
+                    setCustomerPhone(normalizePhoneNameOrTrxInput(pasted));
+                  }}
+                  placeholder={lang === 'bn' ? 'নম্বর / নাম / TrxID...' : 'Number / Name / TrxID...'}
+                  className={`flex-1 min-w-0 bg-slate-50 dark:bg-[#151b22] border rounded-xl px-2 sm:px-3 py-2 text-[11px] sm:text-xs font-mono font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${
+                    isDetectedOwnNumber 
+                      ? 'border-purple-400 dark:border-purple-700 focus:ring-purple-500 bg-purple-50/20' 
+                      : 'border-slate-200 dark:border-slate-700 focus:ring-emerald-500'
+                  }`}
+                />
+                <button
+                  type="button"
+                  id="btn-paste-cashin-number"
+                  onClick={handlePasteCustomerPhone}
+                  className={`h-[35px] px-2 sm:px-2.5 rounded-xl border text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shrink-0 shadow-2xs transition-all cursor-pointer active:scale-95 select-none ${
+                    justPastedPhone
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900/70 text-purple-700 dark:text-purple-300 border-purple-200/90 dark:border-purple-800'
+                  }`}
+                  title={lang === 'bn' ? 'কপি করা নম্বর পেস্ট করুন' : 'Paste copied number'}
+                >
+                  {justPastedPhone ? (
+                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  ) : (
+                    <>
+                      <ClipboardPaste className="w-3.5 h-3.5 shrink-0" />
+                      <span>{lang === 'bn' ? 'পেস্ট' : 'Paste'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
-            {/* 2. Amount (Right, next to Mobile Number) with Plus Button beside it */}
+            {/* 2. Amount (Right, next to Mobile Number) with Cash-In Complete Submit Icon Button beside it */}
             <div className="col-span-1">
-              <label className="block text-[10px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1 truncate">
-                {lang === 'bn' ? 'টাকার পরিমাণ' : 'Amount'} <span className="text-rose-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[10px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider truncate">
+                  {lang === 'bn' ? 'টাকার পরিমাণ' : 'Amount'} <span className="text-rose-500">*</span>
+                </label>
+                {lastDigits && (
+                  <span className="text-[9.5px] font-mono font-black px-1.5 py-0.2 rounded bg-amber-500 text-white shrink-0">
+                    ...{lastDigits}
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-1.5">
                 <input
                   type="number"
@@ -2308,48 +2427,16 @@ export function CashInView({
                   required
                 />
                 <button
-                  type="button"
-                  id="btn-open-baki-search"
-                  onClick={() => {
-                    setBakiSearchQuery('');
-                    setShowBakiSearchModal(true);
-                  }}
-                  className={`h-[35px] w-[35px] rounded-xl border flex items-center justify-center shrink-0 transition-all cursor-pointer ${
-                    bakiAutoEntryContact
-                      ? 'bg-purple-600 text-white border-purple-700 shadow-xs ring-2 ring-purple-300 dark:ring-purple-900'
-                      : 'bg-slate-100 hover:bg-purple-50 hover:text-purple-600 hover:border-purple-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
-                  }`}
-                  title={lang === 'bn' ? 'বাকির খাতায় যুক্ত করতে কাস্টমার সার্চ করুন' : 'Search customer for baki ledger'}
+                  type="submit"
+                  id="btn-submit-cashin-icon"
+                  disabled={isProcessing}
+                  className="h-[35px] w-[40px] rounded-xl bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-600 hover:to-teal-700 active:scale-95 text-white flex items-center justify-center shrink-0 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                  title={lang === 'bn' ? 'ক্যাশ-ইন সম্পন্ন করুন' : 'Complete Cash-In'}
                 >
-                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <Check className="w-5 h-5 stroke-[3]" />
                 </button>
               </div>
             </div>
-
-            {/* Selected Baki Customer Indicator (via + button) */}
-            {bakiAutoEntryContact && (
-              <div className="col-span-2 px-2.5 py-1 rounded-xl bg-purple-50/90 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800/80 shadow-2xs flex items-center justify-between gap-2 animate-in fade-in duration-150">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 shrink-0">
-                    {lang === 'bn' ? 'বাকির খাতা:' : 'Baki:'}
-                  </span>
-                  <span className="text-xs font-black text-purple-900 dark:text-purple-100 truncate">
-                    {bakiAutoEntryContact.name}
-                  </span>
-                  <span className="text-[11px] font-mono font-bold text-purple-700 dark:text-purple-300 bg-purple-100/80 dark:bg-purple-900/60 px-1.5 py-0.2 rounded shrink-0">
-                    {bakiAutoEntryContact.phone}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setBakiAutoEntryContact(null)}
-                  className="p-1 hover:bg-purple-200/70 dark:hover:bg-purple-900/70 text-purple-700 dark:text-purple-300 rounded-lg cursor-pointer transition-colors shrink-0"
-                  title={lang === 'bn' ? 'বাদ দিন' : 'Remove'}
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
 
             {/* Up to 3 recent transactions list formatted strictly as: last(xxx) ৳0000 name */}
             {lastCashInMatches.length > 0 && (
@@ -2386,82 +2473,6 @@ export function CashInView({
             )}
           </div>
 
-          {/* 4 Category Tags in a Single Horizontal Line: বিকাশ, নগদ, ফ্লেক্সিলোড, নিজ */}
-          <div className="grid grid-cols-4 gap-1.5 pt-0.5">
-            {([
-              { 
-                id: 'bkash', 
-                labelBn: 'বিকাশ', 
-                labelEn: 'bKash', 
-                activeClass: 'bg-pink-600 text-white border-pink-700 shadow-xs ring-2 ring-pink-400/40' 
-              },
-              { 
-                id: 'nagad', 
-                labelBn: 'নগদ', 
-                labelEn: 'Nagad', 
-                activeClass: 'bg-orange-500 text-white border-orange-600 shadow-xs ring-2 ring-orange-400/40' 
-              },
-              { 
-                id: 'flexiload', 
-                labelBn: 'ফ্লেক্সিলোড', 
-                labelEn: 'Flexiload', 
-                activeClass: 'bg-teal-600 text-white border-teal-700 shadow-xs ring-2 ring-teal-400/40' 
-              },
-              { 
-                id: 'own', 
-                labelBn: 'নিজ', 
-                labelEn: 'Own', 
-                activeClass: 'bg-purple-600 text-white border-purple-700 shadow-xs ring-2 ring-purple-400/40' 
-              },
-            ] as const).map((cat) => {
-              const isSelected = selectedCategory === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => setSelectedCategory(cat.id)}
-                  className={`py-1.5 px-1 rounded-xl text-center text-xs font-black transition-all cursor-pointer border select-none ${
-                    isSelected
-                      ? cat.activeClass
-                      : 'bg-slate-50 dark:bg-[#151b22] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  {lang === 'bn' ? cat.labelBn : cat.labelEn}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Quick select chips for available SIM numbers */}
-          {sortedAccountsByBalance.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-              <span className="text-[10px] font-bold text-slate-400 shrink-0">
-                {lang === 'bn' ? 'সিম নির্বাচন:' : 'Select SIM:'}
-              </span>
-              {sortedAccountsByBalance.map((acc) => {
-                const isSelected = lastDigits === acc.lastDigits;
-                return (
-                  <button
-                    key={acc.id}
-                    type="button"
-                    onClick={() => {
-                      setLastDigits(prev => (prev === acc.lastDigits ? '' : acc.lastDigits));
-                      setFormError('');
-                    }}
-                    className={`inline-flex items-center px-2 py-0.5 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer select-none border ${
-                      isSelected
-                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-400 scale-105'
-                        : 'bg-amber-500/10 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700/70 hover:bg-amber-500/20'
-                    }`}
-                    title={acc.accountNumber ? `${acc.accountNumber}${acc.accountName ? ` (${acc.accountName})` : ''} - ${currency}${Number(acc.balance || 0).toLocaleString()}` : undefined}
-                  >
-                    <span>...{acc.lastDigits}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
           {/* Form Error Banner */}
           {formError && (
             <div className="flex items-center gap-2 p-2 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 text-xs font-bold animate-shake">
@@ -2469,16 +2480,6 @@ export function CashInView({
               <span>{formError}</span>
             </div>
           )}
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isProcessing}
-            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-600 active:scale-98 text-white text-xs sm:text-sm font-black shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            <Send className="w-4 h-4 stroke-[2.5]" />
-            <span>{lang === 'bn' ? 'ক্যাশ-ইন সম্পন্ন করুন' : 'Submit Cash-In'}</span>
-          </button>
         </form>
       </div>
 
@@ -2576,113 +2577,127 @@ export function CashInView({
             </button>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {sortedAccountsByBalance.map((acc) => (
-              <div
-                key={acc.id}
-                onClick={() => {
-                  setActiveAccountForRecharge(acc);
-                  setSelectedAccIdForBalance(acc.id);
-                  setBalanceAddAmount('');
-                  setBalanceModalError('');
-                  setEditingRechargeId(null);
-                  setEditingRechargeAmount('');
-                  setConfirmDeleteRechargeId(null);
-                  setRechargeSuccessMsg('');
-                  setShowAddBalanceModal(true);
-                }}
-                className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 hover:bg-slate-50/90 dark:hover:bg-slate-800/40 cursor-pointer transition-colors group"
-              >
-                {/* Left: Indicator, Last 4 digits (shortened), and Balance */}
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                  <span 
-                    className="text-xs sm:text-sm font-mono font-black text-slate-800 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors shrink-0"
-                    title={acc.accountNumber ? `${acc.accountNumber}${acc.accountName ? ` (${acc.accountName})` : ''}` : undefined}
-                  >
-                    ...{getShortLast4(acc)}
-                  </span>
-                  <span className="text-xs sm:text-sm font-mono font-black text-emerald-600 dark:text-emerald-400 shrink-0">
-                    {currency}{Number(acc.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                  {acc.accountName && (
-                    <span className="text-[11px] text-slate-400 truncate hidden md:inline">
-                      • {acc.accountName}
-                    </span>
-                  )}
-                </div>
-
-                {/* Right: Quick Recharge input + submit button right on the card & Chevron */}
-                <div 
-                  className="flex items-center gap-1.5 shrink-0"
-                  onClick={(e) => e.stopPropagation()}
+          <div className={isDesktopMode ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 p-2.5' : 'divide-y divide-slate-100 dark:divide-slate-800 md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-2 md:p-2.5 md:divide-y-0'}>
+            {sortedAccountsByBalance.map((acc) => {
+              const shortLast = getShortLast4(acc);
+              const isSelectedForCashIn = Boolean(lastDigits) && (lastDigits === acc.lastDigits || lastDigits === shortLast);
+              return (
+                <div
+                  key={acc.id}
+                  onClick={() => {
+                    const targetDigits = acc.lastDigits || shortLast;
+                    setLastDigits(prev => (prev === targetDigits ? '' : targetDigits));
+                    setFormError('');
+                  }}
+                  className={`flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer transition-all group select-none ${
+                    isDesktopMode ? 'rounded-xl border' : 'md:rounded-xl md:border'
+                  } ${
+                    isSelectedForCashIn
+                      ? 'bg-amber-50/95 dark:bg-amber-950/40 border-amber-400 dark:border-amber-500 ring-2 ring-amber-400/40 shadow-xs'
+                      : 'hover:bg-slate-50/90 dark:hover:bg-slate-800/40 border-slate-200/80 dark:border-slate-800'
+                  }`}
+                  title={lang === 'bn' ? `ক্লিক করে ...${shortLast} লাস্ট নাম্বার হিসেবে সিলেক্ট করুন` : `Click to select ...${shortLast} as SIM`}
                 >
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="any"
-                      inputMode="decimal"
-                      value={quickRechargeAmounts[acc.id] || ''}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setQuickRechargeAmounts(prev => ({ ...prev, [acc.id]: val }));
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleQuickRecharge(acc);
-                        }
-                      }}
-                      placeholder={lang === 'bn' ? 'টাকা' : 'Tk'}
-                      className="w-16 sm:w-20 px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:border-emerald-500 rounded-lg text-xs font-mono font-bold text-slate-900 dark:text-slate-100 placeholder-slate-400 outline-none text-right transition-all shadow-2xs"
-                    />
+                  {/* Left: Selection Check/Dot, Last 4 digits, and Balance */}
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {isSelectedForCashIn ? (
+                      <span className="w-4 h-4 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                        <Check className="w-2.5 h-2.5 stroke-[3.5]" />
+                      </span>
+                    ) : (
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                    )}
+                    <span 
+                      className={`text-xs sm:text-sm font-mono font-black transition-colors shrink-0 ${
+                        isSelectedForCashIn
+                          ? 'text-amber-900 dark:text-amber-300'
+                          : 'text-slate-800 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400'
+                      }`}
+                    >
+                      ...{shortLast}
+                    </span>
+                    <span className="text-xs sm:text-sm font-mono font-black text-emerald-600 dark:text-emerald-400 shrink-0">
+                      {currency}{Number(acc.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    {acc.accountName && (
+                      <span className="text-[11px] text-slate-400 truncate hidden xl:inline">
+                        • {acc.accountName}
+                      </span>
+                    )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleQuickRecharge(acc)}
-                    disabled={!quickRechargeAmounts[acc.id] || parseFloat(quickRechargeAmounts[acc.id]) <= 0 || quickRechargeLoading === acc.id}
-                    className="h-7 px-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-35 active:scale-95 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1 shadow-2xs shrink-0"
-                    title={lang === 'bn' ? 'রিচার্জ সাবমিট করুন' : 'Submit Recharge'}
+                  {/* Right: Quick Recharge input + submit button right on the card & History Trigger */}
+                  <div 
+                    className="flex items-center gap-1.5 shrink-0"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    {quickRechargeLoading === acc.id ? (
-                      <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <>
-                        <Plus className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline text-[10px]">{lang === 'bn' ? 'রিচার্জ' : 'Recharge'}</span>
-                      </>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        inputMode="decimal"
+                        value={quickRechargeAmounts[acc.id] || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setQuickRechargeAmounts(prev => ({ ...prev, [acc.id]: val }));
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleQuickRecharge(acc);
+                          }
+                        }}
+                        placeholder={lang === 'bn' ? 'টাকা' : 'Tk'}
+                        className="w-16 sm:w-20 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:border-emerald-500 rounded-lg text-xs font-mono font-bold text-slate-900 dark:text-slate-100 placeholder-slate-400 outline-none text-right transition-all shadow-2xs"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleQuickRecharge(acc)}
+                      disabled={!quickRechargeAmounts[acc.id] || parseFloat(quickRechargeAmounts[acc.id]) <= 0 || quickRechargeLoading === acc.id}
+                      className="h-7 px-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-35 active:scale-95 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1 shadow-2xs shrink-0"
+                      title={lang === 'bn' ? 'রিচার্জ সাবমিট করুন' : 'Submit Recharge'}
+                    >
+                      {quickRechargeLoading === acc.id ? (
+                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline text-[10px]">{lang === 'bn' ? 'রিচার্জ' : 'Recharge'}</span>
+                        </>
+                      )}
+                    </button>
+
+                    {quickRechargeFeedback?.accId === acc.id && (
+                      <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/80 px-1.5 py-0.5 rounded animate-fade-in shrink-0">
+                        {quickRechargeFeedback.msg}
+                      </span>
                     )}
-                  </button>
 
-                  {quickRechargeFeedback?.accId === acc.id && (
-                    <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/80 px-1.5 py-0.5 rounded animate-fade-in shrink-0">
-                      {quickRechargeFeedback.msg}
-                    </span>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveAccountForRecharge(acc);
-                      setSelectedAccIdForBalance(acc.id);
-                      setBalanceAddAmount('');
-                      setBalanceModalError('');
-                      setEditingRechargeId(null);
-                      setEditingRechargeAmount('');
-                      setConfirmDeleteRechargeId(null);
-                      setRechargeSuccessMsg('');
-                      setShowAddBalanceModal(true);
-                    }}
-                    className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer text-slate-300 dark:text-slate-600 hover:text-emerald-600 ml-0.5"
-                    title={lang === 'bn' ? 'বিস্তারিত ও হিস্ট্রি দেখুন' : 'View Details & History'}
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveAccountForRecharge(acc);
+                        setSelectedAccIdForBalance(acc.id);
+                        setBalanceAddAmount('');
+                        setBalanceModalError('');
+                        setEditingRechargeId(null);
+                        setEditingRechargeAmount('');
+                        setConfirmDeleteRechargeId(null);
+                        setRechargeSuccessMsg('');
+                        setShowAddBalanceModal(true);
+                      }}
+                      className="h-7 px-2 bg-slate-100 hover:bg-purple-50 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors cursor-pointer text-slate-600 dark:text-slate-300 hover:text-purple-600 flex items-center gap-1 ml-0.5"
+                      title={lang === 'bn' ? 'হিস্ট্রি ও বিস্তারিত দেখুন' : 'View History & Details'}
+                    >
+                      <History className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -2806,6 +2821,58 @@ export function CashInView({
                   )}
                 </div>
 
+                {/* 4 Category Buttons Shown After Transaction Completes (Always defaults to বিকাশ even if closed) */}
+                <div className="space-y-1 text-left">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider px-0.5 block">
+                    {lang === 'bn' ? 'ক্যাটাগরি (ডিফল্ট বিকাশ):' : 'Category (Default bKash):'}
+                  </span>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {([
+                      {
+                        id: 'bkash',
+                        labelBn: 'বিকাশ',
+                        labelEn: 'bKash',
+                        activeClass: 'bg-pink-600 text-white border-pink-700 shadow-xs ring-2 ring-pink-400/40'
+                      },
+                      {
+                        id: 'nagad',
+                        labelBn: 'নগদ',
+                        labelEn: 'Nagad',
+                        activeClass: 'bg-orange-500 text-white border-orange-600 shadow-xs ring-2 ring-orange-400/40'
+                      },
+                      {
+                        id: 'flexiload',
+                        labelBn: 'ফ্লেক্সিলোড',
+                        labelEn: 'Flexiload',
+                        activeClass: 'bg-teal-600 text-white border-teal-700 shadow-xs ring-2 ring-teal-400/40'
+                      },
+                      {
+                        id: 'own',
+                        labelBn: 'নিজ',
+                        labelEn: 'Own',
+                        activeClass: 'bg-purple-600 text-white border-purple-700 shadow-xs ring-2 ring-purple-400/40'
+                      }
+                    ] as const).map((cat) => {
+                      const currentCat = successTx.tx.category || 'bkash';
+                      const isSelected = currentCat === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => handleUpdateSuccessTxCategory(cat.id)}
+                          className={`py-1.5 px-1 rounded-xl text-center text-[11px] font-black transition-all cursor-pointer border select-none ${
+                            isSelected
+                              ? cat.activeClass
+                              : 'bg-slate-50 dark:bg-[#151b22] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700/80 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          {lang === 'bn' ? cat.labelBn : cat.labelEn}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Prompt: Do you want to add entry to Baki Ledger? */}
                 {!successTx.bakiCustomer ? (
                   <div className="p-3 bg-purple-50/90 dark:bg-purple-950/40 rounded-2xl border border-purple-100 dark:border-purple-900/50 space-y-2 text-center">
@@ -2817,6 +2884,8 @@ export function CashInView({
                         type="button"
                         onClick={() => {
                           setIsPostCashInBakiSearch(true);
+                          setBakiCustomLabel('বিকাশ');
+                          setBakiSearchQuery('');
                           setShowBakiSearchModal(true);
                         }}
                         className="py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white text-xs font-black shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
@@ -3551,8 +3620,53 @@ export function CashInView({
               </button>
             </div>
 
-            {/* Search Box */}
-            <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40">
+            {/* Built-in 'বিকাশ' Editable Note + Customer Search Box */}
+            <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 space-y-2.5">
+              {/* Built-in bKash Note Editor */}
+              <div className="bg-purple-50/80 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-800/60 rounded-xl p-2.5 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-[10px] font-black text-purple-800 dark:text-purple-300 uppercase tracking-wider">
+                    {lang === 'bn' ? 'বাকির খাতার বিবরণ (বিল্ট-ইন বিকাশ):' : 'Baki Entry Note (Built-in bKash):'}
+                  </label>
+                  <div className="flex items-center gap-1">
+                    {(['বিকাশ', 'নগদ', 'ফ্লেক্সিলোড'] as const).map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setBakiCustomLabel(preset)}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-black transition-all cursor-pointer border ${
+                          bakiCustomLabel === preset
+                            ? 'bg-pink-600 text-white border-pink-700 shadow-2xs'
+                            : 'bg-white dark:bg-[#151b22] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={bakiCustomLabel}
+                    onChange={(e) => setBakiCustomLabel(e.target.value)}
+                    placeholder={lang === 'bn' ? 'বিকাশ বা অন্য কিছু লিখুন...' : 'Type bKash or custom note...'}
+                    className="w-full bg-white dark:bg-[#151b22] border border-purple-300 dark:border-purple-700 rounded-lg pl-2.5 pr-7 py-1.5 text-xs font-black text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  {bakiCustomLabel && (
+                    <button
+                      type="button"
+                      onClick={() => setBakiCustomLabel('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500 cursor-pointer"
+                      title={lang === 'bn' ? 'মুছে অন্য কিছু লিখুন' : 'Clear to type custom text'}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Customer Search Box */}
               <div className="relative">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -3560,7 +3674,7 @@ export function CashInView({
                   autoFocus
                   value={bakiSearchQuery}
                   onChange={(e) => setBakiSearchQuery(e.target.value)}
-                  placeholder={lang === 'bn' ? 'নাম বা মোবাইল নম্বর দিয়ে খুঁজুন...' : 'Search by name or mobile...'}
+                  placeholder={lang === 'bn' ? 'নাম বা মোবাইল নম্বর দিয়ে কাস্টমার খুঁজুন...' : 'Search customer by name or mobile...'}
                   className="w-full bg-white dark:bg-[#151b22] border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-8 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 {bakiSearchQuery && (
@@ -3573,7 +3687,7 @@ export function CashInView({
                   </button>
                 )}
               </div>
-              <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold px-1 mt-1.5">
+              <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold px-1">
                 <span>{lang === 'bn' ? 'মোট কাস্টমার:' : 'Total customers:'} {filteredBakiContacts.length}</span>
                 {bakiAutoEntryContact && (
                   <button

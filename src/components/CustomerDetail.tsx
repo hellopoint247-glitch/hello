@@ -730,7 +730,11 @@ export function CustomerDetail({
                               onClick={() => {
                                 setExpandedTxId(expandedTxId === t.id ? null : t.id);
                               }}
-                              className="bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-all shadow-tiny hover:border-purple-300 select-none text-left flex flex-col overflow-hidden"
+                              className={`${
+                                !isGaveType
+                                  ? 'bg-emerald-50/70 dark:bg-emerald-950/25 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/40 border-emerald-200/80 dark:border-emerald-800/50'
+                                  : 'bg-white hover:bg-slate-50 border-slate-200'
+                              } border rounded-lg transition-all shadow-tiny hover:border-purple-300 select-none text-left flex flex-col overflow-hidden`}
                               id={`tx-card-${t.id}`}
                             >
                               {/* Top-Row: Serial, Date, Category/Note, Mul Balance, and Jer Balance */}
