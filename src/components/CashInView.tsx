@@ -20,6 +20,8 @@ import {
   History,
   Clock,
   ArrowDownLeft,
+  ArrowUpRight,
+  Zap,
   Smartphone,
   ChevronRight,
   ChevronLeft,
@@ -35,7 +37,8 @@ import {
   User,
   Phone,
   Calendar,
-  ClipboardPaste
+  ClipboardPaste,
+  Loader2
 } from 'lucide-react';
 import { CashInAccount, CashInTransaction, Contact, AccountRechargeRecord } from '../types';
 import { isTxOwnNumberTransfer, isPhoneOwnAccount, findOwnAccountByPhone, getTransactionCommission } from '../utils/cashInUtils';
@@ -370,6 +373,17 @@ export function CashInView({
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
+
+  // States for Cash In SIM History Quick Cash In & Cash Out action
+  const [historyActionType, setHistoryActionType] = useState<'cashin' | 'cashout' | null>(null);
+  const [historyActionPhone, setHistoryActionPhone] = useState('');
+  const [historyActionAmount, setHistoryActionAmount] = useState('');
+  const [historyActionCategory, setHistoryActionCategory] = useState<'bkash' | 'nagad' | 'flexiload' | 'own' | 'other'>('bkash');
+  const [historyActionCashOutType, setHistoryActionCashOutType] = useState<'deduct' | 'add'>('deduct');
+  const [historyActionNote, setHistoryActionNote] = useState('');
+  const [historyActionError, setHistoryActionError] = useState('');
+  const [historyActionLoading, setHistoryActionLoading] = useState(false);
+  const [historyJustPasted, setHistoryJustPasted] = useState(false);
 
   // Requirement: When phone number is typed, check past transactions for this number.
   // Show up to 3 most recent transactions formatted strictly as: last(xxx) ৳0000 name (recent on top)
@@ -870,19 +884,25 @@ export function CashInView({
     document.body.removeChild(link);
   };
 
-  // Keyboard shortcut: Escape closes full-page / full-screen view
+  // Keyboard shortcut: Escape closes full-page / full-screen view or action modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && showAddBalanceModal) {
-        setShowAddBalanceModal(false);
-        setEditingRechargeId(null);
-        setEditingRechargeAmount('');
-        setConfirmDeleteRechargeId(null);
+      if (e.key === 'Escape') {
+        if (historyActionType) {
+          setHistoryActionType(null);
+          return;
+        }
+        if (showAddBalanceModal) {
+          setShowAddBalanceModal(false);
+          setEditingRechargeId(null);
+          setEditingRechargeAmount('');
+          setConfirmDeleteRechargeId(null);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showAddBalanceModal]);
+  }, [showAddBalanceModal, historyActionType]);
 
   // Export combined history for a single SIM account as CSV / Excel
   const handleExportSingleAccountHistory = (acc: CashInAccount, items: UnifiedHistoryItem[]) => {
@@ -1342,6 +1362,128 @@ export function CashInView({
     setTimeout(() => setRechargeSuccessMsg(''), 4000);
   };
 
+  // Helper to paste into History Cash In/Out phone input
+  const handlePasteHistoryPhone = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setHistoryActionPhone(normalizePhoneNameOrTrxInput(text));
+        setHistoryJustPasted(true);
+        setTimeout(() => setHistoryJustPasted(false), 1500);
+      }
+    } catch {}
+  };
+
+  // Submit Handler for Cash In and Cash Out directly from inside History View
+  const handleHistoryActionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setHistoryActionError('');
+    const numAmount = parseFloat(historyActionAmount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setHistoryActionError(lang === 'bn' ? 'সঠিক টাকার পরিমাণ লিখুন' : 'Please enter a valid amount');
+      return;
+    }
+    if (!currentActiveAccount) return;
+
+    const currentBal = Number(currentActiveAccount.balance) || 0;
+    const isCashIn = historyActionType === 'cashin';
+    const isCashOut = historyActionType === 'cashout';
+    const isDeduct = isCashIn || (isCashOut && historyActionCashOutType === 'deduct');
+
+    if (isDeduct && currentBal < numAmount) {
+      setHistoryActionError(
+        lang === 'bn'
+          ? `পর্যাপ্ত ব্যালেন্স নেই! "${currentActiveAccount.accountNumber}" নম্বরে বর্তমান ব্যালেন্স মাত্র ${currency}${currentBal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+          : `Insufficient balance! Account "${currentActiveAccount.accountNumber}" only has ${currency}${currentBal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+      );
+      return;
+    }
+
+    setHistoryActionLoading(true);
+    try {
+      const cleanEntry = normalizePhoneNameOrTrxInput(historyActionPhone).trim();
+      const extractedPhone = cleanBangladeshiPhoneNumber(cleanEntry);
+      const cleanPhone = cleanEntry || extractedPhone;
+
+      if (isDeduct) {
+        // Balance deduction (-) from SIM
+        const newBal = Math.max(0, currentBal - numAmount);
+        const updatedAccount: CashInAccount = {
+          ...currentActiveAccount,
+          balance: newBal,
+          updatedAt: new Date().toISOString()
+        };
+
+        const defaultName = isCashIn 
+          ? undefined 
+          : (cleanPhone ? `${cleanPhone} (Cash Out)` : (lang === 'bn' ? 'ক্যাশ আউট' : 'Cash Out'));
+
+        const defaultNote = isCashIn 
+          ? (historyActionNote.trim() || undefined)
+          : (historyActionNote.trim() || (lang === 'bn' ? 'ক্যাশ আউট' : 'Cash Out'));
+
+        const newTx: CashInTransaction = {
+          id: (isCashIn ? 'tx-cashin-' : 'tx-cashout-') + Date.now(),
+          customerPhone: cleanPhone || (isCashIn ? (lang === 'bn' ? 'নম্বর ছাড়া' : 'No number') : (lang === 'bn' ? 'ক্যাশ আউট' : 'Cash Out')),
+          customerName: defaultName,
+          amount: numAmount,
+          lastDigits: currentActiveAccount.lastDigits,
+          accountId: currentActiveAccount.id,
+          accountNumber: currentActiveAccount.accountNumber,
+          accountName: currentActiveAccount.accountName,
+          category: historyActionCategory,
+          date: new Date().toISOString().split('T')[0],
+          createdAt: new Date().toISOString(),
+          note: defaultNote
+        };
+
+        await onSaveTransaction(newTx, updatedAccount);
+      } else {
+        // Customer Cash Out received (+), balance added to SIM
+        const newBal = Number((currentBal + numAmount).toFixed(2));
+        const newRecord: AccountRechargeRecord = {
+          id: 'rch-cashout-' + Date.now(),
+          amount: numAmount,
+          date: new Date().toISOString().split('T')[0],
+          createdAt: new Date().toISOString(),
+          note: cleanPhone
+            ? `${lang === 'bn' ? 'ক্যাশ আউট গ্রহণ' : 'Cash Out In'} (${cleanPhone})`
+            : (lang === 'bn' ? 'ক্যাশ আউট গ্রহণ' : 'Cash Out In')
+        };
+        const existingHistory = Array.isArray(currentActiveAccount.rechargeHistory) ? currentActiveAccount.rechargeHistory : [];
+        const updatedAccount: CashInAccount = {
+          ...currentActiveAccount,
+          balance: newBal,
+          rechargeHistory: [newRecord, ...existingHistory],
+          updatedAt: new Date().toISOString()
+        };
+        await onSaveAccount(updatedAccount);
+      }
+
+      soundEngine.playSuccessSound();
+
+      // Reset & close
+      const actionLabel = isCashIn 
+        ? (lang === 'bn' ? 'ক্যাশ-ইন' : 'Cash-In') 
+        : (lang === 'bn' ? 'ক্যাশ-আউট' : 'Cash-Out');
+
+      setHistoryActionType(null);
+      setHistoryActionPhone('');
+      setHistoryActionAmount('');
+      setHistoryActionNote('');
+      setRechargeSuccessMsg(
+        lang === 'bn'
+          ? `৳${numAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })} ${actionLabel} সফলভাবে সম্পন্ন হয়েছে!`
+          : `Successfully completed ${currency}${numAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })} ${actionLabel}!`
+      );
+      setTimeout(() => setRechargeSuccessMsg(''), 4000);
+    } catch (err) {
+      setHistoryActionError(String(err));
+    } finally {
+      setHistoryActionLoading(false);
+    }
+  };
+
   // Helper to extract short 4 digits for SIM account
   const getShortLast4 = (acc: CashInAccount) => {
     if (acc.lastDigits && acc.lastDigits.trim()) {
@@ -1731,6 +1873,41 @@ export function CashInView({
                 <X className="w-3 h-3" />
               </button>
             )}
+          </div>
+
+          {/* Cash In & Cash Out Buttons right inside History (ক্যাশ ইন ও ক্যাশ আউট বাটন) */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setHistoryActionType('cashin');
+                setHistoryActionPhone('');
+                setHistoryActionAmount('');
+                setHistoryActionNote('');
+                setHistoryActionError('');
+              }}
+              className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white text-[11px] font-black flex items-center gap-1 shadow-xs transition-all cursor-pointer whitespace-nowrap"
+              title={lang === 'bn' ? 'এই সিমে ক্যাশ ইন করুন' : 'Cash In on this SIM'}
+            >
+              <ArrowUpRight className="w-3.5 h-3.5 stroke-[3]" />
+              <span>{lang === 'bn' ? 'ক্যাশ ইন' : 'Cash In'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setHistoryActionType('cashout');
+                setHistoryActionPhone('');
+                setHistoryActionAmount('');
+                setHistoryActionNote('');
+                setHistoryActionError('');
+              }}
+              className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 active:scale-95 text-white text-[11px] font-black flex items-center gap-1 shadow-xs transition-all cursor-pointer whitespace-nowrap"
+              title={lang === 'bn' ? 'এই সিমে ক্যাশ আউট করুন' : 'Cash Out on this SIM'}
+            >
+              <ArrowDownLeft className="w-3.5 h-3.5 stroke-[3]" />
+              <span>{lang === 'bn' ? 'ক্যাশ আউট' : 'Cash Out'}</span>
+            </button>
           </div>
 
           {/* Filter Pills */}
@@ -2385,7 +2562,7 @@ export function CashInView({
                   type="button"
                   id="btn-paste-cashin-number"
                   onClick={handlePasteCustomerPhone}
-                  className={`h-[35px] px-2 sm:px-2.5 rounded-xl border text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shrink-0 shadow-2xs transition-all cursor-pointer active:scale-95 select-none ${
+                  className={`h-[35px] w-[35px] rounded-xl border flex items-center justify-center shrink-0 shadow-2xs transition-all cursor-pointer active:scale-95 select-none ${
                     justPastedPhone
                       ? 'bg-emerald-600 text-white border-emerald-600'
                       : 'bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900/70 text-purple-700 dark:text-purple-300 border-purple-200/90 dark:border-purple-800'
@@ -2393,12 +2570,9 @@ export function CashInView({
                   title={lang === 'bn' ? 'কপি করা নম্বর পেস্ট করুন' : 'Paste copied number'}
                 >
                   {justPastedPhone ? (
-                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                    <Check className="w-4 h-4 stroke-[3]" />
                   ) : (
-                    <>
-                      <ClipboardPaste className="w-3.5 h-3.5 shrink-0" />
-                      <span>{lang === 'bn' ? 'পেস্ট' : 'Paste'}</span>
-                    </>
+                    <ClipboardPaste className="w-4 h-4 shrink-0" />
                   )}
                 </button>
               </div>
@@ -3157,6 +3331,39 @@ export function CashInView({
                   </div>
                 </div>
 
+                {/* Mobile Quick Action Buttons: Cash In & Cash Out */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistoryActionType('cashin');
+                      setHistoryActionPhone('');
+                      setHistoryActionAmount('');
+                      setHistoryActionNote('');
+                      setHistoryActionError('');
+                    }}
+                    className="p-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 active:scale-95 text-white flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer font-black text-xs"
+                  >
+                    <ArrowUpRight className="w-4 h-4 stroke-[2.5]" />
+                    <span>{lang === 'bn' ? 'ক্যাশ ইন' : 'Cash In'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistoryActionType('cashout');
+                      setHistoryActionPhone('');
+                      setHistoryActionAmount('');
+                      setHistoryActionNote('');
+                      setHistoryActionError('');
+                    }}
+                    className="p-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 active:scale-95 text-white flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer font-black text-xs"
+                  >
+                    <ArrowDownLeft className="w-4 h-4 stroke-[2.5]" />
+                    <span>{lang === 'bn' ? 'ক্যাশ আউট' : 'Cash Out'}</span>
+                  </button>
+                </div>
+
                 {/* Section: Combined Cash-In and Recharge History */}
                 <div className="bg-white dark:bg-[#18202a] border border-slate-200 dark:border-slate-800 rounded-2xl p-3 space-y-2.5 shadow-2xs">
                   <div className="flex items-center justify-between">
@@ -3265,6 +3472,41 @@ export function CashInView({
                     <span className="text-sm font-mono font-black">
                       {currency}{currentActiveAccount.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
+                  </div>
+
+                  {/* Desktop Top Bar Cash In & Cash Out Quick Actions */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHistoryActionType('cashin');
+                        setHistoryActionPhone('');
+                        setHistoryActionAmount('');
+                        setHistoryActionNote('');
+                        setHistoryActionError('');
+                      }}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer"
+                      title={lang === 'bn' ? 'ক্যাশ ইন করুন' : 'Cash In'}
+                    >
+                      <ArrowUpRight className="w-3.5 h-3.5 stroke-[3]" />
+                      <span>{lang === 'bn' ? 'ক্যাশ ইন' : 'Cash In'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHistoryActionType('cashout');
+                        setHistoryActionPhone('');
+                        setHistoryActionAmount('');
+                        setHistoryActionNote('');
+                        setHistoryActionError('');
+                      }}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer"
+                      title={lang === 'bn' ? 'ক্যাশ আউট করুন' : 'Cash Out'}
+                    >
+                      <ArrowDownLeft className="w-3.5 h-3.5 stroke-[3]" />
+                      <span>{lang === 'bn' ? 'ক্যাশ আউট' : 'Cash Out'}</span>
+                    </button>
                   </div>
 
                   {/* Edit SIM Button */}
@@ -3415,6 +3657,339 @@ export function CashInView({
                 </div>
               </div>
             </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 7.1. QUICK CASH IN & CASH OUT MODAL INSIDE SIM HISTORY */}
+      <AnimatePresence>
+        {historyActionType && currentActiveAccount && (
+          <div 
+            className="fixed inset-0 z-[10005] bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 font-sans overflow-y-auto"
+            onClick={() => {
+              if (!historyActionLoading) setHistoryActionType(null);
+            }}
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ duration: 0.15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-[#151c24] border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full shadow-2xl overflow-hidden flex flex-col my-auto"
+            >
+              {/* Top Banner Header */}
+              <div className={`p-4 text-white relative ${
+                historyActionType === 'cashin'
+                  ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700'
+                  : 'bg-gradient-to-r from-rose-600 via-amber-600 to-rose-700'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md border border-white/25 flex items-center justify-center shadow-xs">
+                      {historyActionType === 'cashin' ? (
+                        <ArrowUpRight className="w-5 h-5 text-white stroke-[3]" />
+                      ) : (
+                        <ArrowDownLeft className="w-5 h-5 text-white stroke-[3]" />
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black tracking-tight leading-tight">
+                        {historyActionType === 'cashin'
+                          ? (lang === 'bn' ? 'ক্যাশ ইন (টাকা পাঠানো)' : 'Cash In (Send Money)')
+                          : (lang === 'bn' ? 'ক্যাশ আউট' : 'Cash Out')}
+                      </h3>
+                      <p className="text-[11px] text-white/90 font-mono font-bold mt-0.5">
+                        {currentActiveAccount.accountNumber}
+                        <span className="ml-1 px-1.5 py-0.2 rounded bg-white/25 text-white font-mono text-[9px] font-black">
+                          ...{currentActiveAccount.lastDigits}
+                        </span>
+                        {currentActiveAccount.accountName ? ` • ${currentActiveAccount.accountName}` : ''}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setHistoryActionType(null)}
+                    disabled={historyActionLoading}
+                    className="w-8 h-8 rounded-xl bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4 stroke-[2.5]" />
+                  </button>
+                </div>
+
+                {/* Balance badge */}
+                <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-black/20 backdrop-blur-md border border-white/20 text-xs font-mono font-black text-white">
+                  <span className="text-[10px] text-white/80 font-bold uppercase">{lang === 'bn' ? 'বর্তমান ব্যালেন্স:' : 'Current Balance:'}</span>
+                  <span className="text-sm font-black text-amber-300">
+                    {currency}{Number(currentActiveAccount.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Form Body */}
+              <form onSubmit={handleHistoryActionSubmit} className="p-4 space-y-3.5">
+                {/* Cash Out Type Selector (if cashout) */}
+                {historyActionType === 'cashout' && (
+                  <div className="bg-slate-100 dark:bg-[#10151c] p-1 rounded-2xl flex items-center gap-1 border border-slate-200/80 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryActionCashOutType('deduct')}
+                      className={`flex-1 py-1.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                        historyActionCashOutType === 'deduct'
+                          ? 'bg-rose-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <ArrowDownLeft className="w-3.5 h-3.5 stroke-[3]" />
+                      <span>{lang === 'bn' ? 'ব্যালেন্স থেকে কাটবে (-)' : 'Deduct Balance (-)'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryActionCashOutType('add')}
+                      className={`flex-1 py-1.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                        historyActionCashOutType === 'add'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <ArrowUpRight className="w-3.5 h-3.5 stroke-[3]" />
+                      <span>{lang === 'bn' ? 'ব্যালেন্স যোগ হবে (+)' : 'Add Balance (+)'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Category Pills */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                    {lang === 'bn' ? 'অপারেটর / ক্যাটাগরি' : 'Operator / Category'}
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[
+                      { key: 'bkash', labelBn: 'বিকাশ', labelEn: 'bKash', color: 'border-pink-500 text-pink-600 bg-pink-50 dark:bg-pink-950/40' },
+                      { key: 'nagad', labelBn: 'নগদ', labelEn: 'Nagad', color: 'border-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950/40' },
+                      ...(historyActionType === 'cashin' ? [{ key: 'flexiload', labelBn: 'ফ্লেক্সি', labelEn: 'Flexi', color: 'border-teal-500 text-teal-600 bg-teal-50 dark:bg-teal-950/40' }] : []),
+                      { key: 'other', labelBn: 'অন্যান্য', labelEn: 'Other', color: 'border-purple-500 text-purple-600 bg-purple-50 dark:bg-purple-950/40' },
+                    ].map(cat => {
+                      const isSel = historyActionCategory === cat.key;
+                      return (
+                        <button
+                          key={cat.key}
+                          type="button"
+                          onClick={() => setHistoryActionCategory(cat.key as any)}
+                          className={`py-1.5 px-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                            isSel
+                              ? `${cat.color} font-black shadow-2xs ring-2 ring-purple-500/30`
+                              : 'bg-white dark:bg-[#1a222c] border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          {lang === 'bn' ? cat.labelBn : cat.labelEn}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Customer Phone / Number Input */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                      {lang === 'bn' ? 'গ্রাহক নম্বর / নাম / TrxID' : 'Customer Number / Name / TrxID'}
+                    </label>
+                    {historyActionPhone && (
+                      <span className="text-[10px] font-mono font-bold text-slate-400">
+                        {toBengaliNumber(historyActionPhone.replace(/\D/g, '').length)} {lang === 'bn' ? 'ডিজিট' : 'digits'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={historyActionPhone}
+                        onChange={(e) => setHistoryActionPhone(normalizePhoneNameOrTrxInput(e.target.value))}
+                        placeholder={lang === 'bn' ? '০১৭XXXXXXXX বা নাম...' : '01XXXXXXXXX or Name...'}
+                        className="w-full bg-slate-50 dark:bg-[#11161d] border border-slate-200 dark:border-slate-700 rounded-xl pl-3 pr-8 py-2 text-xs font-mono font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                      {historyActionPhone && (
+                        <button
+                          type="button"
+                          onClick={() => setHistoryActionPhone('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Paste Button */}
+                    <button
+                      type="button"
+                      onClick={handlePasteHistoryPhone}
+                      className={`h-[36px] w-[36px] rounded-xl border flex items-center justify-center shrink-0 transition-all cursor-pointer active:scale-95 ${
+                        historyJustPasted
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                      }`}
+                      title={lang === 'bn' ? 'ক্লিপবোর্ড থেকে পেস্ট করুন' : 'Paste from clipboard'}
+                    >
+                      {historyJustPasted ? (
+                        <Check className="w-4 h-4 stroke-[3]" />
+                      ) : (
+                        <ClipboardPaste className="w-4 h-4 shrink-0" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Amount Input */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                      {lang === 'bn' ? 'টাকার পরিমাণ' : 'Amount'} <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-[10px] font-mono font-bold text-slate-400">
+                      {currency}
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      autoFocus
+                      value={historyActionAmount}
+                      onChange={(e) => setHistoryActionAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-slate-50 dark:bg-[#11161d] border border-slate-200 dark:border-slate-700 rounded-2xl px-3.5 py-2.5 text-lg font-mono font-black text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
+                    />
+                    {historyActionAmount && (
+                      <button
+                        type="button"
+                        onClick={() => setHistoryActionAmount('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-500 cursor-pointer p-1"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Quick Amount Presets */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto py-1 mt-1.5 scrollbar-none">
+                    {[50, 100, 200, 500, 1000, 2000, 5000].map(val => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setHistoryActionAmount(String(val))}
+                        className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-purple-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-mono font-black transition-all shrink-0 cursor-pointer active:scale-95 border border-slate-200/60 dark:border-slate-700"
+                      >
+                        {currency}{val}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Real-time Balance Calculation preview */}
+                  {historyActionAmount && !isNaN(parseFloat(historyActionAmount)) && parseFloat(historyActionAmount) > 0 && (
+                    <div className="mt-2 p-2.5 rounded-xl bg-slate-50 dark:bg-[#10151c] border border-slate-200/80 dark:border-slate-800 text-xs">
+                      {(() => {
+                        const numAmt = parseFloat(historyActionAmount) || 0;
+                        const curBal = Number(currentActiveAccount.balance) || 0;
+                        const isDeduct = historyActionType === 'cashin' || (historyActionType === 'cashout' && historyActionCashOutType === 'deduct');
+                        if (isDeduct) {
+                          const remaining = curBal - numAmt;
+                          if (remaining < 0) {
+                            return (
+                              <div className="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 font-bold">
+                                <AlertCircle className="w-4 h-4 shrink-0" />
+                                <span>{lang === 'bn' ? `পর্যাপ্ত ব্যালেন্স নেই! ঘাটতি: ${currency}${Math.abs(remaining).toFixed(2)}` : `Insufficient balance! Shortfall: ${currency}${Math.abs(remaining).toFixed(2)}`}</span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 font-bold">
+                              <span>{lang === 'bn' ? 'লেনদেনের পর ব্যালেন্স থাকবে:' : 'Remaining Balance:'}</span>
+                              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+                                {currency}{remaining.toFixed(2)}
+                              </span>
+                            </div>
+                          );
+                        } else {
+                          const newBal = curBal + numAmt;
+                          return (
+                            <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 font-bold">
+                              <span>{lang === 'bn' ? 'লেনদেনের পর ব্যালেন্স বৃদ্ধি পেয়ে হবে:' : 'New Balance will be:'}</span>
+                              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+                                {currency}{newBal.toFixed(2)}
+                              </span>
+                            </div>
+                          );
+                        }
+                      })()}
+                    </div>
+                  )}
+                </div>
+
+                {/* Optional Note */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">
+                    {lang === 'bn' ? 'নোট / বিবরণ (ঐচ্ছিক)' : 'Note (Optional)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={historyActionNote}
+                    onChange={(e) => setHistoryActionNote(e.target.value)}
+                    placeholder={lang === 'bn' ? 'বিবরণ লিখুন...' : 'Add a note...'}
+                    className="w-full bg-slate-50 dark:bg-[#11161d] border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                {/* Error Banner */}
+                {historyActionError && (
+                  <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{historyActionError}</span>
+                  </div>
+                )}
+
+                {/* Submit and Cancel Buttons */}
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryActionType(null)}
+                    disabled={historyActionLoading}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={historyActionLoading || !historyActionAmount || parseFloat(historyActionAmount) <= 0}
+                    className={`flex-1 py-2.5 rounded-xl text-white text-xs font-black shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
+                      historyActionType === 'cashin'
+                        ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500'
+                        : 'bg-gradient-to-r from-rose-600 via-amber-600 to-rose-700 hover:from-rose-500 hover:to-amber-500'
+                    }`}
+                  >
+                    {historyActionLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : historyActionType === 'cashin' ? (
+                      <>
+                        <ArrowUpRight className="w-4 h-4 stroke-[3]" />
+                        <span>{lang === 'bn' ? 'ক্যাশ ইন নিশ্চিত করুন' : 'Confirm Cash In'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <ArrowDownLeft className="w-4 h-4 stroke-[3]" />
+                        <span>{lang === 'bn' ? 'ক্যাশ আউট নিশ্চিত করুন' : 'Confirm Cash Out'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
           </div>
         )}
       </AnimatePresence>

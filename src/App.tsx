@@ -538,6 +538,27 @@ export default function App() {
     };
   }, []);
 
+  // 2-minute inactivity auto-clear for any typed/dialed number across sessions
+  // User requested: "কেও যদি একটি অথবা অর্ধেক হোক বা পুরো নাম্বার হোক, নাম্বার টাইপ করে রেখে দে বা দুই মিনিট দরে কেও নাম্বার টাইপ বা কপি না করে তাহলে অটোমেটিক ডায়েল করা নাম্বার মুছে যাবে।"
+  useEffect(() => {
+    if (!remoteTypeState.liveNumber && !remoteTypeState.liveAmount) return;
+    const timer = setTimeout(() => {
+      setRemoteTypeState((prev) => {
+        if (!prev.liveNumber && !prev.liveAmount) return prev;
+        const clearedState: RemoteTypeState = {
+          ...prev,
+          liveNumber: '',
+          liveAmount: '',
+          isTyping: false,
+          updatedAt: new Date().toISOString()
+        };
+        syncRemoteTypeStateInstant(clearedState, true);
+        return clearedState;
+      });
+    }, 120000); // 2 minutes (120 seconds)
+    return () => clearTimeout(timer);
+  }, [remoteTypeState.liveNumber, remoteTypeState.liveAmount, remoteTypeState.updatedAt]);
+
   // Sync state loading & real-time updates based on account state (Offline fallback or Unified Cloud synchronization)
   useEffect(() => {
     if (authLoading) return;

@@ -20,7 +20,10 @@ import {
   RotateCw,
   Lock,
   Heart,
-  AlertTriangle
+  AlertTriangle,
+  Edit2,
+  Plus,
+  ClipboardPaste
 } from 'lucide-react';
 import { RemoteTypeState, RemoteTypedNumberItem, PermanentTypedNumberItem } from '../types';
 import { db } from '../utils/firebase';
@@ -328,6 +331,63 @@ export const formatDigits = (n: number | string, lang: 'bn' | 'en') => {
 };
 
 /**
+ * Automatically cleans any copied or pasted number into a standard 11-digit Bangladeshi mobile number:
+ * - Converts Bengali numerals (০-৯) to 0-9
+ * - Strips symbols, dashes, spaces, colons, emojis, country codes (+88, 88, 0088)
+ * - Restores leading 0 if 10 digits starting with 1
+ * - Extracts 11-digit mobile number starting with 01[3-9]
+ */
+export const cleanAndExtractBangladeshiPhoneNumber = (raw: string): string => {
+  if (!raw) return '';
+
+  // 1. Convert Bengali numerals ০-৯ to 0-9
+  const bnDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+  let text = String(raw).replace(/[০-৯]/g, (d) => String(bnDigits.indexOf(d)));
+
+  // 2. Remove all non-digits and non-plus
+  let cleaned = text.replace(/[^\d+]/g, '');
+
+  // 3. Strip international country codes
+  if (cleaned.startsWith('+880')) {
+    cleaned = cleaned.slice(3); // becomes 0...
+  } else if (cleaned.startsWith('+88')) {
+    cleaned = cleaned.slice(3);
+    if (!cleaned.startsWith('0')) cleaned = '0' + cleaned;
+  } else if (cleaned.startsWith('00880')) {
+    cleaned = cleaned.slice(4); // becomes 0...
+  } else if (cleaned.startsWith('0088')) {
+    cleaned = cleaned.slice(4);
+    if (!cleaned.startsWith('0')) cleaned = '0' + cleaned;
+  } else if (cleaned.startsWith('880') && cleaned.length >= 13) {
+    cleaned = cleaned.slice(2); // becomes 0...
+  } else if (cleaned.startsWith('88') && cleaned.length >= 13) {
+    cleaned = cleaned.slice(2);
+    if (!cleaned.startsWith('0')) cleaned = '0' + cleaned;
+  }
+
+  // Strip remaining non-digits
+  let digits = cleaned.replace(/\D/g, '');
+
+  // 4. Missing leading zero (10 digits starting with 1...)
+  if (digits.length === 10 && digits.startsWith('1')) {
+    digits = '0' + digits;
+  }
+
+  // 5. Look for an 11-digit Bangladeshi mobile number anywhere in string (013-019, 015)
+  const bdMatch = digits.match(/01[3-9]\d{8}/);
+  if (bdMatch) {
+    return bdMatch[0];
+  }
+
+  // 6. If starts with 01 and at least 11 digits
+  if (digits.startsWith('01') && digits.length >= 11) {
+    return digits.slice(0, 11);
+  }
+
+  return digits.slice(0, 11);
+};
+
+/**
  * 11 Round Clean Circles Progress Indicator ("আগের ১১ ডট চমৎকার কালারের সাথে")
  */
 const ElevenRoundDotsIndicator = memo(function ElevenRoundDotsIndicator({
@@ -560,6 +620,7 @@ export function VisitorRemoteTypeModal({
     (remoteState.sentNumbers || []).slice(0, MAX_REMOTE_HISTORY_ITEMS)
   );
   const [justSentToast, setJustSentToast] = useState(false);
+  const [justPastedToast, setJustPastedToast] = useState(false);
   const [ownerCopiedToast, setOwnerCopiedToast] = useState(false);
   const [copyRemainingSec, setCopyRemainingSec] = useState<number>(0);
   const [permanentAlertInfo, setPermanentAlertInfo] = useState<{ show: boolean; number: string }>({
@@ -647,9 +708,43 @@ export function VisitorRemoteTypeModal({
     [remoteState]
   );
 
+  // User requested:
+  // "কেও যদি একটি অথবা অর্ধেক হোক বা পুরো নাম্বার হোক, নাম্বার টাইপ করে রেখে দে বা দুই মিনিট দরে কেও নাম্বার টাইপ বা কপি না করে তাহলে অটোমেটিক ডায়েল করা নাম্বার মুছে যাবে।"
+  const inactivityAutoClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityAutoClearTimerRef.current) {
+      clearTimeout(inactivityAutoClearTimerRef.current);
+      inactivityAutoClearTimerRef.current = null;
+    }
+    if (liveNumberRef.current || liveAmountRef.current) {
+      inactivityAutoClearTimerRef.current = setTimeout(() => {
+        liveNumberRef.current = '';
+        liveAmountRef.current = '';
+        autoSavedIdRef.current = null;
+        setLocalLiveNumber('');
+        setLocalLiveAmount('');
+        setActiveField('number');
+        commitStateChange('', '', sentNumbersRef.current, true);
+      }, 120000); // 2 minutes (120 seconds)
+    }
+  }, [commitStateChange]);
+
+  useEffect(() => {
+    resetInactivityTimer();
+    return () => {
+      if (inactivityAutoClearTimerRef.current) {
+        clearTimeout(inactivityAutoClearTimerRef.current);
+      }
+    };
+  }, [localLiveNumber, localLiveAmount, resetInactivityTimer]);
+
   // Clean up auto-clear timer and interval on unmount
   useEffect(() => {
     return () => {
+      if (inactivityAutoClearTimerRef.current) {
+        clearTimeout(inactivityAutoClearTimerRef.current);
+      }
       if (ownerCopiedAutoClearTimerRef.current) {
         clearTimeout(ownerCopiedAutoClearTimerRef.current);
       }
@@ -850,7 +945,7 @@ export function VisitorRemoteTypeModal({
         setLocalLiveAmount('');
         setActiveField('number');
         soundEngine.playDialpadTone(digit, 1);
-        commitStateChange(freshNum, '', sentNumbersRef.current, false);
+        // Character-by-character live typing removed for smooth lag-free typing!
         return;
       }
 
@@ -863,7 +958,8 @@ export function VisitorRemoteTypeModal({
         soundEngine.playDialpadTone(digit, nextNum.length);
       }
 
-      // When customer completes 11 digits:
+      // When customer completes 11 digits: AUTOMATICALLY SEND TO OWNER!
+      // User requested: "নতুন ১১ডিজিট নাম্বার টাইপ কম্পলিট হয়ে গেলে অটোমেটিক উনারের কাছে চলে যাবে সেন্ড বাটনে ক্লিক না করলেও।"
       if (nextNum.length === 11) {
         last11CompletedAtRef.current = Date.now();
         const newItem: RemoteTypedNumberItem = {
@@ -895,6 +991,7 @@ export function VisitorRemoteTypeModal({
           'typed'
         );
 
+        // Immediate sync to Owner
         commitStateChange(
           nextNum,
           liveAmountRef.current,
@@ -908,7 +1005,85 @@ export function VisitorRemoteTypeModal({
         // Switch to amount card so customer can optionally type the amount
         setActiveField('amount');
       } else {
-        commitStateChange(nextNum, liveAmountRef.current, sentNumbersRef.current, false);
+        // Digits 1-10 are 100% local: zero network lag, zero broadcast latency, butter smooth!
+      }
+    },
+    [commitStateChange, remoteState]
+  );
+
+  // Paste handler: handles clipboard paste from button or onPaste event
+  // User requested:
+  // "এয়ার টাইপিং নাম্বার কার্ডের বেতরে কপি করে আনা নাম্বার পেস্ট করা যায় না, নাম্বার যাতে পেস্ট করা যায় সে ফিচারটি এড করো।"
+  // "এবং একটি আলাদা পেস্ট বাটন এড করো।"
+  // "কপি করা নাম্বারে যদি কোনো স্পেস থাকে বা কান্ট্রি কোড থাকে বা কোনো চিহ্ন থাকে বা বাংলা ফন্টে থাকে ইত্যাদি যাই তাকোক সেটি অটোমেটিক বাংলাদেশি ১১ডিজিট নাম্বারে রুপান্তর হয়ে যাবে।"
+  const handlePasteNumber = useCallback(
+    async (explicitText?: string) => {
+      let raw = explicitText;
+      if (!raw && typeof navigator !== 'undefined' && navigator.clipboard) {
+        try {
+          raw = await navigator.clipboard.readText();
+        } catch (err) {
+          console.warn('Clipboard read failed:', err);
+        }
+      }
+
+      if (!raw) return;
+
+      const cleaned = cleanAndExtractBangladeshiPhoneNumber(raw);
+      if (!cleaned) return;
+
+      liveNumberRef.current = cleaned;
+      setLocalLiveNumber(cleaned);
+      setJustPastedToast(true);
+      setTimeout(() => setJustPastedToast(false), 2000);
+
+      if (isInvalidOperatorNumber(cleaned)) {
+        soundEngine.playPinErrorSound();
+      } else {
+        soundEngine.playSuccessSound();
+      }
+
+      // If 11 digits, automatically send to owner immediately!
+      if (cleaned.length === 11) {
+        last11CompletedAtRef.current = Date.now();
+        const newItem: RemoteTypedNumberItem = {
+          id: 'rt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          number: cleaned,
+          amount: liveAmountRef.current || '',
+          createdAt: new Date().toISOString()
+        };
+        autoSavedIdRef.current = newItem.id;
+        const nextSent = [newItem, ...sentNumbersRef.current].slice(0, MAX_REMOTE_HISTORY_ITEMS);
+        sentNumbersRef.current = nextSent;
+        setLocalSentNumbers(nextSent);
+
+        const isPerm = (remoteState.permanentNumbers || []).some((p) => p.number === cleaned);
+        if (isPerm) {
+          setPermanentAlertInfo({ show: true, number: cleaned });
+          setTimeout(() => {
+            setPermanentAlertInfo((prev) => ({ ...prev, show: false }));
+          }, 4500);
+        }
+
+        const { nextState: stateWithStats } = checkAndPromotePermanentNumber(
+          cleaned,
+          liveAmountRef.current,
+          remoteState,
+          'typed'
+        );
+
+        commitStateChange(
+          cleaned,
+          liveAmountRef.current,
+          nextSent,
+          true,
+          stateWithStats.permanentNumbers,
+          stateWithStats.numberStats
+        );
+        soundEngine.playIPhoneVerificationSound();
+        setActiveField('amount');
+      } else {
+        setActiveField('number');
       }
     },
     [commitStateChange, remoteState]
@@ -934,8 +1109,8 @@ export function VisitorRemoteTypeModal({
         );
         sentNumbersRef.current = nextSent;
         setLocalSentNumbers(nextSent);
+        commitStateChange(liveNumberRef.current, nextAmt, nextSent, false);
       }
-      commitStateChange(liveNumberRef.current, nextAmt, nextSent, false);
       return;
     }
 
@@ -954,24 +1129,22 @@ export function VisitorRemoteTypeModal({
       nextSent = sentNumbersRef.current.filter((item) => item.id !== idToRemove);
       sentNumbersRef.current = nextSent;
       setLocalSentNumbers(nextSent);
+      // Since 11 digits was auto-sent, removing a digit clears liveNumber for the owner
+      commitStateChange('', liveAmountRef.current, nextSent, true);
     }
-
-    commitStateChange(
-      nextNum,
-      liveAmountRef.current,
-      nextSent,
-      nextNum.length === 0 || current.length === 11
-    );
   }, [commitStateChange]);
 
   const handleClearNumber = useCallback(() => {
     const current = liveNumberRef.current;
     if (!current) return;
+    const was11 = current.length === 11;
     autoSavedIdRef.current = null;
     liveNumberRef.current = '';
     setLocalLiveNumber('');
     soundEngine.playDeleteSound();
-    commitStateChange('', liveAmountRef.current, sentNumbersRef.current, true);
+    if (was11) {
+      commitStateChange('', liveAmountRef.current, sentNumbersRef.current, true);
+    }
   }, [commitStateChange]);
 
   const handleClearAmount = useCallback(() => {
@@ -1352,115 +1525,132 @@ export function VisitorRemoteTypeModal({
             ) : null}
           </div>
 
-          {/* ২. চার কোনা বর্ডারের মাঝে: নম্বর এবং টাকার পরিমাণ তোলার কার্ড + সেন্ড বাটন */}
-          <div className="w-full my-auto">
-            <div className="flex items-stretch gap-1.5 sm:gap-2">
-              {/* NUMBER CARD - চার কোনা কার্ড + সম্পূর্ণ নম্বর দৃশ্যমান + কালার গ্রেডিং */}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => setActiveField('number')}
-                className={`flex-1 min-w-0 rounded-md border-2 px-2.5 sm:px-3 py-2 sm:py-2.5 flex items-center justify-between transition-all duration-150 cursor-pointer select-none shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] ${
-                  isInvalidOperator
-                    ? 'border-rose-500 ring-2 ring-rose-500/70 bg-[#22070A] shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_15px_rgba(244,63,94,0.45)]'
-                    : activeField === 'number' && !isElevenDigits
-                    ? 'border-cyan-400 ring-2 ring-cyan-400/60 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_15px_rgba(6,182,212,0.4)] bg-[#04151F]'
-                    : isElevenDigits
-                    ? 'border-emerald-400 ring-2 ring-emerald-400/70 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_16px_rgba(16,185,129,0.5)] bg-[#051C14]'
-                    : 'border-slate-700 hover:border-slate-600 bg-[#070C14]'
-                }`}
-              >
-                <div className="font-mono text-[16px] xs:text-[18px] sm:text-xl font-bold tracking-tight text-white flex items-center min-w-0 overflow-x-auto no-scrollbar whitespace-nowrap">
-                  {localLiveNumber ? (
-                    <>
-                      <span className={
+          {/* ২. চার কোনা বর্ডারের মাঝে: নম্বর কার্ড (আলাদা এক লাইনে বড় করে) এবং নিচে টাকার পরিমাণ ও সেন্ড বাটন */}
+          {/* User requested: "নাম্বার কার্ড আলাদা এক লাইনে থাকবে তাহলে নাম্বার বড় থাকবে কাস্টুমারের চোখে পড়বে। টাকার পরিমান এবং সেন্ড বাটন নাম্বার কার্ডের নিছে থাকবে।" */}
+          <div className="w-full my-auto space-y-2">
+            {/* LINE 1: NUMBER CARD - সম্পূর্ণ আলাদা এক লাইনে, বড় ফন্টে যাতে কাস্টমারের চোখে স্পষ্ট পড়ে */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveField('number')}
+              onPaste={(e) => {
+                e.preventDefault();
+                const text = e.clipboardData?.getData('text');
+                if (text) handlePasteNumber(text);
+              }}
+              className={`w-full rounded-xl border-2 px-3 py-2.5 sm:py-3 flex items-center justify-between transition-all duration-150 cursor-pointer select-none shadow-[inset_0_2px_8px_rgba(0,0,0,0.85)] ${
+                isInvalidOperator
+                  ? 'border-rose-500 ring-2 ring-rose-500/70 bg-[#22070A] shadow-[0_0_15px_rgba(244,63,94,0.45)]'
+                  : activeField === 'number' && !isElevenDigits
+                  ? 'border-cyan-400 ring-2 ring-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.4)] bg-[#04151F]'
+                  : isElevenDigits
+                  ? 'border-emerald-400 ring-2 ring-emerald-400/70 shadow-[0_0_16px_rgba(16,185,129,0.5)] bg-[#051C14]'
+                  : 'border-slate-700 hover:border-slate-600 bg-[#070C14]'
+              }`}
+            >
+              {/* Left: Big Prominent Number Display with pulsating cursor */}
+              <div className="font-mono text-2xl xs:text-3xl sm:text-4xl font-black tracking-widest text-white flex items-center min-w-0 overflow-x-auto no-scrollbar whitespace-nowrap">
+                {localLiveNumber ? (
+                  <>
+                    <span
+                      className={
                         isInvalidOperator
-                          ? 'text-rose-300 font-black'
+                          ? 'text-rose-300'
                           : isElevenDigits
-                          ? 'text-emerald-300 font-black'
+                          ? 'text-emerald-300'
                           : activeField === 'number'
-                          ? 'text-cyan-200 font-black'
-                          : 'text-slate-100 font-bold'
-                      }>
-                        {localLiveNumber}
-                      </span>
-                      {activeField === 'number' && !isElevenDigits && (
-                        <span className={`inline-block font-mono font-black ml-0.5 animate-pulse leading-none ${
-                          isInvalidOperator ? 'text-rose-400' : 'text-cyan-400'
-                        }`}>
-                          _
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-slate-600 text-xs sm:text-sm font-mono font-bold flex items-center">
-                      {lang === 'bn' ? 'নম্বর লিখুন' : 'Enter Number'}
-                      {activeField === 'number' && (
-                        <span className="inline-block text-cyan-400 font-mono font-bold ml-1 animate-pulse leading-none">
-                          _
-                        </span>
-                      )}
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1 shrink-0 ml-1">
-                  {isInvalidOperator && (
-                    <div className="w-5 h-5 rounded-full bg-rose-500/20 border border-rose-400/80 flex items-center justify-center text-rose-300 animate-pulse shrink-0" title={lang === 'bn' ? 'ভুল অপারেটর' : 'Invalid operator'}>
-                      <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5]" />
-                    </div>
-                  )}
-
-                  {!isInvalidOperator && isElevenDigits && (
-                    <div className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-emerald-300 animate-in zoom-in-75 shrink-0">
-                      <Check className="w-3.5 h-3.5 stroke-[3]" />
-                    </div>
-                  )}
-
-                  {localLiveNumber && (
-                    <button
-                      type="button"
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        handleClearNumber();
-                      }}
-                      className="w-5 h-5 rounded-none bg-slate-800/90 hover:bg-rose-500/50 text-slate-300 hover:text-rose-200 flex items-center justify-center shrink-0 transition-colors cursor-pointer"
-                      title={lang === 'bn' ? 'মুছে ফেলুন' : 'Clear'}
+                          ? 'text-cyan-200'
+                          : 'text-slate-100'
+                      }
                     >
-                      <X className="w-3.5 h-3.5 pointer-events-none" />
-                    </button>
-                  )}
-                </div>
+                      {localLiveNumber}
+                    </span>
+                    {activeField === 'number' && !isElevenDigits && (
+                      <span
+                        className={`inline-block font-mono font-black ml-1 animate-pulse leading-none ${
+                          isInvalidOperator ? 'text-rose-400' : 'text-cyan-400'
+                        }`}
+                      >
+                        _
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-slate-600 text-sm xs:text-base sm:text-lg font-mono font-bold flex items-center tracking-normal">
+                    {lang === 'bn' ? '০১৭XXXXXXXX নম্বর দিন' : '01XXXXXXXXX Number'}
+                    {activeField === 'number' && (
+                      <span className="inline-block text-cyan-400 font-mono font-bold ml-1.5 animate-pulse leading-none">
+                        _
+                      </span>
+                    )}
+                  </span>
+                )}
               </div>
 
-              {/* AMOUNT CARD - চার কোনা কার্ড + কালার গ্রেডিং */}
+              {/* Right: Actions (Dedicated Paste Button, Validation Badge, Clear) */}
+              <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                {/* SEPARATE PASTE BUTTON - শুধু আইকন */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePasteNumber();
+                  }}
+                  className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-sm ${
+                    justPastedToast
+                      ? 'bg-emerald-600 border-emerald-400 text-white animate-pulse'
+                      : 'bg-purple-600/30 hover:bg-purple-600/50 active:bg-purple-600 border-purple-400/60 text-purple-200'
+                  }`}
+                  title={lang === 'bn' ? 'ক্লিপবোর্ড থেকে নম্বর পেস্ট করুন' : 'Paste number'}
+                >
+                  {justPastedToast ? (
+                    <Check className="w-4 h-4 stroke-[3]" />
+                  ) : (
+                    <ClipboardPaste className="w-4 h-4 text-purple-300" />
+                  )}
+                </button>
+
+                {isInvalidOperator && (
+                  <div
+                    className="w-6 h-6 rounded-full bg-rose-500/25 border border-rose-400 flex items-center justify-center text-rose-300 animate-pulse shrink-0"
+                    title={lang === 'bn' ? 'ভুল অপারেটর' : 'Invalid operator'}
+                  >
+                    <AlertTriangle className="w-4 h-4 stroke-[2.5]" />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* LINE 2: AMOUNT CARD AND SEND BUTTON (টাকার পরিমান এবং সেন্ড বাটন নাম্বার কার্ডের নিছে থাকবে) */}
+            <div className="flex items-stretch gap-2 w-full">
+              {/* AMOUNT CARD (টাকার পরিমাণ তোলার কার্ড) */}
               <div
                 role="button"
                 tabIndex={0}
                 onClick={() => setActiveField('amount')}
-                className={`w-24 sm:w-32 rounded-md border-2 px-2 sm:px-2.5 py-2 sm:py-2.5 flex items-center justify-between transition-all duration-150 cursor-pointer select-none shrink-0 bg-[#070C14] shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] ${
+                className={`flex-1 min-w-0 rounded-xl border-2 px-3 py-2 flex items-center justify-between transition-all duration-150 cursor-pointer select-none bg-[#070C14] shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] ${
                   activeField === 'amount'
-                    ? 'border-amber-400 ring-2 ring-amber-400/60 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_15px_rgba(245,158,11,0.4)] bg-[#1A1204]'
+                    ? 'border-amber-400 ring-2 ring-amber-400/60 shadow-[0_0_15px_rgba(245,158,11,0.4)] bg-[#1A1204]'
                     : localLiveAmount
                     ? 'border-amber-500/70 bg-[#140F06]'
                     : 'border-slate-700 hover:border-slate-600'
                 }`}
               >
-                <div className="font-mono text-sm sm:text-lg font-black tracking-tight text-amber-300 flex items-center min-w-0 overflow-x-auto no-scrollbar whitespace-nowrap">
+                <div className="font-mono text-base xs:text-lg sm:text-xl font-black tracking-tight text-amber-300 flex items-center min-w-0 overflow-x-auto no-scrollbar whitespace-nowrap">
                   {localLiveAmount ? (
                     <>
                       <span className="truncate">৳{formatDigits(localLiveAmount, lang)}</span>
                       {activeField === 'amount' && (
-                        <span className="inline-block text-amber-400 font-mono font-black ml-0.5 animate-pulse leading-none">
+                        <span className="inline-block text-amber-400 font-mono font-black ml-1 animate-pulse leading-none">
                           _
                         </span>
                       )}
                     </>
                   ) : (
-                    <span className="text-slate-600 text-xs sm:text-sm font-mono font-bold flex items-center">
-                      ৳ {lang === 'bn' ? 'টাকা' : 'Tk'}
+                    <span className="text-slate-600 text-xs xs:text-sm font-mono font-bold flex items-center">
+                      ৳ {lang === 'bn' ? 'টাকার পরিমাণ (ঐচ্ছিক)' : 'Amount (Optional)'}
                       {activeField === 'amount' && (
-                        <span className="inline-block text-amber-400 font-mono font-bold ml-0.5 animate-pulse leading-none">
+                        <span className="inline-block text-amber-400 font-mono font-bold ml-1 animate-pulse leading-none">
                           _
                         </span>
                       )}
@@ -1471,32 +1661,32 @@ export function VisitorRemoteTypeModal({
                 {localLiveAmount && (
                   <button
                     type="button"
-                    onPointerDown={(e) => {
+                    onClick={(e) => {
                       e.stopPropagation();
                       handleClearAmount();
                     }}
-                    className="w-5 h-5 rounded-none bg-slate-800/90 hover:bg-rose-500/50 text-slate-300 hover:text-rose-200 flex items-center justify-center shrink-0 ml-1 transition-colors cursor-pointer"
-                    title={lang === 'bn' ? 'বাদ দিন' : 'Clear'}
+                    className="w-5 h-5 rounded-md bg-slate-800/90 hover:bg-rose-500/60 text-slate-300 hover:text-white flex items-center justify-center shrink-0 ml-1 transition-colors cursor-pointer"
+                    title={lang === 'bn' ? 'টাকা বাদ দিন' : 'Clear Amount'}
                   >
-                    <X className="w-3.5 h-3.5 pointer-events-none" />
+                    <X className="w-3 h-3" />
                   </button>
                 )}
               </div>
 
-              {/* SEND BUTTON - চার কোনা বাটন */}
+              {/* SEND BUTTON (সেন্ড বাটন - নাম্বার কার্ডের নিছে টাকার পরিমাণের পাশে) */}
               <button
                 type="button"
-                onPointerDown={(e) => {
+                onClick={(e) => {
                   if (!localLiveNumber.trim() || isInvalidOperator) return;
                   e.preventDefault();
                   handleSendNumber();
                 }}
                 disabled={!localLiveNumber.trim() || isInvalidOperator}
-                className={`w-12 sm:w-14 rounded-md border-2 flex items-center justify-center transition-all duration-75 transform-gpu shrink-0 active:scale-95 touch-manipulation shadow-md ${
+                className={`px-4 sm:px-5 py-2 rounded-xl border-2 flex items-center justify-center gap-1.5 transition-all duration-75 transform-gpu shrink-0 active:scale-95 touch-manipulation font-black text-xs sm:text-sm shadow-md ${
                   isInvalidOperator
                     ? 'bg-[#25080B] border-rose-500/70 text-rose-400 cursor-not-allowed opacity-80'
                     : isElevenDigits
-                    ? 'bg-gradient-to-br from-emerald-500 to-teal-600 border-emerald-300 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.5)] ring-1 ring-emerald-300 cursor-pointer'
+                    ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 border-emerald-300 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.5)] ring-1 ring-emerald-300 cursor-pointer'
                     : localLiveNumber.trim().length > 0
                     ? 'bg-[#151C2F] hover:bg-cyan-600 border-cyan-400 text-cyan-200 shadow-md cursor-pointer'
                     : 'bg-[#070C14] text-slate-700 border-slate-800 cursor-not-allowed'
@@ -1504,10 +1694,11 @@ export function VisitorRemoteTypeModal({
                 title={isInvalidOperator ? (lang === 'bn' ? 'অপারেটর সঠিক নয়' : 'Invalid operator') : (lang === 'bn' ? 'পাঠিয়ে দিন' : 'Send')}
               >
                 {isInvalidOperator ? (
-                  <AlertTriangle className="w-5 h-5 text-rose-400 pointer-events-none" />
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
                 ) : (
-                  <Send className="w-5 h-5 pointer-events-none" />
+                  <Send className="w-4 h-4 shrink-0" />
                 )}
+                <span>{lang === 'bn' ? 'সেন্ড' : 'Send'}</span>
               </button>
             </div>
           </div>
@@ -1545,6 +1736,7 @@ interface OwnerRemoteTypeModalProps {
   onDeleteSentNumber: (id: string) => void;
   onClearAllSentNumbers: () => void;
   onToggleRotate?: () => void;
+  onUpdateRemoteState?: (nextState: RemoteTypeState) => void;
 }
 
 export function OwnerRemoteTypeModal({
@@ -1555,20 +1747,20 @@ export function OwnerRemoteTypeModal({
   onClearLiveNumber,
   onDeleteSentNumber,
   onClearAllSentNumbers,
-  onToggleRotate
+  onToggleRotate,
+  onUpdateRemoteState
 }: OwnerRemoteTypeModalProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copyAutoClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inactivityAutoClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    return () => {
-      if (copyAutoClearTimerRef.current) {
-        clearTimeout(copyAutoClearTimerRef.current);
-      }
-    };
-  }, []);
-
-  if (!isOpen) return null;
+  // Winner editing state: allows winner to edit number & amount/account while customer is typing
+  const [isEditing, setIsEditing] = useState(false);
+  const [editNumber, setEditNumber] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [showCustomAmountModal, setShowCustomAmountModal] = useState(false);
+  const [customAmountVal, setCustomAmountVal] = useState('');
+  const [activeHistoryTab, setActiveHistoryTab] = useState<'recent' | 'permanent'>('recent');
 
   const liveNumber = remoteState.liveNumber || '';
   const liveAmount = remoteState.liveAmount || '';
@@ -1578,6 +1770,42 @@ export function OwnerRemoteTypeModal({
   const isInvalidOperator = isInvalidOperatorNumber(liveNumber);
   const liveOpBadge = getOperatorBadge(liveNumber, lang);
   const isRotated = Boolean(remoteState.isRotated);
+
+  // 2-minute inactivity auto-clear:
+  // "কেও যদি একটি অথবা অর্ধেক হোক বা পুরো নাম্বার হোক, নাম্বার টাইপ করে রেখে দে বা দুই মিনিট দরে কেও নাম্বার টাইপ বা কপি না করে তাহলে অটোমেটিক ডায়েল করা নাম্বার মুছে যাবে।"
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityAutoClearTimerRef.current) {
+      clearTimeout(inactivityAutoClearTimerRef.current);
+      inactivityAutoClearTimerRef.current = null;
+    }
+    if (liveNumber || liveAmount) {
+      inactivityAutoClearTimerRef.current = setTimeout(() => {
+        onClearLiveNumber();
+      }, 120000); // 2 minutes (120 seconds)
+    }
+  }, [liveNumber, liveAmount, onClearLiveNumber]);
+
+  useEffect(() => {
+    resetInactivityTimer();
+    return () => {
+      if (inactivityAutoClearTimerRef.current) {
+        clearTimeout(inactivityAutoClearTimerRef.current);
+      }
+    };
+  }, [liveNumber, liveAmount, remoteState.updatedAt, resetInactivityTimer]);
+
+  useEffect(() => {
+    return () => {
+      if (copyAutoClearTimerRef.current) {
+        clearTimeout(copyAutoClearTimerRef.current);
+      }
+      if (inactivityAutoClearTimerRef.current) {
+        clearTimeout(inactivityAutoClearTimerRef.current);
+      }
+    };
+  }, []);
+
+  if (!isOpen) return null;
 
   const handleToggleRotate = () => {
     soundEngine.playSuccessSound();
@@ -1593,11 +1821,87 @@ export function OwnerRemoteTypeModal({
     }
   };
 
+  const handleStartEdit = () => {
+    soundEngine.playSuccessSound();
+    setEditNumber(liveNumber);
+    setEditAmount(liveAmount);
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+  };
+
+  const handleSaveEdit = () => {
+    soundEngine.playSuccessSound();
+    const cleanNum = editNumber.trim();
+    const cleanAmt = editAmount.trim();
+
+    let nextSent = (remoteState.sentNumbers || []).slice(0, MAX_REMOTE_HISTORY_ITEMS);
+    if (cleanNum && cleanNum.length === 11 && nextSent[0]?.number !== cleanNum) {
+      nextSent = [
+        {
+          id: 'rt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          number: cleanNum,
+          amount: cleanAmt,
+          createdAt: new Date().toISOString()
+        },
+        ...nextSent
+      ].slice(0, MAX_REMOTE_HISTORY_ITEMS);
+    }
+
+    const nextState: RemoteTypeState = {
+      ...remoteState,
+      liveNumber: cleanNum,
+      liveAmount: cleanAmt,
+      isTyping: cleanNum.length > 0 || cleanAmt.length > 0,
+      sentNumbers: nextSent,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (onUpdateRemoteState) {
+      onUpdateRemoteState(nextState);
+    }
+    syncRemoteTypeStateInstant(nextState, true);
+    setIsEditing(false);
+    resetInactivityTimer();
+  };
+
+  const handleSetQuickAmount = (amountStr: string) => {
+    soundEngine.playSuccessSound();
+    const nextState: RemoteTypeState = {
+      ...remoteState,
+      liveAmount: amountStr,
+      isTyping: liveNumber.length > 0 || amountStr.length > 0,
+      updatedAt: new Date().toISOString()
+    };
+    if (onUpdateRemoteState) {
+      onUpdateRemoteState(nextState);
+    }
+    syncRemoteTypeStateInstant(nextState, true);
+    resetInactivityTimer();
+  };
+
+  const handleClearAmount = () => {
+    soundEngine.playSuccessSound();
+    const nextState: RemoteTypeState = {
+      ...remoteState,
+      liveAmount: '',
+      updatedAt: new Date().toISOString()
+    };
+    if (onUpdateRemoteState) {
+      onUpdateRemoteState(nextState);
+    }
+    syncRemoteTypeStateInstant(nextState, true);
+    resetInactivityTimer();
+  };
+
   const handleCopy = async (text: string, idKey: string, cleanNum?: string, amount?: string) => {
     const ok = await copyTextToClipboard(text);
     if (ok) {
       soundEngine.playSuccessSound();
       setCopiedId(idKey);
+      resetInactivityTimer();
 
       let stateToSync: RemoteTypeState = { ...remoteState };
 
@@ -1651,55 +1955,53 @@ export function OwnerRemoteTypeModal({
       {/* Main Full-Page Container with vertical scroll support */}
       <div className="relative z-10 w-full max-w-md mx-auto h-full flex flex-col px-3 pt-3 pb-5 overflow-y-auto no-scrollbar space-y-2.5">
         
-        {/* 1. Top Navigation Header - Rotate Button */}
-        <div className="flex items-center justify-between gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-[#161E31] hover:bg-[#1E2942] active:scale-95 border border-white/15 text-white text-xs font-bold transition-transform duration-75 cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4 text-purple-300" />
-            <span>{lang === 'bn' ? 'ফিরে যান' : 'Back'}</span>
-          </button>
+        {/* 1. TOP NAVIGATION HEADER */}
+        <div className="flex items-center justify-between gap-2 shrink-0 py-1">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 border border-white/15 text-white text-xs font-bold transition-all cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4 text-purple-300" />
+              <span>{lang === 'bn' ? 'ফিরে যান' : 'Back'}</span>
+            </button>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-500/10 border border-purple-500/20">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs font-black text-purple-200 tracking-wide">
+                Air Typing
+              </span>
+            </div>
+          </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5">
             {/* ROTATE VIEWER BUTTON (উল্টান / সুজা করুন) */}
             <button
               type="button"
               onClick={handleToggleRotate}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-2xl text-xs font-black transition-all duration-150 cursor-pointer active:scale-95 shadow-md ${
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer active:scale-95 border ${
                 isRotated
-                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 ring-2 ring-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.45)]'
-                  : 'bg-[#161E31] hover:bg-[#1E2942] border border-white/20 text-purple-200 hover:text-white'
+                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.45)]'
+                  : 'bg-white/5 hover:bg-white/10 border-white/15 text-purple-200 hover:text-white'
               }`}
               title={
                 isRotated
-                  ? (lang === 'bn' ? 'ভিউয়ার ডিসপ্লে সুজা করুন (০°)' : 'Straighten Viewer Display (0°)')
-                  : (lang === 'bn' ? 'ভিউয়ার ডিসপ্লে উল্টান (১৮০°)' : 'Invert/Rotate Viewer Display (180°)')
+                  ? (lang === 'bn' ? 'ভিউয়ার ডিসপ্লে সুজা করুন (০°)' : 'Straighten (0°)')
+                  : (lang === 'bn' ? 'ভিউয়ার ডিসপ্লে উল্টান (১৮০°)' : 'Invert (180°)')
               }
             >
               <RotateCw className={`w-3.5 h-3.5 ${isRotated ? 'rotate-180 text-slate-950' : 'text-amber-400'}`} />
               <span>
                 {isRotated
-                  ? (lang === 'bn' ? 'স্ক্রিন সুজা করুন' : 'Straighten (0°)')
-                  : (lang === 'bn' ? 'স্ক্রিন উল্টান' : 'Rotate (180°)')}
+                  ? (lang === 'bn' ? 'সুজা' : '0°')
+                  : (lang === 'bn' ? 'উল্টান' : '180°')}
               </span>
             </button>
-
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/30">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-80" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
-              </span>
-              <span className="text-[10px] font-black tracking-wider text-emerald-300 uppercase">
-                {lang === 'bn' ? 'মনিটর' : 'MONITOR'}
-              </span>
-            </div>
 
             <button
               type="button"
               onClick={onClose}
-              className="w-7 h-7 rounded-xl bg-[#161E31] hover:bg-[#1E2942] border border-white/15 flex items-center justify-center text-white transition-colors cursor-pointer"
+              className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -1708,407 +2010,701 @@ export function OwnerRemoteTypeModal({
 
         {/* ROTATED VIEWER ACTIVE STATUS BANNER */}
         {isRotated && (
-          <div className="px-3 py-1.5 rounded-2xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-between text-amber-200 text-xs font-bold shrink-0 animate-in fade-in">
+          <div className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-between text-amber-200 text-xs font-bold shrink-0 animate-in fade-in">
             <span className="flex items-center gap-1.5">
               <RotateCw className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span>
                 {lang === 'bn'
-                  ? '🔄 ভিউয়ার ডিসপ্লে বর্তমানে ১৮০° উল্টানো আছে'
-                  : '🔄 Viewer display is inverted (180°)'}
+                  ? '🔄 ডিসপ্লে ১৮০° উল্টানো আছে'
+                  : '🔄 Display inverted (180°)'}
               </span>
             </span>
             <button
               type="button"
               onClick={handleToggleRotate}
-              className="px-2 py-0.5 rounded-xl bg-amber-400 text-slate-950 font-black text-[10px] hover:bg-amber-300 cursor-pointer shadow-sm active:scale-95"
+              className="px-2 py-0.5 rounded-lg bg-amber-400 text-slate-950 font-black text-[10px] hover:bg-amber-300 cursor-pointer shadow-sm active:scale-95"
             >
               {lang === 'bn' ? 'সুজা করুন' : 'Straighten'}
             </button>
           </div>
         )}
 
-        {/* 2. LIVE TYPING DISPLAY SECTION */}
-        <div className="space-y-2 shrink-0 bg-[#121829] border border-white/10 rounded-3xl p-3 shadow-xl">
-          <div className="flex items-center justify-between px-1">
+        {/* 2. LIVE TYPING DISPLAY SECTION - CLEAN & ORGANIZED */}
+        <div className={`space-y-2.5 shrink-0 bg-[#121829] border rounded-2xl p-3 sm:p-3.5 shadow-xl transition-colors ${
+          isInvalidOperator
+            ? 'border-rose-500/60 bg-[#170B10]'
+            : isElevenDigits
+            ? 'border-emerald-500/60 shadow-[0_0_20px_rgba(16,185,129,0.15)] bg-[#0C171E]'
+            : 'border-white/10'
+        }`}>
+          {/* Header of Live Card */}
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-extrabold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+              <span className="text-[11px] font-black text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                 <Radio
                   className={`w-3.5 h-3.5 ${
                     liveNumber ? 'text-emerald-400 animate-pulse' : 'text-purple-400'
                   }`}
                 />
-                {lang === 'bn' ? 'কাস্টমার Air Typing লাইভ' : 'CUSTOMER AIR TYPING LIVE'}
+                {lang === 'bn' ? 'লাইভ কাস্টমার' : 'Live Customer'}
               </span>
               {liveOpBadge ? (
-                <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${liveOpBadge.darkColor}`}>
+                <span className={`text-[9.5px] font-black px-2 py-0.5 rounded-full border ${liveOpBadge.darkColor}`}>
                   {liveOpBadge.name}
                 </span>
               ) : isInvalidOperator ? (
-                <span className="text-[9px] font-black px-2 py-0.5 rounded-full border border-rose-500/70 bg-rose-500/20 text-rose-300 animate-pulse flex items-center gap-1">
+                <span className="text-[9.5px] font-black px-2 py-0.5 rounded-full border border-rose-500/70 bg-rose-500/20 text-rose-300 animate-pulse flex items-center gap-1">
                   <AlertTriangle className="w-2.5 h-2.5" />
-                  {lang === 'bn' ? 'ভুল অপারেটর' : 'Invalid Operator'}
+                  {lang === 'bn' ? 'ভুল অপারেটর' : 'Invalid'}
                 </span>
               ) : null}
             </div>
 
-            <span
-              className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border transition-colors ${
-                isInvalidOperator
-                  ? 'bg-rose-500/25 text-rose-300 border-rose-400/50'
-                  : isElevenDigits
-                  ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/50 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
-                  : liveNumber.length > 11
-                  ? 'bg-amber-500/25 text-amber-300 border-amber-400/50'
-                  : 'bg-white/10 text-slate-300 border-white/15'
-              }`}
-            >
-              {formatDigits(liveNumber.length, lang)}/{formatDigits(11, lang)}{' '}
-              {lang === 'bn' ? 'ডিজিট' : 'Digits'}
-              {isElevenDigits && !isInvalidOperator && ' ✓'}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border transition-colors ${
+                  isInvalidOperator
+                    ? 'bg-rose-500/25 text-rose-300 border-rose-400/50'
+                    : isElevenDigits
+                    ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/50'
+                    : 'bg-white/10 text-slate-300 border-white/15'
+                }`}
+              >
+                {formatDigits(isEditing ? editNumber.length : liveNumber.length, lang)}/{formatDigits(11, lang)}{' '}
+                {lang === 'bn' ? 'ডিজিট' : 'Digits'}
+                {(isEditing ? editNumber.length === 11 : isElevenDigits) && !isInvalidOperator && ' ✓'}
+              </span>
+
+              {/* Edit Mode Toggle */}
+              {!isEditing && (
+                <button
+                  type="button"
+                  onClick={handleStartEdit}
+                  className="px-2 py-0.5 rounded-full bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/40 text-cyan-200 text-[10px] font-black flex items-center gap-1 transition-all active:scale-95 cursor-pointer shadow-sm"
+                  title={lang === 'bn' ? 'নম্বর ও টাকা এডিট' : 'Edit number & amount'}
+                >
+                  <Edit2 className="w-3 h-3 text-cyan-300" />
+                  <span>{lang === 'bn' ? 'এডিট' : 'Edit'}</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* 11 Round Glowing Circles Indicator */}
-          <ElevenRoundDotsIndicator
-            count={liveNumber.length}
-            isElevenDigits={isElevenDigits}
-            isInvalidOperator={isInvalidOperator}
-          />
+          {isEditing ? (
+            /* =================== INLINE EDIT PANEL =================== */
+            <div className="rounded-xl border-2 border-cyan-400/80 bg-[#091524] p-3 space-y-2.5 shadow-[0_0_20px_rgba(6,182,212,0.25)] animate-in fade-in duration-150">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Edit2 className="w-3.5 h-3.5 text-cyan-400" />
+                  {lang === 'bn' ? 'নম্বর ও টাকা এডিট' : 'Edit Number & Amount'}
+                </span>
+              </div>
 
-          {/* Live Number & Amount Boxes + Copy Buttons */}
-          <div className="flex items-stretch gap-2 pt-0.5">
-            {/* Number Box */}
-            <div
-              className={`flex-1 min-w-0 rounded-2xl border-2 px-3 py-2 min-h-[46px] flex items-center justify-between transition-colors ${
-                isInvalidOperator
-                  ? 'bg-[#22070A] border-rose-500/80 shadow-[0_0_20px_rgba(244,63,94,0.3)]'
-                  : isElevenDigits
-                  ? 'bg-[#0D2824] border-emerald-400/85 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
-                  : liveNumber
-                  ? 'bg-[#171E33] border-purple-400/70 shadow-[0_0_16px_rgba(168,85,247,0.15)]'
-                  : 'bg-[#0E1422] border-white/15'
-              }`}
-            >
-              <div className="min-w-0 flex-1 flex items-center overflow-hidden">
-                {liveNumber ? (
-                  <div className="font-mono text-base sm:text-lg font-black tracking-wide text-white flex items-center min-w-0">
-                    <span className="whitespace-nowrap">{liveNumber}</span>
-                    <span className="inline-block text-base sm:text-lg font-sans font-black text-amber-400 ml-0.5 animate-bounce leading-none shrink-0 select-none">
-                      ।
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex items-center py-0.5">
-                    <span className="text-slate-500 text-xs font-semibold mr-1">
-                      {lang === 'bn' ? 'অপেক্ষা করছে' : 'Waiting...'}
-                    </span>
-                    <span className="inline-block text-lg sm:text-xl font-black text-emerald-400 animate-bounce leading-none select-none">
-                      ।
-                    </span>
-                  </div>
+              {/* Editable Phone Input */}
+              <div className="relative">
+                <input
+                  type="tel"
+                  value={editNumber}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^\d+]/g, '');
+                    setEditNumber(raw);
+                  }}
+                  placeholder={lang === 'bn' ? 'মোবাইল নম্বর (১১ ডিজিট)' : 'Phone number (11 digits)'}
+                  className="w-full bg-[#050C16] border-2 border-cyan-400/70 rounded-xl px-3 py-2 font-mono text-base sm:text-lg font-black text-white placeholder-slate-500 focus:outline-none focus:border-cyan-300 focus:ring-2 focus:ring-cyan-400/40 tracking-wider"
+                  autoFocus
+                />
+                {editNumber && (
+                  <button
+                    type="button"
+                    onClick={() => setEditNumber('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-800 hover:bg-rose-500/40 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
+                    title={lang === 'bn' ? 'ক্লিন' : 'Clear'}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 )}
               </div>
 
-              {liveNumber && (
+              {/* Editable Amount Input */}
+              <div className="space-y-1.5">
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-base font-black text-amber-400 select-none">
+                    ৳
+                  </span>
+                  <input
+                    type="tel"
+                    value={editAmount}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, '');
+                      setEditAmount(raw);
+                    }}
+                    placeholder={lang === 'bn' ? 'টাকার পরিমাণ' : 'Amount (Tk)'}
+                    className="w-full bg-[#050C16] border-2 border-amber-400/60 rounded-xl pl-8 pr-8 py-1.5 font-mono text-sm sm:text-base font-black text-amber-300 placeholder-slate-500 focus:outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                  />
+                  {editAmount && (
+                    <button
+                      type="button"
+                      onClick={() => setEditAmount('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-800 hover:bg-rose-500/40 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
+                      title={lang === 'bn' ? 'টাকা মুছুন' : 'Clear amount'}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5">
+                  <span className="text-[9.5px] font-black text-amber-300/80 uppercase shrink-0">
+                    {lang === 'bn' ? 'দ্রুত:' : 'Quick:'}
+                  </span>
+                  {[20, 50, 100, 200, 500, 1000].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setEditAmount(String(amt))}
+                      className={`px-2 py-0.5 rounded-lg text-xs font-black transition-all active:scale-95 cursor-pointer shrink-0 border ${
+                        editAmount === String(amt)
+                          ? 'bg-amber-400 text-slate-950 border-amber-300'
+                          : 'bg-[#121D2F] hover:bg-[#1A2840] text-amber-300 border-amber-400/30'
+                      }`}
+                    >
+                      ৳{formatDigits(amt, lang)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Action Buttons: Save & Cancel */}
+              <div className="flex items-center gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={onClearLiveNumber}
-                  className="w-6 h-6 rounded-full bg-white/10 hover:bg-rose-500/30 text-slate-300 hover:text-rose-200 flex items-center justify-center shrink-0 ml-1.5 transition-colors cursor-pointer"
-                  title={lang === 'bn' ? 'মুছুন' : 'Clear'}
+                  onClick={handleSaveEdit}
+                  className="flex-1 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <Check className="w-4 h-4 stroke-[2.5]" />
+                  <span>{lang === 'bn' ? 'সেভ ও পাঠান' : 'Save & Sync'}</span>
                 </button>
-              )}
-            </div>
-
-            {/* Live Amount Box (if customer typed amount) */}
-            {liveAmount && (
-              <div className="w-24 sm:w-28 rounded-2xl border-2 border-emerald-400/70 bg-[#0D2824] px-2.5 py-1.5 flex flex-col justify-center shrink-0">
-                <span className="text-[8.5px] font-black uppercase text-emerald-300/80">
-                  {lang === 'bn' ? 'টাকার পরিমাণ' : 'Amount'}
-                </span>
-                <span className="font-mono text-sm sm:text-base font-black text-emerald-300 truncate">
-                  ৳{formatDigits(liveAmount, lang)}
-                </span>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white font-bold text-xs transition-colors cursor-pointer"
+                >
+                  {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+                </button>
               </div>
-            )}
+            </div>
+          ) : (
+            /* =================== STANDARD LIVE VIEW =================== */
+            <>
+              {/* Big Clean Number Display Box */}
+              <div
+                onClick={handleStartEdit}
+                className={`w-full rounded-xl border px-3.5 py-3 flex items-center justify-between transition-all cursor-pointer group ${
+                  isInvalidOperator
+                    ? 'bg-[#22070A] border-rose-500/80'
+                    : isElevenDigits
+                    ? 'bg-[#061F18] border-emerald-400/80 shadow-[inset_0_0_12px_rgba(16,185,129,0.15)]'
+                    : liveNumber
+                    ? 'bg-[#0E1528] border-purple-400/50'
+                    : 'bg-[#0A0F1D] border-white/10'
+                }`}
+                title={lang === 'bn' ? 'ক্লিক করে এডিট করুন' : 'Click to edit'}
+              >
+                <div className="min-w-0 flex-1 flex items-center overflow-hidden">
+                  {liveNumber ? (
+                    <div className="font-mono text-2xl sm:text-3xl font-black tracking-widest text-white flex items-center min-w-0">
+                      <span className="whitespace-nowrap group-hover:text-cyan-300 transition-colors">
+                        {liveNumber}
+                      </span>
+                      <span className="inline-block text-xl font-sans font-black text-amber-400 ml-1 animate-pulse select-none">
+                        ।
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center py-1">
+                      <span className="text-slate-500 text-sm font-semibold mr-1.5">
+                        {lang === 'bn' ? 'কাস্টমার নম্বরের অপেক্ষায়...' : 'Waiting for customer number...'}
+                      </span>
+                      <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping select-none" />
+                    </div>
+                  )}
+                </div>
 
-            {/* COPY BUTTONS */}
-            <div className="flex flex-col gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0 ml-2">
+                  <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-400/30 text-cyan-200 flex items-center justify-center group-hover:bg-cyan-500/25 transition-colors">
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </div>
+                  {liveNumber && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onClearLiveNumber();
+                      }}
+                      className="w-7 h-7 rounded-lg bg-white/10 hover:bg-rose-500/30 text-slate-300 hover:text-rose-200 flex items-center justify-center transition-colors cursor-pointer"
+                      title={lang === 'bn' ? 'মুছুন' : 'Clear'}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Slim Progress Bar for 11 digits (clean & uncluttered) */}
+              <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-200 ${
+                    isInvalidOperator
+                      ? 'bg-rose-500'
+                      : isElevenDigits
+                      ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+                      : 'bg-gradient-to-r from-purple-500 to-cyan-400'
+                  }`}
+                  style={{
+                    width: `${Math.min(100, (liveNumber.length / 11) * 100)}%`
+                  }}
+                />
+              </div>
+
+              {/* Action Buttons Row: Amount Pill + Big Copy Button + Amount Copy Button */}
+              <div className="flex items-center gap-2 pt-0.5">
+                {/* Amount display / Add button */}
+                {liveAmount ? (
+                  <div className="rounded-xl border border-emerald-400/60 bg-[#0D2824] px-2.5 py-2 flex items-center gap-2 shrink-0">
+                    <div className="flex flex-col">
+                      <span className="text-[8px] font-black uppercase text-emerald-300/70 leading-none">
+                        {lang === 'bn' ? 'টাকা' : 'Amount'}
+                      </span>
+                      <span className="font-mono text-sm sm:text-base font-black text-emerald-300 leading-tight">
+                        ৳{formatDigits(liveAmount, lang)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomAmountVal(liveAmount);
+                          setShowCustomAmountModal(true);
+                        }}
+                        className="w-5 h-5 rounded text-emerald-300/80 hover:text-white flex items-center justify-center cursor-pointer"
+                        title={lang === 'bn' ? 'এডিট টাকা' : 'Edit amount'}
+                      >
+                        <Edit2 className="w-2.5 h-2.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearAmount}
+                        className="w-5 h-5 rounded text-slate-400 hover:text-rose-300 flex items-center justify-center cursor-pointer"
+                        title={lang === 'bn' ? 'টাকা বাদ' : 'Remove'}
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomAmountVal('');
+                      setShowCustomAmountModal(true);
+                    }}
+                    className="rounded-xl border border-dashed border-amber-400/60 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 px-3 py-2 flex items-center gap-1.5 shrink-0 transition-all active:scale-95 cursor-pointer text-xs font-black"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-amber-300" />
+                    <span>{lang === 'bn' ? '+ টাকা' : '+ Tk'}</span>
+                  </button>
+                )}
+
+                {/* Primary Number Copy Button */}
+                <button
+                  type="button"
+                  disabled={!liveNumber}
+                  onClick={() => handleCopy(liveNumber, 'live-num', liveNumber, liveAmount)}
+                  className={`flex-1 py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-all duration-75 cursor-pointer active:scale-95 shadow-md ${
+                    copiedId === 'live-num'
+                      ? 'bg-emerald-400 text-slate-950 ring-2 ring-emerald-300 font-black'
+                      : isElevenDigits
+                      ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 ring-1 ring-emerald-300/80 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                      : liveNumber
+                      ? 'bg-purple-600 text-white hover:bg-purple-500'
+                      : 'bg-white/5 text-slate-500 border border-white/10 cursor-not-allowed'
+                  }`}
+                  title={lang === 'bn' ? 'নম্বর কপি করুন' : 'Copy Number'}
+                >
+                  {copiedId === 'live-num' ? (
+                    <>
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>{lang === 'bn' ? 'কপিড!' : 'Copied!'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      <span>{lang === 'bn' ? 'নম্বর কপি' : 'Copy Number'}</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Amount Copy Button if amount exists */}
+                {liveAmount && (
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(liveAmount, 'live-amt')}
+                    className={`px-3 py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-1 shrink-0 transition-all cursor-pointer active:scale-95 border ${
+                      copiedId === 'live-amt'
+                        ? 'bg-emerald-400 text-slate-950 border-emerald-300'
+                        : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-400/40'
+                    }`}
+                    title={lang === 'bn' ? 'টাকা কপি করুন' : 'Copy Tk'}
+                  >
+                    {copiedId === 'live-amt' ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <span>৳</span>}
+                    <span>{copiedId === 'live-amt' ? (lang === 'bn' ? 'কপিড' : 'Copied') : (lang === 'bn' ? 'টাকা কপি' : 'Copy Tk')}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Quick Amount Shortcuts Pills */}
+              <div className="flex items-center gap-1.5 pt-1 overflow-x-auto no-scrollbar">
+                {[20, 50, 100, 200, 500, 1000].map((amt) => {
+                  const isSelected = liveAmount === String(amt);
+                  return (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => handleSetQuickAmount(String(amt))}
+                      className={`px-2 py-0.5 rounded-lg text-xs font-black transition-all active:scale-95 cursor-pointer shrink-0 border ${
+                        isSelected
+                          ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.4)]'
+                          : 'bg-[#182035] hover:bg-[#202B48] text-amber-300 border-amber-400/30'
+                      }`}
+                    >
+                      ৳{formatDigits(amt, lang)}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomAmountVal(liveAmount || '');
+                    setShowCustomAmountModal(true);
+                  }}
+                  className="px-2 py-0.5 rounded-lg text-xs font-black bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-400/40 shrink-0 cursor-pointer active:scale-95 flex items-center gap-0.5"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>{lang === 'bn' ? 'অন্যান্য' : 'Other'}</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* 3. HISTORY SECTION - CLEAN TABBED DESIGN */}
+        <div className="flex-1 min-h-0 bg-[#121829] border border-white/10 rounded-2xl p-3 shadow-lg flex flex-col">
+          {/* Segmented Tab Controls */}
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10 shrink-0 gap-2">
+            <div className="flex items-center bg-[#0C1220] p-0.5 rounded-xl border border-white/10 shrink-0">
               <button
                 type="button"
-                disabled={!liveNumber}
-                onClick={() => handleCopy(liveNumber, 'live-num', liveNumber, liveAmount)}
-                className={`px-3 py-1.5 rounded-xl font-black text-xs flex items-center justify-center gap-1 transition-transform duration-75 cursor-pointer active:scale-95 ${
-                  copiedId === 'live-num'
-                    ? 'bg-gradient-to-br from-emerald-400 to-teal-500 text-slate-950'
-                    : isElevenDigits
-                    ? 'bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 text-slate-950 shadow-md ring-1 ring-emerald-300'
-                    : liveNumber
-                    ? 'bg-purple-600 text-white hover:bg-purple-500'
-                    : 'bg-[#13192B] text-slate-500 border border-white/10 cursor-not-allowed'
+                onClick={() => setActiveHistoryTab('recent')}
+                className={`px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                  activeHistoryTab === 'recent'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title={lang === 'bn' ? 'নম্বর কপি করুন' : 'Copy Number'}
               >
-                {copiedId === 'live-num' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span className="text-[10px] font-black">
-                  {copiedId === 'live-num' ? (lang === 'bn' ? 'কপিড' : 'Copied') : (lang === 'bn' ? 'নম্বর কপি' : 'Copy')}
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>{lang === 'bn' ? 'রিসেন্ট' : 'Recent'}</span>
+                <span className="text-[10px] px-1 rounded-full bg-white/20 ml-0.5">
+                  {formatDigits(sentNumbers.length, lang)}
                 </span>
               </button>
 
-              {liveAmount && (
-                <button
-                  type="button"
-                  onClick={() => handleCopy(liveAmount, 'live-amt')}
-                  className="px-2.5 py-1 rounded-lg font-black text-[10px] bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-400/40 flex items-center justify-center gap-0.5 cursor-pointer"
-                  title={lang === 'bn' ? 'টাকা কপি করুন' : 'Copy Amount'}
-                >
-                  {copiedId === 'live-amt' ? <Check className="w-3 h-3" /> : <span>৳</span>}
-                  <span>{copiedId === 'live-amt' ? 'কপিড' : `${lang === 'bn' ? 'টাকা কপি' : 'Copy ৳'}`}</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setActiveHistoryTab('permanent')}
+                className={`px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                  activeHistoryTab === 'permanent'
+                    ? 'bg-amber-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>{lang === 'bn' ? 'পার্মানেন্ট' : 'Permanent'}</span>
+                <span className={`text-[10px] px-1 rounded-full ml-0.5 ${
+                  activeHistoryTab === 'permanent' ? 'bg-slate-950/20' : 'bg-white/20'
+                }`}>
+                  {formatDigits(permanentNumbers.length, lang)}
+                </span>
+              </button>
             </div>
-          </div>
-        </div>
 
-        {/* 3. RECEIVED SENT NUMBERS HISTORY SECTION (১৫টি রিসেন্ট হিস্ট্রি) */}
-        <div className="shrink-0 bg-[#121829] border border-white/10 rounded-3xl p-3 shadow-lg">
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10 shrink-0">
-            <span className="text-[11px] font-black text-white uppercase tracking-wider flex items-center gap-1.5">
-              <Smartphone className="w-3.5 h-3.5 text-purple-400" />
-              {lang === 'bn'
-                ? `রিসেন্ট হিস্ট্রি (${formatDigits(sentNumbers.length, lang)}/${formatDigits(MAX_REMOTE_HISTORY_ITEMS, lang)}টি)`
-                : `Recent History (${sentNumbers.length}/${MAX_REMOTE_HISTORY_ITEMS})`}
-            </span>
-
-            {sentNumbers.length > 0 && (
+            {/* Right Tab Action */}
+            {activeHistoryTab === 'recent' && sentNumbers.length > 0 && (
               <button
                 type="button"
                 onClick={onClearAllSentNumbers}
-                className="text-[10px] font-black text-rose-300 hover:text-white bg-rose-500/20 hover:bg-rose-500/35 px-2.5 py-1 rounded-xl border border-rose-400/30 flex items-center gap-1 transition-colors cursor-pointer active:scale-95"
+                className="text-[10px] font-black text-rose-300 hover:text-white bg-rose-500/20 hover:bg-rose-500/35 px-2.5 py-1 rounded-lg border border-rose-400/30 flex items-center gap-1 transition-colors cursor-pointer active:scale-95 shrink-0"
               >
                 <Trash2 className="w-3 h-3" />
                 <span>{lang === 'bn' ? 'সব মুছুন' : 'Clear All'}</span>
               </button>
             )}
+
+            {activeHistoryTab === 'permanent' && (
+              <span className="text-[9.5px] font-bold text-amber-300/90 bg-amber-500/15 border border-amber-400/30 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                <Lock className="w-2.5 h-2.5 text-amber-400" />
+                <span>{lang === 'bn' ? 'ডিলিট হবে না' : 'Locked'}</span>
+              </span>
+            )}
           </div>
 
-          {sentNumbers.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 p-4 text-center">
-              <div className="w-9 h-9 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-2 text-purple-400">
-                <Smartphone className="w-4 h-4 opacity-70" />
-              </div>
-              <p className="text-xs font-bold text-slate-400 max-w-xs leading-relaxed">
-                {lang === 'bn'
-                  ? 'কাস্টমার নম্বর তুললেই এখানে রিসেন্ট হিস্ট্রিতে জমা হবে (সর্বোচ্চ ১৫টি)'
-                  : 'Numbers typed by customers will appear in recent history (up to 15)'}
-              </p>
-            </div>
-          ) : (
-            <div className="max-h-52 overflow-y-auto space-y-1.5 pr-0.5">
-              {sentNumbers.map((item) => {
-                const isNumCopied = copiedId === `num-${item.id}`;
-                const isAmtCopied = copiedId === `amt-${item.id}`;
-                const is11 = item.number.length === 11;
-                const opBadge = getOperatorBadge(item.number, lang);
-
-                return (
-                  <div
-                    key={item.id}
-                    className={`rounded-xl border px-3 py-1.5 flex items-center justify-between gap-2 ${
-                      is11
-                        ? 'bg-[#0D2824]/80 border-emerald-400/35'
-                        : 'bg-[#171F34] border-white/15'
-                    }`}
-                  >
-                    {/* Number and Amount Badge */}
-                    <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-                      <span className="font-mono text-xs sm:text-sm font-black text-white tracking-wider truncate">
-                        {item.number}
-                      </span>
-                      {opBadge && (
-                        <span className={`text-[8.5px] font-black px-1.5 py-0.2 rounded border shrink-0 ${opBadge.darkColor}`}>
-                          {opBadge.name}
-                        </span>
-                      )}
-                      {item.amount ? (
-                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 shrink-0">
-                          ৳{formatDigits(item.amount, lang)}
-                        </span>
-                      ) : (
-                        <span className="text-[9px] font-medium text-slate-500 shrink-0">
-                          {lang === 'bn' ? '(টাকা ছাড়া)' : '(No amt)'}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-1 shrink-0">
-                      {/* Copy Number */}
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(item.number, `num-${item.id}`, item.number, item.amount)}
-                        className={`px-2.5 py-1 rounded-lg font-black text-[10px] flex items-center gap-1 transition-transform duration-75 cursor-pointer active:scale-95 ${
-                          isNumCopied
-                            ? 'bg-gradient-to-r from-emerald-400 to-teal-500 text-slate-950'
-                            : 'bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white border border-purple-400/30'
-                        }`}
-                        title={lang === 'bn' ? 'নম্বর কপি করুন' : 'Copy Number'}
-                      >
-                        {isNumCopied ? (
-                          <>
-                            <Check className="w-3 h-3" />
-                            <span>{lang === 'bn' ? 'কপিড' : 'Copied'}</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            <span>{lang === 'bn' ? 'কপি' : 'Copy'}</span>
-                          </>
-                        )}
-                      </button>
-
-                      {/* Copy Amount if present */}
-                      {item.amount && (
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(item.amount!, `amt-${item.id}`)}
-                          className="px-2 py-1 rounded-lg font-black text-[10px] bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-400/30 flex items-center gap-0.5 cursor-pointer"
-                          title={lang === 'bn' ? 'টাকা কপি করুন' : 'Copy Amount'}
-                        >
-                          {isAmtCopied ? <Check className="w-3 h-3" /> : <span>৳</span>}
-                          <span>{isAmtCopied ? (lang === 'bn' ? 'কপিড' : 'Copied') : (lang === 'bn' ? 'টাকা' : 'Amt')}</span>
-                        </button>
-                      )}
-
-                      {/* Delete */}
-                      <button
-                        type="button"
-                        onClick={() => onDeleteSentNumber(item.id)}
-                        className="w-6 h-6 rounded-lg bg-white/10 hover:bg-rose-500/30 text-slate-300 hover:text-rose-200 flex items-center justify-center transition-colors cursor-pointer"
-                        title={lang === 'bn' ? 'মুছে ফেলুন' : 'Remove'}
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+          {/* Tab Content */}
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-0.5">
+            {activeHistoryTab === 'recent' ? (
+              /* RECENT TAB LIST */
+              sentNumbers.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center p-4 text-center">
+                  <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center mb-1.5 text-purple-400">
+                    <Smartphone className="w-4 h-4 opacity-70" />
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  <p className="text-xs font-bold text-slate-400">
+                    {lang === 'bn'
+                      ? 'কাস্টমার নম্বর পাঠালে এখানে জমা হবে (সর্বোচ্চ ১৫টি)'
+                      : 'Customer typed numbers will appear here (max 15)'}
+                  </p>
+                </div>
+              ) : (
+                sentNumbers.map((item) => {
+                  const isNumCopied = copiedId === `num-${item.id}`;
+                  const isAmtCopied = copiedId === `amt-${item.id}`;
+                  const is11 = item.number.length === 11;
+                  const opBadge = getOperatorBadge(item.number, lang);
 
-        {/* 4. PERMANENT NUMBERS HISTORY (১৫টি হিস্ট্রির নিচে ১০০টি পার্মানেন্ট হিস্ট্রি - উইনার ডিলিট করতে পারবে না) */}
-        <div className="shrink-0 bg-[#121829] border border-amber-500/30 rounded-3xl p-3 shadow-lg">
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-amber-500/20 shrink-0">
-            <span className="text-[11px] font-black text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-amber-400" />
-              {lang === 'bn'
-                ? `পার্মানেন্ট হিস্ট্রি (${formatDigits(permanentNumbers.length, lang)}/${formatDigits(MAX_PERMANENT_HISTORY_ITEMS, lang)}টি)`
-                : `Permanent History (${permanentNumbers.length}/${MAX_PERMANENT_HISTORY_ITEMS})`}
-            </span>
-
-            <span className="text-[9.5px] font-bold text-amber-300/90 bg-amber-500/15 border border-amber-400/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-              <Lock className="w-2.5 h-2.5 text-amber-400" />
-              <span>{lang === 'bn' ? 'সংরক্ষিত (ডিলিট হবে না)' : 'Permanent (No Delete)'}</span>
-            </span>
-          </div>
-
-          {permanentNumbers.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-amber-500/25 bg-amber-500/[0.04] p-3.5 text-center">
-              <p className="text-xs font-bold text-amber-200/90 leading-relaxed">
-                {lang === 'bn'
-                  ? 'যে নম্বর ভিউয়ার ৫ বারের বেশি টাইপ করবেন এবং উইনার ৫ বারের বেশি কপি করবেন, তা স্বয়ংক্রিয়ভাবে এখানে পার্মানেন্ট হয়ে যাবে (সর্বোচ্চ ১০০টি) এবং ডিলিট করা যাবে না।'
-                  : 'Numbers typed > 5 times and copied > 5 times will automatically be saved here permanently (up to 100) and cannot be deleted.'}
-              </p>
-            </div>
-          ) : (
-            <div className="max-h-56 overflow-y-auto space-y-1.5 pr-0.5">
-              {permanentNumbers.map((item) => {
-                const isNumCopied = copiedId === `perm-num-${item.id}`;
-                const isAmtCopied = copiedId === `perm-amt-${item.id}`;
-                const opBadge = getOperatorBadge(item.number, lang);
-
-                return (
-                  <div
-                    key={item.id}
-                    className="rounded-xl border border-amber-500/35 bg-[#171A29] px-3 py-2 flex items-center justify-between gap-2 shadow-sm"
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-                      <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span className="font-mono text-xs sm:text-sm font-black text-amber-100 tracking-wider truncate">
-                        {item.number}
-                      </span>
-                      {opBadge && (
-                        <span className={`text-[8.5px] font-black px-1.5 py-0.2 rounded border shrink-0 ${opBadge.darkColor}`}>
-                          {opBadge.name}
+                  return (
+                    <div
+                      key={item.id}
+                      className={`rounded-xl border px-3 py-2 flex items-center justify-between gap-2 transition-colors ${
+                        is11
+                          ? 'bg-[#0D2824]/80 border-emerald-400/35'
+                          : 'bg-[#171F34] border-white/15'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                        <span className="font-mono text-sm font-black text-white tracking-wider truncate">
+                          {item.number}
                         </span>
-                      )}
-                      {item.amount && (
-                        <span className="text-[9.5px] font-black px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 shrink-0">
-                          ৳{formatDigits(item.amount, lang)}
-                        </span>
-                      )}
-                      <span className="text-[9px] font-semibold text-amber-300/80 bg-white/5 px-1.5 py-0.5 rounded shrink-0">
-                        {lang === 'bn'
-                          ? `টাইপ: ${formatDigits(item.typedCount, lang)} • কপি: ${formatDigits(item.copiedCount, lang)}`
-                          : `Type: ${item.typedCount} • Copy: ${item.copiedCount}`}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1 shrink-0">
-                      {/* Copy Number */}
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(item.number, `perm-num-${item.id}`, item.number, item.amount)}
-                        className={`px-2.5 py-1 rounded-lg font-black text-[10px] flex items-center gap-1 transition-transform duration-75 cursor-pointer active:scale-95 ${
-                          isNumCopied
-                            ? 'bg-gradient-to-r from-emerald-400 to-teal-500 text-slate-950'
-                            : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm'
-                        }`}
-                        title={lang === 'bn' ? 'নম্বর কপি করুন' : 'Copy Number'}
-                      >
-                        {isNumCopied ? (
-                          <>
-                            <Check className="w-3 h-3" />
-                            <span>{lang === 'bn' ? 'কপিড' : 'Copied'}</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            <span>{lang === 'bn' ? 'কপি' : 'Copy'}</span>
-                          </>
+                        {opBadge && (
+                          <span className={`text-[8.5px] font-black px-1.5 py-0.2 rounded border shrink-0 ${opBadge.darkColor}`}>
+                            {opBadge.name}
+                          </span>
                         )}
-                      </button>
+                        {item.amount && (
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 shrink-0">
+                            ৳{formatDigits(item.amount, lang)}
+                          </span>
+                        )}
+                      </div>
 
-                      {/* Copy Amount if present */}
-                      {item.amount && (
+                      <div className="flex items-center gap-1 shrink-0">
                         <button
                           type="button"
-                          onClick={() => handleCopy(item.amount!, `perm-amt-${item.id}`)}
-                          className="px-2 py-1 rounded-lg font-black text-[10px] bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-400/30 flex items-center gap-0.5 cursor-pointer"
-                          title={lang === 'bn' ? 'টাকা কপি করুন' : 'Copy Amount'}
+                          onClick={() => handleCopy(item.number, `num-${item.id}`, item.number, item.amount)}
+                          className={`px-2.5 py-1 rounded-lg font-black text-[10px] flex items-center gap-1 transition-transform cursor-pointer active:scale-95 ${
+                            isNumCopied
+                              ? 'bg-emerald-400 text-slate-950 font-black'
+                              : 'bg-purple-600 hover:bg-purple-500 text-white'
+                          }`}
+                          title={lang === 'bn' ? 'নম্বর কপি' : 'Copy'}
                         >
-                          {isAmtCopied ? <Check className="w-3 h-3" /> : <span>৳</span>}
-                          <span>{isAmtCopied ? (lang === 'bn' ? 'কপিড' : 'Copied') : (lang === 'bn' ? 'টাকা' : 'Amt')}</span>
+                          {isNumCopied ? <Check className="w-3 h-3 stroke-[3]" /> : <Copy className="w-3 h-3" />}
+                          <span>{isNumCopied ? (lang === 'bn' ? 'কপিড' : 'Copied') : (lang === 'bn' ? 'কপি' : 'Copy')}</span>
                         </button>
-                      )}
 
-                      {/* Lock indicator: NO DELETE BUTTON ALLOWED */}
-                      <div
-                        className="px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-400/30 text-amber-300 text-[9.5px] font-bold flex items-center gap-1 select-none"
-                        title={lang === 'bn' ? 'উইনার এই পার্মানেন্ট নম্বর ডিলিট করতে পারবেন না' : 'Permanent numbers cannot be deleted'}
-                      >
-                        <Lock className="w-3 h-3 text-amber-400" />
-                        <span className="hidden xs:inline">{lang === 'bn' ? 'স্থায়ী' : 'Permanent'}</span>
+                        {item.amount && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(item.amount!, `amt-${item.id}`)}
+                            className="px-2 py-1 rounded-lg font-black text-[10px] bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-400/30 flex items-center gap-0.5 cursor-pointer"
+                            title={lang === 'bn' ? 'টাকা কপি' : 'Copy Amount'}
+                          >
+                            {isAmtCopied ? <Check className="w-3 h-3 stroke-[3]" /> : <span>৳</span>}
+                            <span>{isAmtCopied ? (lang === 'bn' ? 'কপিড' : 'Copied') : (lang === 'bn' ? 'টাকা' : 'Amt')}</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => onDeleteSentNumber(item.id)}
+                          className="w-6 h-6 rounded-lg bg-white/10 hover:bg-rose-500/30 text-slate-300 hover:text-rose-200 flex items-center justify-center transition-colors cursor-pointer"
+                          title={lang === 'bn' ? 'মুছে ফেলুন' : 'Remove'}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
+                  );
+                })
+              )
+            ) : (
+              /* PERMANENT TAB LIST */
+              permanentNumbers.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center p-4 text-center">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-1.5 text-amber-400">
+                    <Lock className="w-4 h-4 opacity-70" />
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <p className="text-xs font-bold text-amber-200/90 leading-relaxed max-w-xs">
+                    {lang === 'bn'
+                      ? '৫ বারের বেশি ব্যবহৃত নম্বর এখানে অটো সেভ হবে (সর্বোচ্চ ১০০টি)'
+                      : 'Numbers typed & copied > 5 times will be saved here (max 100)'}
+                  </p>
+                </div>
+              ) : (
+                permanentNumbers.map((item) => {
+                  const isNumCopied = copiedId === `perm-num-${item.id}`;
+                  const isAmtCopied = copiedId === `perm-amt-${item.id}`;
+                  const opBadge = getOperatorBadge(item.number, lang);
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="rounded-xl border border-amber-500/35 bg-[#171A29] px-3 py-2 flex items-center justify-between gap-2 shadow-sm"
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                        <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                        <span className="font-mono text-sm font-black text-amber-100 tracking-wider truncate">
+                          {item.number}
+                        </span>
+                        {opBadge && (
+                          <span className={`text-[8.5px] font-black px-1.5 py-0.2 rounded border shrink-0 ${opBadge.darkColor}`}>
+                            {opBadge.name}
+                          </span>
+                        )}
+                        {item.amount && (
+                          <span className="text-[9.5px] font-black px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 shrink-0">
+                            ৳{formatDigits(item.amount, lang)}
+                          </span>
+                        )}
+                        <span className="text-[8.5px] font-semibold text-amber-300/80 bg-white/5 px-1.5 py-0.5 rounded shrink-0">
+                          {lang === 'bn'
+                            ? `${formatDigits(item.copiedCount, lang)} বার`
+                            : `${item.copiedCount}x`}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(item.number, `perm-num-${item.id}`, item.number, item.amount)}
+                          className={`px-2.5 py-1 rounded-lg font-black text-[10px] flex items-center gap-1 transition-transform cursor-pointer active:scale-95 ${
+                            isNumCopied
+                              ? 'bg-emerald-400 text-slate-950 font-black'
+                              : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                          }`}
+                          title={lang === 'bn' ? 'নম্বর কপি' : 'Copy'}
+                        >
+                          {isNumCopied ? <Check className="w-3 h-3 stroke-[3]" /> : <Copy className="w-3 h-3" />}
+                          <span>{isNumCopied ? (lang === 'bn' ? 'কপিড' : 'Copied') : (lang === 'bn' ? 'কপি' : 'Copy')}</span>
+                        </button>
+
+                        {item.amount && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(item.amount!, `perm-amt-${item.id}`)}
+                            className="px-2 py-1 rounded-lg font-black text-[10px] bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-400/30 flex items-center gap-0.5 cursor-pointer"
+                            title={lang === 'bn' ? 'টাকা কপি' : 'Copy Amount'}
+                          >
+                            {isAmtCopied ? <Check className="w-3 h-3 stroke-[3]" /> : <span>৳</span>}
+                            <span>{isAmtCopied ? (lang === 'bn' ? 'কপিড' : 'Copied') : (lang === 'bn' ? 'টাকা' : 'Amt')}</span>
+                          </button>
+                        )}
+
+                        <div
+                          className="p-1 rounded text-amber-400/70"
+                          title={lang === 'bn' ? 'ডিলিট হবে না' : 'Permanent'}
+                        >
+                          <Lock className="w-3 h-3" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )
+            )}
+          </div>
         </div>
       </div>
+
+      {/* CUSTOM AMOUNT MODAL FOR WINNER */}
+      {showCustomAmountModal && (
+        <div className="fixed inset-0 z-[10005] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-xs bg-[#121829] border-2 border-amber-400/80 rounded-3xl p-4 shadow-2xl space-y-3 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                <span>৳</span>
+                {lang === 'bn' ? 'এম্যাউন্ট বা টাকার পরিমাণ নির্ধারণ' : 'Set Amount'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowCustomAmountModal(false)}
+                className="w-6 h-6 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-lg font-black text-amber-400 select-none">
+                ৳
+              </span>
+              <input
+                type="tel"
+                value={customAmountVal}
+                onChange={(e) => setCustomAmountVal(e.target.value.replace(/\D/g, ''))}
+                placeholder={lang === 'bn' ? 'যেমন: ১০০, ৫০০...' : 'e.g. 100, 500...'}
+                className="w-full bg-[#090E1A] border-2 border-amber-400/60 rounded-xl pl-8 pr-3 py-2 font-mono text-lg font-black text-amber-300 placeholder-slate-500 focus:outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                autoFocus
+              />
+            </div>
+
+            {/* Quick Amount presets in modal */}
+            <div className="grid grid-cols-3 gap-1.5">
+              {[20, 50, 100, 200, 500, 1000].map((amt) => (
+                <button
+                  key={amt}
+                  type="button"
+                  onClick={() => setCustomAmountVal(String(amt))}
+                  className="py-1 rounded-lg text-xs font-black bg-[#1A233A] hover:bg-[#243152] text-amber-300 border border-amber-400/30 cursor-pointer active:scale-95"
+                >
+                  ৳{formatDigits(amt, lang)}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (customAmountVal.trim()) {
+                    handleSetQuickAmount(customAmountVal.trim());
+                    setShowCustomAmountModal(false);
+                  }
+                }}
+                disabled={!customAmountVal.trim()}
+                className="flex-1 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 disabled:opacity-50 text-slate-950 font-black text-xs flex items-center justify-center gap-1 cursor-pointer active:scale-95"
+              >
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                <span>{lang === 'bn' ? 'এম্যাউন্ট সেট করুন' : 'Set Amount'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCustomAmountModal(false)}
+                className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 text-xs font-bold cursor-pointer"
+              >
+                {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

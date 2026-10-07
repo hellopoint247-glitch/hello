@@ -296,6 +296,7 @@ export function MainDashboard({
     updateRemoteState({
       ...activeRemoteState,
       liveNumber: '',
+      liveAmount: '',
       isTyping: false,
       sentNumbers: nextSent,
       updatedAt: new Date().toISOString()
@@ -6028,6 +6029,7 @@ export function MainDashboard({
         onDeleteSentNumber={handleDeleteSentRemoteNumber}
         onClearAllSentNumbers={handleClearAllSentRemoteNumbers}
         onToggleRotate={handleToggleRotateRemote}
+        onUpdateRemoteState={updateRemoteState}
       />
 
       {/* CHAT AUTO-REPLY & CANNED FAQS SETTINGS MODAL */}
