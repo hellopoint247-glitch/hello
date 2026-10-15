@@ -44,10 +44,13 @@ export function applyTheme(mode: ThemeMode): boolean {
     root.setAttribute('data-theme', 'light');
   }
 
+  // Clean up any remaining legacy neon attribute
+  root.removeAttribute('data-neon-style');
+
   // Update theme-color meta tag for mobile browsers (status bar)
   const metaThemeColor = document.querySelector('meta[name="theme-color"]');
   if (metaThemeColor) {
-    metaThemeColor.setAttribute('content', isDark ? '#29384A' : '#6244a6');
+    metaThemeColor.setAttribute('content', isDark ? '#0A0E17' : '#6244a6');
   }
 
   return isDark;

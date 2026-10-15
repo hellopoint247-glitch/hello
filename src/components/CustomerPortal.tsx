@@ -31,6 +31,7 @@ import { getContactSummary } from '../utils/storage';
 import { soundEngine } from '../utils/audio';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatBox } from './ChatBox';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface CustomerPortalProps {
   customer: Contact;
@@ -480,12 +481,14 @@ export function CustomerPortal({
     return customerTxs
       .filter(t => {
         // Query match
-        const lowerQuery = searchQuery.trim().toLowerCase();
+        const lowerQuery = (searchQuery || '').trim().toLowerCase();
         if (lowerQuery) {
-          const matchNote = t.note?.toLowerCase().includes(lowerQuery);
-          const matchBill = t.billNo?.toLowerCase().includes(lowerQuery);
-          const matchAmt = String(t.amount).toLowerCase().includes(lowerQuery);
-          if (!matchNote && !matchBill && !matchAmt) return false;
+          const matchNote = (t.note || '').toLowerCase().includes(lowerQuery);
+          const matchBill = (t.billNo || '').toLowerCase().includes(lowerQuery);
+          const amtNum = Number(t.amount) || 0;
+          const matchAmt = String(amtNum).toLowerCase().includes(lowerQuery);
+          const matchBnAmt = toBn(amtNum).includes(lowerQuery);
+          if (!matchNote && !matchBill && !matchAmt && !matchBnAmt) return false;
         }
 
         // Type match
@@ -495,7 +498,7 @@ export function CustomerPortal({
         return true;
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [customerTxs, searchQuery, filterType]);
+  }, [customerTxs, searchQuery, filterType, lang]);
 
   const getNormalizedDateKey = (dateStr: string) => {
     if (!dateStr) return 'unknown';
@@ -586,6 +589,9 @@ export function CustomerPortal({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* PWA Install Trigger button for Customers */}
+            <PWAInstallButton lang={lang} variant="header" />
+
             {/* Language Toggle switch */}
             <button 
               onClick={() => {
@@ -1185,6 +1191,40 @@ export function CustomerPortal({
           </div>
         </div>
 
+        {/* Search input within customer transactions */}
+        <div className="bg-white flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200/80 shadow-tiny print:hidden">
+          <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <input 
+            type="text" 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={lang === 'bn' ? 'নোট, ভাউচার নং বা টাকার পরিমাণ দিয়ে খুঁজুন...' : 'Search by note, bill no or amount...'}
+            className="w-full bg-transparent border-none text-[10.5px] outline-none placeholder:text-slate-400 font-bold"
+          />
+          {searchQuery && (
+            <button 
+              type="button" 
+              onClick={() => setSearchQuery('')} 
+              className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Column labels matching 12-column row layout */}
+        <div className="grid grid-cols-12 items-center text-[8.5px] font-bold text-slate-400 uppercase px-2 sm:px-3 mb-1.5 select-none print:hidden">
+          <div className="col-span-5 sm:col-span-5 flex items-center gap-1 min-w-0">
+            <span className="truncate">{lang === 'bn' ? `তারিখ ও বিবরণ (${filteredTxs.length})` : `Date & Note (${filteredTxs.length})`}</span>
+          </div>
+          <div className="col-span-4 sm:col-span-4 text-center">
+            <span className="text-slate-500 font-black">{lang === 'bn' ? 'মূল ব্যালেন্স' : 'Amount'}</span>
+          </div>
+          <div className="col-span-3 sm:col-span-3 text-right">
+            <span className="text-slate-500 font-black">{!hideRunningBalance ? (lang === 'bn' ? 'জের ব্যালেন্স' : 'Balance') : (lang === 'bn' ? 'জের (লুকানো)' : 'Hidden')}</span>
+          </div>
+        </div>
+
         {/* Render Timeline entries - LONG BILLER CARD STYLE */}
         <div className="space-y-3 sm:space-y-3.5">
             {dateGroupedPortalTxs.length === 0 ? (
@@ -1241,9 +1281,9 @@ export function CustomerPortal({
                             !isGave
                               ? 'bg-emerald-50/70 hover:bg-emerald-100/60 border-emerald-200/80'
                               : 'bg-white hover:bg-slate-50 border-slate-200/50'
-                          } border rounded-lg ${style.containerPadding} flex items-center justify-between cursor-pointer transition-all shadow-tiny hover:border-purple-300 select-none text-left`}
+                          } border rounded-lg ${style.containerPadding} grid grid-cols-12 items-center cursor-pointer transition-all shadow-tiny hover:border-purple-300 select-none text-left gap-1 sm:gap-2`}
                         >
-                          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+                          <div className="col-span-5 sm:col-span-5 flex items-center gap-1.5 sm:gap-2 min-w-0">
                             {/* Date: Light yellow/amber for today, muted slate for other days */}
                             <span 
                               className={`${style.dateText} font-mono shrink-0 ${
@@ -1258,30 +1298,30 @@ export function CustomerPortal({
                             
                             <span className={`text-slate-300 ${style.separator} shrink-0 font-light`}>|</span>
        
-                            {/* Note / Comment and Main Balance (মুল ব্যালেন্স ক্যাটাগরির ডান পাশে) */}
-                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                              <span className={`${style.noteText} font-extrabold text-slate-700 truncate min-w-0`}>
-                                {tx.note || (isGave 
-                                  ? (lang === 'bn' ? 'পণ্য ক্রয় হিসাব' : 'Goods Purchased') 
-                                  : (lang === 'bn' ? 'টাকা জমা/পরিশোধ' : 'Amount Deposited'))
-                                }
-                              </span>
-
-                              {/* Main Balance (মুল ব্যালেন্স) */}
-                              <span className={`${style.amountText} font-black font-mono tracking-tight shrink-0 whitespace-nowrap ${
-                                !isGave ? 'text-emerald-600' : 'text-rose-600'
-                              }`}>
-                                {!isGave ? '+' : '-'}{currency}{toBn(tx.amount.toFixed(2))}
-                              </span>
-                            </div>
+                            {/* Note / Comment */}
+                            <span className={`${style.noteText} font-extrabold text-slate-700 truncate min-w-0 flex-1`}>
+                              {tx.note || (isGave 
+                                ? (lang === 'bn' ? 'পণ্য ক্রয় হিসাব' : 'Goods Purchased') 
+                                : (lang === 'bn' ? 'টাকা জমা/পরিশোধ' : 'Amount Deposited'))
+                              }
+                            </span>
                           </div>
-         
-                          {/* Running Balance Column (জের ব্যালেন্স একটু বড় হবে) */}
-                          <div className="shrink-0 text-right flex items-center justify-end select-none pl-1.5">
+
+                          {/* Middle Column: Main Balance (মূল ব্যালেন্স) - centered in the middle, in a straight vertical line */}
+                          <div className="col-span-4 sm:col-span-4 flex items-center justify-center text-center">
+                            <span className={`${style.amountText} font-black font-mono tabular-nums tracking-tight whitespace-nowrap text-center ${
+                              !isGave ? 'text-emerald-600' : 'text-rose-600'
+                            }`}>
+                              {!isGave ? '+' : '-'}{currency}{toBn(tx.amount.toFixed(2))}
+                            </span>
+                          </div>
+
+                          {/* Right Column: Running Balance Column (জের ব্যালেন্স) */}
+                          <div className="col-span-3 sm:col-span-3 flex items-center justify-end text-right">
                             {!hideRunningBalance ? (
-                              <span className={`${style.balanceText} font-bold tracking-tight leading-none inline-flex items-center gap-0.5 shrink-0`}>
+                              <span className={`${style.balanceText} font-bold tracking-tight leading-none inline-flex items-center justify-end gap-0.5 shrink-0 whitespace-nowrap text-right`}>
                                 <span className="text-slate-400 font-normal">(</span>
-                                <span className={`font-black font-mono ${
+                                <span className={`font-black font-mono tabular-nums ${
                                   (tx as any).runningBalance < 0 
                                     ? 'text-emerald-600 dark:text-emerald-400' 
                                     : (tx as any).runningBalance > 0
@@ -1294,7 +1334,7 @@ export function CustomerPortal({
                                 <span className="text-slate-400 font-normal">)</span>
                               </span>
                             ) : (
-                              <span className="text-[9px] font-extrabold text-slate-300 tracking-wider leading-none shrink-0">
+                              <span className="text-[9px] font-extrabold text-slate-300 tracking-wider leading-none shrink-0 text-right">
                                 (•••)
                               </span>
                             )}

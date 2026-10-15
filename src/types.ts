@@ -221,32 +221,3 @@ export interface ChatQuickFAQ {
   createdAt?: string;
 }
 
-export interface RemoteTypedNumberItem {
-  id: string;
-  number: string;
-  amount?: string;
-  createdAt: string;
-  isPermanent?: boolean;
-}
-
-export interface PermanentTypedNumberItem {
-  id: string;
-  number: string;
-  amount?: string;
-  typedCount: number;
-  copiedCount: number;
-  promotedAt: string;
-}
-
-export interface RemoteTypeState {
-  liveNumber: string;
-  liveAmount?: string;
-  isTyping: boolean;
-  isRotated?: boolean;
-  ownerCopied?: boolean;
-  ownerCopiedAt?: string;
-  sentNumbers: RemoteTypedNumberItem[];
-  permanentNumbers?: PermanentTypedNumberItem[];
-  numberStats?: Record<string, { typedCount: number; copiedCount: number }>;
-  updatedAt: string;
-}

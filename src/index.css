@@ -43,30 +43,30 @@ body.dark,
 .dark #customer-detail-viewport,
 .dark #transaction-form-viewport,
 .dark main#main-content {
-  background-color: #252B33 !important;
-  color: #F1F3F5 !important;
+  background-color: #0A0E17 !important;
+  color: #F1F5F9 !important;
 }
 
 /* Dark Mode Scrollbars */
 .dark ::-webkit-scrollbar-track {
-  background: #252B33;
+  background: #0A0E17;
 }
 .dark ::-webkit-scrollbar-thumb {
-  background: #46515E;
+  background: #1E293B;
   border-radius: 4px;
 }
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: #5A6778;
+  background: #334155;
 }
 
-/* Dark Mode Header - Dynamic Tinting with User Selected Theme Color */
+/* Dark Mode Header - Futuristic Cyber Dark Styling */
 .dark #app-header,
 .dark header:not(#unified-auth-viewport *):not(#customer-portal-root *),
 .dark #customer-detail-viewport > header,
 .dark #transaction-form-viewport > header {
-  background-color: var(--brand-dark-header, color-mix(in srgb, var(--brand-primary, #6244a6) 38%, #1c222a)) !important;
-  border-color: var(--brand-dark-border, color-mix(in srgb, var(--brand-primary, #6244a6) 50%, #46515E)) !important;
-  color: #F3F5F7 !important;
+  background-color: #0F1626 !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #F8FAFC !important;
 }
 
 .dark #app-header h1,
@@ -74,33 +74,23 @@ body.dark,
 .dark #app-header h3,
 .dark #customer-detail-viewport > header h1,
 .dark #customer-detail-viewport > header h2 {
-  color: #F3F5F7 !important;
+  color: #F8FAFC !important;
 }
 
 .dark header:not(#unified-auth-viewport *):not(#customer-portal-root *) p,
 .dark header:not(#unified-auth-viewport *):not(#customer-portal-root *) span:not(.bg-yellow-300):not(.text-yellow-300):not(.bg-red-650):not(.text-white) {
-  color: #C0C7CF;
+  color: #94A3B8;
 }
 
 /* Dark Mode Header Icons */
 .dark header:not(#unified-auth-viewport *):not(#customer-portal-root *) button:not(#btn-submit-tx):not([id*="cash-"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-purple"]) {
-  color: #CBD1D8 !important;
+  color: #E2E8F0 !important;
 }
 .dark header:not(#unified-auth-viewport *):not(#customer-portal-root *) button:hover {
-  background-color: rgba(255, 255, 255, 0.08) !important;
+  background-color: rgba(255, 255, 255, 0.12) !important;
 }
 
-/* Dark Mode Tabs */
-.dark #tabs-header button {
-  color: #C5CBD2 !important;
-}
-.dark #tabs-header button[class*="text-yellow-300"],
-.dark #tabs-header button.active {
-  color: #F4D72C !important;
-}
-.dark #tabs-header span.bg-yellow-300 {
-  background-color: #F4D72C !important;
-}
+
 
 /* Dark Mode Card Backgrounds & Surfaces (Excluded for Login & Customer Portal) */
 .dark #main-dashboard .bg-white,

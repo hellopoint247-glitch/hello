@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan for Category Tag enhancements:\n1. Blocking English tags from being saved or collected in the tag section.\n2. Automated 1-month unused tag cleanup routine across custom categories, favorites, and tag overrides.",
+  "updatedAt": "2026-10-13T15:40:19.960968264Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

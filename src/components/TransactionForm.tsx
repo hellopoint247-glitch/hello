@@ -34,31 +34,14 @@ import { Contact, Transaction } from '../types';
 import { loadTransactions } from '../utils/storage';
 import { db, auth, handleFirestoreError, OperationType } from '../utils/firebase';
 import { doc, setDoc } from 'firebase/firestore';
-
-// Helper function to convert Bengali digits (০-৯) to English digits (0-9)
-export const convertBengaliDigitsToEnglish = (str: string): string => {
-  if (!str) return str;
-  const banglaToEnglishMap: Record<string, string> = {
-    '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
-    '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9'
-  };
-  return str.replace(/[০-৯]/g, (w) => banglaToEnglishMap[w] || w);
-};
-
-// Helper to determine if a string is pure numeric / phone number / code (should not be saved or shown as tag/category)
-export const isNumericOrPhoneTag = (str: string): boolean => {
-  if (!str) return true;
-  const trimmed = str.trim();
-  if (!trimmed) return true;
-  const english = convertBengaliDigitsToEnglish(trimmed);
-  // Phone number (e.g. 017..., +8801..., 8801...)
-  if (/^(\+?88)?01[0-9]{9}$/.test(english.replace(/[\s\-\(\)]/g, ''))) return true;
-  // If it has digits and only digits/formatting symbols (no Bengali or Latin alphabetical characters)
-  const nonSymbolAlpha = english.replace(/[0-9\s\-\+\#\*\:\.\,\/\(\)\_\;]/g, '');
-  const digitsOnly = english.replace(/[^0-9]/g, '');
-  if (digitsOnly.length > 0 && nonSymbolAlpha.length === 0) return true;
-  return false;
-};
+import { 
+  isValidTagForSection, 
+  isEnglishTag, 
+  isNumericOrPhoneTag, 
+  convertBengaliDigitsToEnglish, 
+  touchTagUsage, 
+  pruneTags 
+} from '../utils/tagManager';
 
 // Helper to sanitize tag input
 const sanitizeTagInput = (input: string): string => {
@@ -187,12 +170,27 @@ export function TransactionForm({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
+  // Automatically prune English tags and 1-month-unused tags on mount
+  useEffect(() => {
+    try {
+      const allTxs = loadTransactions();
+      const cached = localStorage.getItem('hellopoint_custom_categories');
+      const cats: string[] = cached ? JSON.parse(cached) : (customCategories || []);
+      const { deletedTags } = pruneTags(cats, allTxs);
+      if (deletedTags.length > 0) {
+        window.dispatchEvent(new Event('storage'));
+      }
+    } catch (e) {
+      console.error('Auto tag prune error:', e);
+    }
+  }, [customCategories]);
+
   // Tag Favorite, Categorization & Usage Recency States
   const [favoriteTags, setFavoriteTags] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('hellopoint_favorite_tags');
       const list: string[] = saved ? JSON.parse(saved) : [];
-      return list.filter(t => !isNumericOrPhoneTag(t));
+      return list.filter(t => isValidTagForSection(t));
     } catch {
       return [];
     }
@@ -204,7 +202,7 @@ export function TransactionForm({
       const map = saved ? JSON.parse(saved) : {};
       const cleanMap: Record<string, 'person' | 'transaction' | 'expense' | 'general'> = {};
       Object.keys(map).forEach(k => {
-        if (!isNumericOrPhoneTag(k) && map[k] !== 'number') {
+        if (isValidTagForSection(k) && map[k] !== 'number') {
           cleanMap[k] = map[k];
         }
       });
@@ -219,7 +217,7 @@ export function TransactionForm({
     try {
       const saved = localStorage.getItem('hellopoint_tag_recent_usage');
       const list: string[] = saved ? JSON.parse(saved) : [];
-      return list.filter(t => !isNumericOrPhoneTag(t));
+      return list.filter(t => isValidTagForSection(t));
     } catch {
       return [];
     }
@@ -232,14 +230,14 @@ export function TransactionForm({
         const savedFavs = localStorage.getItem('hellopoint_favorite_tags');
         if (savedFavs) {
           const list: string[] = JSON.parse(savedFavs);
-          setFavoriteTags(list.filter(t => !isNumericOrPhoneTag(t)));
+          setFavoriteTags(list.filter(t => isValidTagForSection(t)));
         }
         const savedOverrides = localStorage.getItem('hellopoint_tag_category_overrides');
         if (savedOverrides) {
           const map = JSON.parse(savedOverrides);
           const cleanMap: Record<string, 'person' | 'transaction' | 'expense' | 'general'> = {};
           Object.keys(map).forEach(k => {
-            if (!isNumericOrPhoneTag(k) && map[k] !== 'number') {
+            if (isValidTagForSection(k) && map[k] !== 'number') {
               cleanMap[k] = map[k];
             }
           });
@@ -248,7 +246,7 @@ export function TransactionForm({
         const savedUsage = localStorage.getItem('hellopoint_tag_recent_usage');
         if (savedUsage) {
           const list: string[] = JSON.parse(savedUsage);
-          setRecentUsageOrder(list.filter(t => !isNumericOrPhoneTag(t)));
+          setRecentUsageOrder(list.filter(t => isValidTagForSection(t)));
         }
       } catch (e) {
         console.error('Error syncing tag categories from storage:', e);
@@ -263,7 +261,8 @@ export function TransactionForm({
   const recordTagUsage = (tagName: string) => {
     try {
       const trimmed = tagName.trim();
-      if (!trimmed || isNumericOrPhoneTag(trimmed)) return;
+      if (!isValidTagForSection(trimmed)) return;
+      touchTagUsage(trimmed);
       const updated = [trimmed, ...recentUsageOrder.filter(t => t !== trimmed)];
       setRecentUsageOrder(updated);
       localStorage.setItem('hellopoint_tag_recent_usage', JSON.stringify(updated));
@@ -294,21 +293,21 @@ export function TransactionForm({
         const cached = localStorage.getItem('hellopoint_custom_categories');
         if (cached) {
           const parsed: string[] = JSON.parse(cached);
-          savedCategories = parsed.filter(n => !isNumericOrPhoneTag(n));
+          savedCategories = parsed.filter(n => isValidTagForSection(n));
         } else {
           const list = [...defaultNotes];
           try {
             const txs = loadTransactions();
             txs.forEach((tx) => {
               const trimmed = tx.note ? tx.note.trim() : '';
-              if (trimmed && !trimmed.includes(',') && !trimmed.includes('।') && !isNumericOrPhoneTag(trimmed) && !list.includes(trimmed)) {
+              if (trimmed && isValidTagForSection(trimmed) && !list.includes(trimmed)) {
                 list.push(trimmed);
               }
             });
           } catch (e) {
             console.error(e);
           }
-          savedCategories = list;
+          savedCategories = list.filter(n => isValidTagForSection(n));
           localStorage.setItem('hellopoint_custom_categories', JSON.stringify(savedCategories));
         }
 
@@ -321,17 +320,17 @@ export function TransactionForm({
 
     // Ensure all favorited or category-overridden tags are always included in savedCategories
     favoriteTags.forEach(tag => {
-      if (!isNumericOrPhoneTag(tag) && !savedCategories.includes(tag) && !savedDeleted.includes(tag)) {
+      if (isValidTagForSection(tag) && !savedCategories.includes(tag) && !savedDeleted.includes(tag)) {
         savedCategories.push(tag);
       }
     });
     Object.keys(tagOverrides).forEach(tag => {
-      if (!isNumericOrPhoneTag(tag) && !savedCategories.includes(tag) && !savedDeleted.includes(tag)) {
+      if (isValidTagForSection(tag) && !savedCategories.includes(tag) && !savedDeleted.includes(tag)) {
         savedCategories.push(tag);
       }
     });
 
-    const filtered = savedCategories.filter(n => !isNumericOrPhoneTag(n) && !savedDeleted.includes(n) && !n.includes(',') && !n.includes('।'));
+    const filtered = savedCategories.filter(n => isValidTagForSection(n) && !savedDeleted.includes(n));
     return filtered.slice(0, 500);
   }, [customCategories, deletedCategories, favoriteTags, tagOverrides]);
 
@@ -540,6 +539,11 @@ export function TransactionForm({
       setTimeout(() => setActionFeedback(null), 2000);
       return;
     }
+    if (isEnglishTag(cleaned)) {
+      setActionFeedback('⚠️ ইংরেজিতে লিখা ট্যাগ ট্যাগ সেকশনে জমা হবে না');
+      setTimeout(() => setActionFeedback(null), 2500);
+      return;
+    }
 
     // Immediately save to custom categories so it appears in recent notes and syncs real-time
     handleSaveNewCategory(cleaned);
@@ -628,7 +632,7 @@ export function TransactionForm({
     const cleaned = sanitizeTagInput(newCat);
     if (!cleaned) return;
     if (cleaned.includes(',') || cleaned.includes('।')) return;
-    if (isNumericOrPhoneTag(cleaned)) return; // Prevent number entries from saving as categories!
+    if (!isValidTagForSection(cleaned)) return; // Prevent number entries and English tags from saving as categories!
     
     recordTagUsage(cleaned);
 
@@ -638,7 +642,7 @@ export function TransactionForm({
       try {
         const cached = localStorage.getItem('hellopoint_custom_categories');
         let categories: string[] = cached ? JSON.parse(cached) : [];
-        categories = [cleaned, ...categories.filter(c => c !== cleaned && !isNumericOrPhoneTag(c))];
+        categories = [cleaned, ...categories.filter(c => c !== cleaned && isValidTagForSection(c))];
         localStorage.setItem('hellopoint_custom_categories', JSON.stringify(categories));
 
         // Ensure it is removed from deleted list if they are explicitly saving it
@@ -879,7 +883,7 @@ export function TransactionForm({
     }
 
     const trimmedNote = convertBengaliDigitsToEnglish(note.trim());
-    if (trimmedNote) {
+    if (trimmedNote && isValidTagForSection(trimmedNote)) {
       handleSaveNewCategory(trimmedNote);
     }
 
@@ -1095,6 +1099,17 @@ export function TransactionForm({
 
             {sortedRecentNotes.length > 0 && (
               <div className="mt-2 text-left w-full border-t border-slate-100 dark:border-slate-700/60 pt-2">
+                {/* Category Header with English-restriction and 1-month-unused auto-delete policy indicator */}
+                <div className="flex items-center justify-between gap-1 w-full text-[8.5px] text-slate-500 dark:text-slate-400 mb-1.5 px-0.5">
+                  <span className="font-bold flex items-center gap-1 text-slate-600 dark:text-slate-300">
+                    <Tag className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                    <span>ক্যাটাগরি ট্যাগ (বাংলা শুধুমাত্র)</span>
+                  </span>
+                  <span className="text-[8px] bg-slate-100 dark:bg-slate-700/60 px-1.5 py-0.5 rounded text-slate-500 dark:text-slate-300 font-medium">
+                    ১ মাস অব্যবহৃত ট্যাগ অটো ডিলিট
+                  </span>
+                </div>
+
                 {/* Quick Category Filter Tabs (Uniform styling, no numbering category) */}
                 <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 mb-2 w-full">
                   <button

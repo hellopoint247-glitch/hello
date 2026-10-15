@@ -6,8 +6,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { safeLocalStorage as localStorage } from './utils/safeStorage';
 import { motion, AnimatePresence } from 'motion/react';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount, RemoteTypeState } from './types';
-import { getInitialRemoteTypeState, syncRemoteTypeStateInstant, REMOTE_TYPE_STORAGE_KEY } from './components/RemoteTypeModals';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount } from './types';
 import { 
   loadContacts, 
   saveContacts, 
@@ -45,6 +44,10 @@ import { NotificationPermissionPrompt } from './components/NotificationPermissio
 import { ThemeMode, getSavedThemeMode, saveThemeMode, applyTheme } from './utils/theme';
 import { soundEngine } from './utils/audio';
 import { notifyWithDeduplication } from './utils/notifications';
+import { QuotaWarningBanner } from './components/QuotaWarningBanner';
+import { isValidTagForSection, pruneTags, touchTagUsage } from './utils/tagManager';
+import { PWAInstallBanner } from './components/PWAInstallBanner';
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 // Firebase core integration imports
 import { 
@@ -53,7 +56,10 @@ import {
   loginWithGoogle, 
   logoutFromGoogle, 
   handleFirestoreError, 
-  OperationType 
+  OperationType,
+  isQuotaExceeded,
+  isQuotaError,
+  markQuotaExceeded
 } from './utils/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { 
@@ -112,13 +118,13 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>(() => loadProducts());
   const [shopOrders, setShopOrders] = useState<ShopOrder[]>(() => loadShopOrders());
   const [shopCustomers, setShopCustomers] = useState<ShopCustomerAccount[]>(() => loadShopCustomers());
-  const [remoteTypeState, setRemoteTypeState] = useState<RemoteTypeState>(() => getInitialRemoteTypeState());
   const [quickFaqs, setQuickFaqs] = useState<ChatQuickFAQ[]>(() => loadQuickFaqs());
   const [currency, setCurrencyState] = useState('৳');
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [deletedCategories, setDeletedCategories] = useState<string[]>([]);
   const [themeColor, setThemeColor] = useState<string>(() => localStorage.getItem('hellopoint_theme_color') || '#6244a6');
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => getSavedThemeMode());
+  const [ownerUid, setOwnerUid] = useState<string | null>(() => localStorage.getItem('hellopoint_synced_owner_uid'));
 
   // Dynamic theme support
   useEffect(() => {
@@ -200,9 +206,12 @@ export default function App() {
     const trimmed = category.trim();
     if (!trimmed) return;
     if (trimmed.includes(',') || trimmed.includes('।')) return;
+    // Rule 1: English tags must not be accumulated/saved in the tag section
+    if (!isValidTagForSection(trimmed)) return;
+    touchTagUsage(trimmed);
 
     setCustomCategories(prev => {
-      let updated = [...prev];
+      let updated = [...prev.filter(c => isValidTagForSection(c))];
       if (!updated.includes(trimmed)) {
         updated = [trimmed, ...updated];
       }
@@ -233,6 +242,22 @@ export default function App() {
       return updated;
     });
   };
+
+  // Automated Tag Cleanup:
+  // 1. Tags written in English are not accumulated/saved in the tag section
+  // 2. Tags that are 1 month old and unused in the last 1 month are automatically deleted
+  useEffect(() => {
+    if (customCategories.length === 0) return;
+    const { prunedCategories, deletedTags } = pruneTags(customCategories, transactions);
+    if (deletedTags.length > 0) {
+      setCustomCategories(prunedCategories);
+      const activeUid = user?.uid || ownerUid;
+      if (activeUid && auth.currentUser && auth.currentUser.uid === activeUid) {
+        setDoc(doc(db, 'users', activeUid), { customCategories: prunedCategories }, { merge: true })
+          .catch(err => console.error('Failed to sync pruned categories:', err));
+      }
+    }
+  }, [transactions, customCategories, user, ownerUid]);
 
   const handleDeleteCategory = async (category: string) => {
     const trimmed = category.trim();
@@ -268,7 +293,6 @@ export default function App() {
     });
   };
 
-  const [ownerUid, setOwnerUid] = useState<string | null>(() => localStorage.getItem('hellopoint_synced_owner_uid'));
   const [customerOfflineObj, setCustomerOfflineObj] = useState<Contact | null>(null);
   const [customerTransactions, setCustomerTransactions] = useState<Transaction[]>([]);
 
@@ -395,13 +419,19 @@ export default function App() {
         await migrateLocalToCloud(currentUser.uid);
 
         // Save Owner configuration to find ownerUid across all devices seamlessly
-        try {
-          await setDoc(doc(db, 'public', 'owner_config'), { 
-            ownerUid: currentUser.uid, 
-            ownerEmail: currentUser.email 
-          }, { merge: true });
-        } catch (err) {
-          console.error('Failed to save public owner config:', err);
+        if (!isQuotaExceeded()) {
+          try {
+            await setDoc(doc(db, 'public', 'owner_config'), { 
+              ownerUid: currentUser.uid, 
+              ownerEmail: currentUser.email 
+            }, { merge: true });
+          } catch (err) {
+            if (isQuotaError(err)) {
+              markQuotaExceeded();
+            } else {
+              console.error('Failed to save public owner config:', err);
+            }
+          }
         }
       }
     });
@@ -416,148 +446,11 @@ export default function App() {
         }
       }
     });
-
-    let lastPromotedLiveNumber = '';
-
-    const applyRemoteTypeIfChanged = (incoming: RemoteTypeState) => {
-      let nextSent = (incoming.sentNumbers || []).slice(0, 15);
-      const cleanLive = (incoming.liveNumber || '').trim();
-      const cleanAmt = (incoming.liveAmount || '').trim();
-
-      // A device is recognized as the Owner (উইনার) if Gmail (Google Sign-In) is connected
-      const isOwnerDevice = Boolean((user && user.email) || (auth.currentUser && auth.currentUser.email));
-
-      if (isOwnerDevice && cleanLive.length === 11 && cleanLive !== lastPromotedLiveNumber) {
-        lastPromotedLiveNumber = cleanLive;
-        // User requested: "উইনার air typing আইকনের ভেতর ছাড়া অন্য কোথাও কোনো ফিচার শো হবে না।"
-        // Do not pop external notifications outside the Air Typing icon.
-        if (nextSent[0]?.number !== cleanLive) {
-          nextSent = [
-            {
-              id: 'rt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-              number: cleanLive,
-              amount: cleanAmt || '',
-              createdAt: incoming.updatedAt || new Date().toISOString()
-            },
-            ...nextSent
-          ].slice(0, 15);
-          const autoUpdated: RemoteTypeState = {
-            ...incoming,
-            sentNumbers: nextSent
-          };
-          try {
-            localStorage.setItem(REMOTE_TYPE_STORAGE_KEY, JSON.stringify(autoUpdated));
-          } catch {}
-        }
-      } else if (cleanLive.length < 11) {
-        lastPromotedLiveNumber = '';
-      }
-
-      const normalizedIncoming: RemoteTypeState = {
-        ...incoming,
-        sentNumbers: nextSent,
-        permanentNumbers: Array.isArray(incoming.permanentNumbers)
-          ? incoming.permanentNumbers.slice(0, 100)
-          : [],
-        numberStats: incoming.numberStats || {},
-        ownerCopied: Boolean(incoming.ownerCopied),
-        ownerCopiedAt: typeof incoming.ownerCopiedAt === 'string' ? incoming.ownerCopiedAt : undefined
-      };
-
-      setRemoteTypeState((prev) => {
-        if (
-          prev.liveNumber === normalizedIncoming.liveNumber &&
-          prev.liveAmount === normalizedIncoming.liveAmount &&
-          prev.isTyping === normalizedIncoming.isTyping &&
-          prev.isRotated === normalizedIncoming.isRotated &&
-          prev.ownerCopied === normalizedIncoming.ownerCopied &&
-          prev.ownerCopiedAt === normalizedIncoming.ownerCopiedAt &&
-          prev.sentNumbers.length === normalizedIncoming.sentNumbers.length &&
-          prev.sentNumbers[0]?.id === normalizedIncoming.sentNumbers[0]?.id &&
-          (prev.permanentNumbers || []).length === (normalizedIncoming.permanentNumbers || []).length &&
-          (prev.permanentNumbers || [])[0]?.id === (normalizedIncoming.permanentNumbers || [])[0]?.id
-        ) {
-          return prev;
-        }
-        return normalizedIncoming;
-      });
-    };
-
-    // Ultra-fast real-time listener for Remote Type (public/remote_type)
-    const unsubRemoteType = onSnapshot(doc(db, 'public', 'remote_type'), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data() as any;
-        const incoming: RemoteTypeState = {
-          liveNumber: typeof data.liveNumber === 'string' ? data.liveNumber : '',
-          liveAmount: typeof data.liveAmount === 'string' ? data.liveAmount : '',
-          isTyping: Boolean(data.isTyping),
-          isRotated: Boolean(data.isRotated),
-          ownerCopied: Boolean(data.ownerCopied),
-          ownerCopiedAt: typeof data.ownerCopiedAt === 'string' ? data.ownerCopiedAt : undefined,
-          sentNumbers: Array.isArray(data.sentNumbers) ? data.sentNumbers.slice(0, 15) : [],
-          permanentNumbers: Array.isArray(data.permanentNumbers) ? data.permanentNumbers.slice(0, 100) : [],
-          numberStats: typeof data.numberStats === 'object' && data.numberStats !== null ? data.numberStats : {},
-          updatedAt: data.updatedAt || new Date().toISOString()
-        };
-        applyRemoteTypeIfChanged(incoming);
-        try {
-          localStorage.setItem(REMOTE_TYPE_STORAGE_KEY, JSON.stringify(incoming));
-        } catch {}
-      }
-    });
-
-    const handleLocalRemoteEvent = (e: Event) => {
-      const custom = e as CustomEvent<RemoteTypeState>;
-      if (custom.detail) {
-        applyRemoteTypeIfChanged(custom.detail);
-      } else {
-        applyRemoteTypeIfChanged(getInitialRemoteTypeState());
-      }
-    };
-
-    window.addEventListener('hellopoint_remote_type_local', handleLocalRemoteEvent);
-
-    let bc: BroadcastChannel | null = null;
-    try {
-      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        bc = new BroadcastChannel('hellopoint_remote_type_channel');
-        bc.onmessage = (ev) => {
-          if (ev.data && typeof ev.data.liveNumber === 'string') {
-            applyRemoteTypeIfChanged(ev.data);
-          }
-        };
-      }
-    } catch {}
-
     return () => {
       unsubscribe();
       unsubPublic();
-      unsubRemoteType();
-      window.removeEventListener('hellopoint_remote_type_local', handleLocalRemoteEvent);
-      if (bc) bc.close();
     };
   }, []);
-
-  // 2-minute inactivity auto-clear for any typed/dialed number across sessions
-  // User requested: "কেও যদি একটি অথবা অর্ধেক হোক বা পুরো নাম্বার হোক, নাম্বার টাইপ করে রেখে দে বা দুই মিনিট দরে কেও নাম্বার টাইপ বা কপি না করে তাহলে অটোমেটিক ডায়েল করা নাম্বার মুছে যাবে।"
-  useEffect(() => {
-    if (!remoteTypeState.liveNumber && !remoteTypeState.liveAmount) return;
-    const timer = setTimeout(() => {
-      setRemoteTypeState((prev) => {
-        if (!prev.liveNumber && !prev.liveAmount) return prev;
-        const clearedState: RemoteTypeState = {
-          ...prev,
-          liveNumber: '',
-          liveAmount: '',
-          isTyping: false,
-          updatedAt: new Date().toISOString()
-        };
-        syncRemoteTypeStateInstant(clearedState, true);
-        return clearedState;
-      });
-    }, 120000); // 2 minutes (120 seconds)
-    return () => clearTimeout(timer);
-  }, [remoteTypeState.liveNumber, remoteTypeState.liveAmount, remoteTypeState.updatedAt]);
 
   // Sync state loading & real-time updates based on account state (Offline fallback or Unified Cloud synchronization)
   useEffect(() => {
@@ -1194,7 +1087,6 @@ export default function App() {
       setProducts(loadProducts());
       setShopOrders(loadShopOrders());
       setShopCustomers(loadShopCustomers());
-      setRemoteTypeState(getInitialRemoteTypeState());
       setQuickFaqs(loadQuickFaqs());
       const savedChats = localStorage.getItem('hellopoint_chat_messages');
       if (savedChats) {
@@ -1222,7 +1114,8 @@ export default function App() {
         }
         const localSaved = localStorage.getItem('hellopoint_custom_categories');
         if (localSaved) {
-          setCustomCategories(JSON.parse(localSaved));
+          const parsed: string[] = JSON.parse(localSaved);
+          setCustomCategories(parsed.filter(c => isValidTagForSection(c)));
         } else {
           const defaultNotes = [
             'মালামাল কেনা বাবদ',
@@ -1271,123 +1164,34 @@ export default function App() {
             setThemeColor(data.themeColor);
             localStorage.setItem('hellopoint_theme_color', data.themeColor);
             window.dispatchEvent(new Event('storage'));
-          } else {
-            try {
-              const localTheme = localStorage.getItem('hellopoint_theme_color');
-              if (localTheme && (user?.uid || activeUid)) {
-                setDoc(docUser, { themeColor: localTheme }, { merge: true }).catch(err => {
-                  console.warn('Silent themeColor sync notice:', err);
-                });
-              }
-            } catch (e) {
-              console.error(e);
-            }
           }
           if (data.customCategories) {
-            setCustomCategories(data.customCategories);
-            localStorage.setItem('hellopoint_custom_categories', JSON.stringify(data.customCategories));
+            const cleanList = (data.customCategories as string[]).filter(c => isValidTagForSection(c));
+            setCustomCategories(cleanList);
+            localStorage.setItem('hellopoint_custom_categories', JSON.stringify(cleanList));
             window.dispatchEvent(new Event('storage'));
-          } else {
-            try {
-              const localSaved = localStorage.getItem('hellopoint_custom_categories');
-              if (localSaved) {
-                const parsed = JSON.parse(localSaved);
-                setCustomCategories(parsed);
-                if (user?.uid || activeUid) {
-                  setDoc(docUser, { customCategories: parsed }, { merge: true }).catch(err => {
-                    console.warn('Silent customCategories sync notice:', err);
-                  });
-                }
-              }
-            } catch (e) {
-              console.error(e);
-            }
           }
           if (data.deletedCategories) {
             setDeletedCategories(data.deletedCategories);
             localStorage.setItem('hellopoint_deleted_notes', JSON.stringify(data.deletedCategories));
             window.dispatchEvent(new Event('storage'));
-          } else {
-            try {
-              const localSaved = localStorage.getItem('hellopoint_deleted_notes');
-              if (localSaved) {
-                const parsed = JSON.parse(localSaved);
-                setDeletedCategories(parsed);
-                if (user?.uid || activeUid) {
-                  setDoc(docUser, { deletedCategories: parsed }, { merge: true }).catch(err => {
-                    console.warn('Silent deletedCategories sync notice:', err);
-                  });
-                }
-              }
-            } catch (e) {
-              console.error(e);
-            }
           }
-
           if (data.favoriteTags) {
             localStorage.setItem('hellopoint_favorite_tags', JSON.stringify(data.favoriteTags));
             window.dispatchEvent(new Event('storage'));
-          } else {
-            try {
-              const localFavs = localStorage.getItem('hellopoint_favorite_tags');
-              if (localFavs && (user?.uid || activeUid)) {
-                setDoc(docUser, { favoriteTags: JSON.parse(localFavs) }, { merge: true }).catch(() => {});
-              }
-            } catch (e) {
-              console.error(e);
-            }
           }
-
           if (data.tagCategoryOverrides) {
             localStorage.setItem('hellopoint_tag_category_overrides', JSON.stringify(data.tagCategoryOverrides));
             window.dispatchEvent(new Event('storage'));
-          } else {
-            try {
-              const localOverrides = localStorage.getItem('hellopoint_tag_category_overrides');
-              if (localOverrides && (user?.uid || activeUid)) {
-                setDoc(docUser, { tagCategoryOverrides: JSON.parse(localOverrides) }, { merge: true }).catch(() => {});
-              }
-            } catch (e) {
-              console.error(e);
-            }
           }
-        }
-      } else {
-        if (user || activeUid) {
-          const currentPin = localStorage.getItem('hellopoint_pin') || '1234';
-          const currentShopStatus = localStorage.getItem('hellopoint_shop_status') || 'open';
-          const currentTheme = localStorage.getItem('hellopoint_theme_color') || '#6244a6';
-          
-          let initialCustom: string[] = [];
-          let initialDeleted: string[] = [];
-          let initialFavs: string[] = [];
-          let initialOverrides: Record<string, string> = {};
-          try {
-            const cached = localStorage.getItem('hellopoint_custom_categories');
-            if (cached) initialCustom = JSON.parse(cached);
-            const cachedDeleted = localStorage.getItem('hellopoint_deleted_notes');
-            if (cachedDeleted) initialDeleted = JSON.parse(cachedDeleted);
-            const cachedFavs = localStorage.getItem('hellopoint_favorite_tags');
-            if (cachedFavs) initialFavs = JSON.parse(cachedFavs);
-            const cachedOverrides = localStorage.getItem('hellopoint_tag_category_overrides');
-            if (cachedOverrides) initialOverrides = JSON.parse(cachedOverrides);
-          } catch(e) {}
-
-          setDoc(docUser, { 
-            pin: currentPin, 
-            shopStatus: currentShopStatus,
-            customCategories: initialCustom,
-            deletedCategories: initialDeleted,
-            favoriteTags: initialFavs,
-            tagCategoryOverrides: initialOverrides,
-            themeColor: currentTheme
-          }).catch(err => {
-            console.warn('Silent settings initialization notice:', err);
-          });
         }
       }
     }, (error) => {
-      console.warn('Settings subscription notice:', error);
+      if (isQuotaError(error)) {
+        markQuotaExceeded();
+      } else {
+        console.warn('Settings subscription notice:', error);
+      }
     });
 
     return () => unsubUser();
@@ -1855,6 +1659,10 @@ export default function App() {
   // Migrate local details to cloud securely upon sign-in
   const migrateLocalToCloud = async (uid: string) => {
     try {
+      if (isQuotaExceeded()) {
+        console.warn('Firestore quota reached. Skipping initial cloud migration until quota resets.');
+        return;
+      }
       const offlineContacts = loadContacts();
       const offlineTransactions = loadTransactions();
       const offlineCashbook = loadCashbook();
@@ -1882,34 +1690,47 @@ export default function App() {
       
       // Perform batch writes for each entity
       for (const cont of offlineContacts) {
+        if (isQuotaExceeded()) break;
         await setDoc(doc(db, 'users', uid, 'contacts', cont.id), cleanForFirestore(cont));
       }
       for (const tx of offlineTransactions) {
+        if (isQuotaExceeded()) break;
         await setDoc(doc(db, 'users', uid, 'transactions', tx.id), cleanForFirestore(tx));
       }
       for (const cb of offlineCashbook) {
+        if (isQuotaExceeded()) break;
         await setDoc(doc(db, 'users', uid, 'cashbook', cb.id), cleanForFirestore(cb));
       }
       for (const pb of offlinePayBills) {
+        if (isQuotaExceeded()) break;
         await setDoc(doc(db, 'users', uid, 'paybills', pb.id), cleanForFirestore(pb));
       }
       for (const cia of offlineCashInAccounts) {
+        if (isQuotaExceeded()) break;
         await setDoc(doc(db, 'users', uid, 'cashin_accounts', cia.id), cleanForFirestore(cia));
       }
       for (const cit of offlineCashInTransactions) {
+        if (isQuotaExceeded()) break;
         await setDoc(doc(db, 'users', uid, 'cashin_transactions', cit.id), cleanForFirestore(cit));
       }
       for (const prod of offlineProducts) {
+        if (isQuotaExceeded()) break;
         await setDoc(doc(db, 'users', uid, 'products', prod.id), cleanForFirestore(prod));
       }
       for (const faq of offlineQuickFaqs) {
+        if (isQuotaExceeded()) break;
         await setDoc(doc(db, 'users', uid, 'quick_faqs', faq.id), cleanForFirestore(faq));
       }
 
-      // Mark migration as successful to prevent double syncs
-      localStorage.setItem(migrationToken, 'true');
-      console.log('Synchronized off-grid transactions and products to Hello Point database cloud.');
+      // Mark migration as successful to prevent double syncs if quota wasn't exceeded
+      if (!isQuotaExceeded()) {
+        localStorage.setItem(migrationToken, 'true');
+        console.log('Synchronized off-grid transactions and products to Hello Point database cloud.');
+      }
     } catch (err) {
+      if (isQuotaError(err)) {
+        markQuotaExceeded();
+      }
       console.error('Account ledger migration warning:', err);
     }
   };
@@ -2389,21 +2210,6 @@ export default function App() {
     }
   };
 
-  const handleUpdateRemoteTypeState = useCallback((nextState: RemoteTypeState) => {
-    setRemoteTypeState((prev) => {
-      if (
-        prev.liveNumber === nextState.liveNumber &&
-        prev.isTyping === nextState.isTyping &&
-        prev.sentNumbers.length === nextState.sentNumbers.length &&
-        prev.sentNumbers[0]?.id === nextState.sentNumbers[0]?.id
-      ) {
-        return prev;
-      }
-      return nextState;
-    });
-    syncRemoteTypeStateInstant(nextState);
-  }, []);
-
   const handleSaveQuickFaqs = async (faqs: ChatQuickFAQ[]) => {
     setQuickFaqs(faqs);
     saveQuickFaqs(faqs);
@@ -2838,7 +2644,7 @@ export default function App() {
     }
   };
 
-  const handleDeletePayBill = async (id: string) => {
+  const handleDeletePayBill = async (id: string, refundAccount: boolean = true) => {
     soundEngine.playDeleteSound();
     // Instantaneous local UI updates & local persistent backup update
     setPayBills(prev => {
@@ -2847,10 +2653,10 @@ export default function App() {
       return updated;
     });
 
-    // Refund matched Cash In account if this paybill had deducted balance
+    // Handle matched Cash In account transaction
     const existingCashInTx = cashInTransactions.find(t => t.paybillId === id || t.id === 'tx-pb-' + id);
     if (existingCashInTx) {
-      await handleDeleteCashInTransaction(existingCashInTx.id, true);
+      await handleDeleteCashInTransaction(existingCashInTx.id, refundAccount);
     }
 
     const activeUid = user?.uid || ownerUid;
@@ -3026,6 +2832,78 @@ export default function App() {
       }
     }
   };
+
+  // Auto cleanup Cash In transactions older than 6 months (retaining current month + previous 5 months)
+  useEffect(() => {
+    if (!cashInTransactions || cashInTransactions.length === 0) return;
+
+    const now = new Date();
+    // 6-month window: current month + past 5 months (total 6 calendar months)
+    const oldestAllowedDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const oldestAllowedKey = `${oldestAllowedDate.getFullYear()}-${String(oldestAllowedDate.getMonth() + 1).padStart(2, '0')}`;
+
+    const getTxMonthKey = (dateStr?: string) => {
+      if (!dateStr) return '';
+      try {
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        }
+      } catch {}
+      if (/^\d{4}-\d{2}/.test(dateStr)) return dateStr.substring(0, 7);
+      return '';
+    };
+
+    const expiredTxs = cashInTransactions.filter(tx => {
+      const mk = getTxMonthKey(tx.date || tx.createdAt);
+      return mk && mk < oldestAllowedKey;
+    });
+
+    if (expiredTxs.length > 0) {
+      expiredTxs.forEach(tx => {
+        handleDeleteCashInTransaction(tx.id, false); // false = do not refund account on 6-month archival cleanup
+      });
+    }
+  }, [cashInTransactions]);
+
+  // Auto cleanup SIM account recharge records older than 6 months without modifying account balance
+  useEffect(() => {
+    if (!cashInAccounts || cashInAccounts.length === 0) return;
+
+    const now = new Date();
+    const oldestAllowedDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const oldestAllowedKey = `${oldestAllowedDate.getFullYear()}-${String(oldestAllowedDate.getMonth() + 1).padStart(2, '0')}`;
+
+    let accountsModified = false;
+    const updatedAccounts = cashInAccounts.map(acc => {
+      if (!acc.rechargeHistory || acc.rechargeHistory.length === 0) return acc;
+      const validHistory = acc.rechargeHistory.filter(r => {
+        const dStr = r.date || r.createdAt || '';
+        const mKey = dStr ? dStr.substring(0, 7) : '';
+        return !mKey || mKey >= oldestAllowedKey;
+      });
+      if (validHistory.length !== acc.rechargeHistory.length) {
+        accountsModified = true;
+        return {
+          ...acc,
+          rechargeHistory: validHistory,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return acc;
+    });
+
+    if (accountsModified) {
+      setCashInAccounts(updatedAccounts);
+      saveCashInAccounts(updatedAccounts);
+      const activeUid = user?.uid || ownerUid;
+      if (activeUid) {
+        updatedAccounts.forEach(acc => {
+          setDoc(doc(db, 'users', activeUid, 'cashin_accounts', acc.id), cleanForFirestore(acc)).catch(() => {});
+        });
+      }
+    }
+  }, [cashInAccounts, user, ownerUid]);
 
   const resolvedCashbook = useMemo(() => {
     // Pre-compute contact balances
@@ -3208,6 +3086,7 @@ export default function App() {
   if (!isLocked && sessionRole === 'customer' && loggedInCustomerObj) {
     return (
       <>
+        <QuotaWarningBanner lang={lang} />
         <NotificationPermissionPrompt lang={lang} />
         <CustomerPortal 
           customer={loggedInCustomerObj}
@@ -3235,6 +3114,9 @@ export default function App() {
 
   return (
     <div className="relative min-h-screen select-none selection:bg-purple-100 antialiased overflow-x-hidden transition-colors duration-300 bg-[#eaeff5] dark:bg-[#252B33] text-slate-800 dark:text-[#F1F3F5]">
+      {/* Quota limit warning banner */}
+      <QuotaWarningBanner lang={lang} />
+
       {/* Global Notification Permission Prompt for all visitors to HelloPoint.online */}
       <NotificationPermissionPrompt lang={lang} />
 
@@ -3302,8 +3184,6 @@ export default function App() {
               onDeleteShopOrder={handleDeleteShopOrder}
               shopCustomers={shopCustomers}
               onDeleteShopCustomer={handleDeleteShopCustomer}
-              remoteTypeState={remoteTypeState}
-              onUpdateRemoteTypeState={handleUpdateRemoteTypeState}
               quickFaqs={quickFaqs}
               onSaveQuickFaqs={handleSaveQuickFaqs}
               cashInAccounts={cashInAccounts}
@@ -3415,8 +3295,6 @@ export default function App() {
           shopCustomers={shopCustomers}
           onCreateShopOrder={handleCreateShopOrder}
           onSaveShopCustomer={handleSaveShopCustomer}
-          remoteTypeState={remoteTypeState}
-          onUpdateRemoteTypeState={handleUpdateRemoteTypeState}
           chatMessages={chatMessages}
           onSendChatMessage={handleSendChatMessage}
           onDeleteChatMessage={handleDeleteChatMessage}
@@ -3427,6 +3305,12 @@ export default function App() {
           onMarkChatsAsRead={handleMarkChatsAsRead}
         />
       )}
+
+      {/* Welcoming PWA Browser In-App Install Banner for all visitors */}
+      <PWAInstallBanner lang={lang} />
+
+      {/* Offline Mode Indicator */}
+      <OfflineIndicator lang={lang} />
 
     </div>
   );

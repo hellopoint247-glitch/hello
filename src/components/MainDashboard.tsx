@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { safeLocalStorage as localStorage } from '../utils/safeStorage';
 import { 
   BookOpen, 
@@ -75,16 +75,16 @@ import {
   sendTestNotification, 
   notifyWithDeduplication 
 } from '../utils/notifications';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount, RemoteTypeState } from '../types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount } from '../types';
 import { ThemeMode } from '../utils/theme';
 import { ChatBox } from './ChatBox';
 import { ShopManagementModal } from './ShopManagementModal';
 import { downloadParcelLabelImage } from '../utils/parcelLabelGenerator';
-import { OwnerRemoteTypeModal, getInitialRemoteTypeState, syncRemoteTypeStateInstant } from './RemoteTypeModals';
 import ChatAutoReplySettingsModal from './ChatAutoReplySettingsModal';
 import { getContactSummary, loadQuickFaqs, saveQuickFaqs, loadSavedPayBillAccounts, addSavedPayBillAccount, findMatchingCashInAccount } from '../utils/storage';
 import BanglaCalendar from './BanglaCalendar';
 import { CashInView } from './CashInView';
+import { PWAInstallButton } from './PWAInstallButton';
 import { motion, AnimatePresence } from 'motion/react';
 
 const normalizeString = (str: string): string => {
@@ -121,7 +121,7 @@ interface MainDashboardProps {
   onSignOut: () => void;
   paybills: PayBillEntry[];
   onSavePayBill: (paybill: PayBillEntry, addToCustomerLedger?: boolean, matchedContactId?: string) => void;
-  onDeletePayBill: (id: string) => void;
+  onDeletePayBill: (id: string, refundAccount?: boolean) => void;
   lang?: 'bn' | 'en';
   setLang?: (l: 'bn' | 'en') => void;
   onLogout: () => void;
@@ -156,8 +156,6 @@ interface MainDashboardProps {
   onDeleteShopOrder?: (orderId: string) => void;
   shopCustomers?: ShopCustomerAccount[];
   onDeleteShopCustomer?: (customerId: string) => void;
-  remoteTypeState?: RemoteTypeState;
-  onUpdateRemoteTypeState?: (state: RemoteTypeState) => void;
   quickFaqs?: ChatQuickFAQ[];
   onSaveQuickFaqs?: (faqs: ChatQuickFAQ[]) => void;
   cashInAccounts?: CashInAccount[];
@@ -251,8 +249,6 @@ export function MainDashboard({
   onDeleteShopOrder,
   shopCustomers = [],
   onDeleteShopCustomer,
-  remoteTypeState: propRemoteTypeState,
-  onUpdateRemoteTypeState,
   quickFaqs,
   onSaveQuickFaqs,
   cashInAccounts = [],
@@ -267,57 +263,7 @@ export function MainDashboard({
   // Bilingual localization state
   const [localLang, setLocalLang] = useState<'bn' | 'en'>(() => (localStorage.getItem('hellopoint_lang') as 'bn' | 'en') || 'bn');
   const lang = propLang || localLang;
-  const [showRemoteTypeModal, setShowRemoteTypeModal] = useState(false);
-  const activeRemoteState = propRemoteTypeState || getInitialRemoteTypeState();
-  const updateRemoteState = onUpdateRemoteTypeState || syncRemoteTypeStateInstant;
 
-  const handleToggleRotateRemote = () => {
-    const nextRotated = !activeRemoteState.isRotated;
-    updateRemoteState({
-      ...activeRemoteState,
-      isRotated: nextRotated,
-      updatedAt: new Date().toISOString()
-    });
-  };
-
-  const handleClearLiveRemoteNumber = () => {
-    const cleanLive = (activeRemoteState.liveNumber || '').trim();
-    let nextSent = (activeRemoteState.sentNumbers || []).slice(0, 15);
-    if (cleanLive && nextSent[0]?.number !== cleanLive) {
-      nextSent = [
-        {
-          id: 'rt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-          number: cleanLive,
-          createdAt: new Date().toISOString()
-        },
-        ...nextSent
-      ].slice(0, 15);
-    }
-    updateRemoteState({
-      ...activeRemoteState,
-      liveNumber: '',
-      liveAmount: '',
-      isTyping: false,
-      sentNumbers: nextSent,
-      updatedAt: new Date().toISOString()
-    });
-  };
-
-  const handleDeleteSentRemoteNumber = (id: string) => {
-    updateRemoteState({
-      ...activeRemoteState,
-      sentNumbers: (activeRemoteState.sentNumbers || []).filter(item => item.id !== id),
-      updatedAt: new Date().toISOString()
-    });
-  };
-
-  const handleClearAllSentRemoteNumbers = () => {
-    updateRemoteState({
-      ...activeRemoteState,
-      sentNumbers: [],
-      updatedAt: new Date().toISOString()
-    });
-  };
   const setLang = (l: 'bn' | 'en') => {
     localStorage.setItem('hellopoint_lang', l);
     if (propSetLang) propSetLang(l);
@@ -819,6 +765,7 @@ export function MainDashboard({
         deleted_notes: JSON.parse(localStorage.getItem('hellopoint_deleted_notes') || '[]'),
         favorite_tags: JSON.parse(localStorage.getItem('hellopoint_favorite_tags') || '[]'),
         tag_category_overrides: JSON.parse(localStorage.getItem('hellopoint_tag_category_overrides') || '{}'),
+        tag_metadata: JSON.parse(localStorage.getItem('hellopoint_tag_metadata') || '{}'),
         settings: {
           lang: localStorage.getItem('hellopoint_lang') || 'bn',
           currency: localStorage.getItem('hellopoint_currency') || '৳',
@@ -880,6 +827,7 @@ export function MainDashboard({
           if (backup.deleted_notes) localStorage.setItem('hellopoint_deleted_notes', JSON.stringify(backup.deleted_notes));
           if (backup.favorite_tags) localStorage.setItem('hellopoint_favorite_tags', JSON.stringify(backup.favorite_tags));
           if (backup.tag_category_overrides) localStorage.setItem('hellopoint_tag_category_overrides', JSON.stringify(backup.tag_category_overrides));
+          if (backup.tag_metadata) localStorage.setItem('hellopoint_tag_metadata', JSON.stringify(backup.tag_metadata));
           
           if (backup.settings) {
             if (backup.settings.lang) localStorage.setItem('hellopoint_lang', backup.settings.lang);
@@ -1385,7 +1333,7 @@ export function MainDashboard({
 
     if (expiredPaybills.length > 0) {
       expiredPaybills.forEach(pb => {
-        onDeletePayBill(pb.id);
+        onDeletePayBill(pb.id, false);
       });
     }
   }, [paybills, lang, onDeletePayBill]);
@@ -1890,6 +1838,9 @@ export function MainDashboard({
           </div>
           
           <div className="flex items-center gap-1.5">
+            {/* In-App PWA Install Trigger Button */}
+            <PWAInstallButton lang={lang} variant="header" />
+
             {/* The Inbox Chat Button */}
             <motion.button 
               id="header-inbox-trigger"
@@ -1975,33 +1926,6 @@ export function MainDashboard({
                 )}
               </motion.button>
             )}
-
-            {/* Remote Type Live Receiver Header Icon Button */}
-            <motion.button
-              id="header-remote-type-trigger"
-              onClick={() => setShowRemoteTypeModal(true)}
-              whileHover={{ scale: 1.15 }}
-              whileTap={{ scale: 0.90 }}
-              className={`p-1.5 rounded-full transition-all focus:outline-none relative cursor-pointer ${
-                activeRemoteState.liveNumber
-                  ? 'animate-bell-glow scale-110 shadow-lg text-white ring-2 ring-amber-400/60'
-                  : 'bg-white/10 hover:bg-white/20 text-yellow-300'
-              }`}
-              title={lang === 'bn' ? 'Air Typing লাইভ নাম্বার ও টাকা দেখুন' : 'View Air Typing Live Numbers'}
-            >
-              <Radio
-                className={`w-5 h-5 ${
-                  activeRemoteState.liveNumber
-                    ? 'text-emerald-300 animate-pulse'
-                    : 'text-yellow-300'
-                }`}
-              />
-              {activeRemoteState.liveNumber && (
-                <span className="absolute -top-1 -right-1 min-w-4.5 h-4.5 bg-red-650 text-white rounded-full text-[8.5px] font-black flex items-center justify-center px-1 border border-brand-primary shadow-md animate-bounce">
-                  1
-                </span>
-              )}
-            </motion.button>
 
             {/* The Vertical Three-Dot Menu Button requested by user */}
             <motion.button 
@@ -6018,19 +5942,6 @@ export function MainDashboard({
           themeColor={themeColor}
         />
       )}
-
-      {/* OWNER REMOTE TYPE LIVE MONITOR MODAL */}
-      <OwnerRemoteTypeModal
-        isOpen={showRemoteTypeModal}
-        onClose={() => setShowRemoteTypeModal(false)}
-        lang={lang}
-        remoteState={activeRemoteState}
-        onClearLiveNumber={handleClearLiveRemoteNumber}
-        onDeleteSentNumber={handleDeleteSentRemoteNumber}
-        onClearAllSentNumbers={handleClearAllSentRemoteNumbers}
-        onToggleRotate={handleToggleRotateRemote}
-        onUpdateRemoteState={updateRemoteState}
-      />
 
       {/* CHAT AUTO-REPLY & CANNED FAQS SETTINGS MODAL */}
       <ChatAutoReplySettingsModal 

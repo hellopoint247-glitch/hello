@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { safeLocalStorage as localStorage } from '../utils/safeStorage';
-import { Lock, ShieldCheck, X, KeyRound, ArrowRight, ArrowLeft, UserPlus, User, Users, Phone, Clock, Camera, Trash2, MessageCircle, ShoppingBag, Radio } from 'lucide-react';
-import { Contact, Product, ChatMessage, ChatQuickFAQ, ShopOrder, ShopCustomerAccount, RemoteTypeState } from '../types';
+import { Lock, ShieldCheck, X, KeyRound, ArrowRight, ArrowLeft, UserPlus, User, Users, Phone, Clock, Camera, Trash2, MessageCircle, ShoppingBag } from 'lucide-react';
+import { Contact, Product, ChatMessage, ChatQuickFAQ, ShopOrder, ShopCustomerAccount } from '../types';
+import { PWAInstallButton } from './PWAInstallButton';
 
 export interface RememberedCustomer {
   id: string;
@@ -82,7 +83,6 @@ const saveRememberedList = (list: RememberedCustomer[]) => {
 import { APP_PROPRIETOR_NAME } from '../version';
 import { VisitorLiveChatModal } from './VisitorLiveChatModal';
 import { VisitorShopModal } from './VisitorShopModal';
-import { VisitorRemoteTypeModal, getInitialRemoteTypeState, syncRemoteTypeStateInstant } from './RemoteTypeModals';
 import { soundEngine } from '../utils/audio';
 import { PremiumAppLoader } from './PremiumAppLoader';
 
@@ -100,8 +100,6 @@ interface PinLockScreenProps {
   shopCustomers?: ShopCustomerAccount[];
   onCreateShopOrder?: (order: ShopOrder) => void;
   onSaveShopCustomer?: (customer: ShopCustomerAccount) => void;
-  remoteTypeState?: RemoteTypeState;
-  onUpdateRemoteTypeState?: (state: RemoteTypeState) => void;
   chatMessages?: ChatMessage[];
   onSendChatMessage?: (contactId: string, text: string, senderRole?: 'owner' | 'customer', senderName?: string, senderPhone?: string) => void;
   onDeleteChatMessage?: (messageId: string) => void;
@@ -126,8 +124,6 @@ export function PinLockScreen({
   shopCustomers = [],
   onCreateShopOrder,
   onSaveShopCustomer,
-  remoteTypeState,
-  onUpdateRemoteTypeState,
   chatMessages = [],
   onSendChatMessage,
   onDeleteChatMessage,
@@ -144,7 +140,6 @@ export function PinLockScreen({
   // Visitor Feature Modals State
   const [showLiveChatModal, setShowLiveChatModal] = useState<boolean>(false);
   const [showShopModal, setShowShopModal] = useState<boolean>(false);
-  const [showRemoteTypeModal, setShowRemoteTypeModal] = useState<boolean>(false);
   const [chatInitialMessage, setChatInitialMessage] = useState<string>('');
   const [chatInitialName, setChatInitialName] = useState<string>('');
   const [chatInitialPhone, setChatInitialPhone] = useState<string>('');
@@ -441,16 +436,21 @@ export function PinLockScreen({
           </span>
         </div>
         
-        {/* Language Selection Switch on-screen */}
-        {setLang && (
-          <button 
-            type="button"
-            onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')}
-            className="bg-purple-50 hover:bg-purple-100 text-purple-755 border border-purple-200/50 hover:border-purple-300 active:scale-95 transition-all text-[9px] px-2 py-0.8 rounded-md font-black tracking-wide shrink-0 cursor-pointer"
-          >
-            {lang === 'bn' ? 'ENGLISH / ভাষা' : 'বাংলা / LANG'}
-          </button>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Header PWA Install Trigger */}
+          <PWAInstallButton lang={lang} variant="header" />
+
+          {/* Language Selection Switch on-screen */}
+          {setLang && (
+            <button 
+              type="button"
+              onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')}
+              className="bg-purple-50 hover:bg-purple-100 text-purple-755 border border-purple-200/50 hover:border-purple-300 active:scale-95 transition-all text-[9px] px-2 py-0.8 rounded-md font-black tracking-wide shrink-0 cursor-pointer"
+            >
+              {lang === 'bn' ? 'ENGLISH / ভাষা' : 'বাংলা / LANG'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Decorative premium ambient gradient backdrops */}
@@ -488,9 +488,9 @@ export function PinLockScreen({
               )}
             </h1>
 
-            {/* VISITOR SERVICES: LIVE CHAT, ONLINE SHOP & REMOTE TYPE - DIRECTLY UNDER HELLOPOINT LOGO */}
+            {/* VISITOR SERVICES: LIVE CHAT & ONLINE SHOP - DIRECTLY UNDER HELLOPOINT LOGO */}
             <div className="w-full mt-2 mb-2">
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-2 gap-2">
                 {/* 1. Live Chat Button with dot */}
                 <button
                   type="button"
@@ -498,7 +498,7 @@ export function PinLockScreen({
                     setChatInitialMessage('');
                     setShowLiveChatModal(true);
                   }}
-                  className="relative flex items-center justify-center gap-1 py-2.5 px-2 bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-200/80 rounded-xl text-emerald-800 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
+                  className="relative flex items-center justify-center gap-1.5 py-2.5 px-3 bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-200/80 rounded-xl text-emerald-800 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
                 >
                   {/* Blinking Dot Indicator in front of name */}
                   <span className="relative flex h-1.5 w-1.5 shrink-0">
@@ -512,20 +512,20 @@ export function PinLockScreen({
                     )}
                   </span>
 
-                  <span className="text-[9.5px] sm:text-[10px] font-bold tracking-tight whitespace-nowrap">
+                  <span className="text-[10px] sm:text-[11px] font-bold tracking-tight whitespace-nowrap">
                     {lang === 'bn' ? 'লাইভ চ্যাট' : 'Live Chat'}
                   </span>
-                  <MessageCircle className="w-3 h-3 text-emerald-600 group-hover:scale-110 transition-transform shrink-0" />
+                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform shrink-0" />
                 </button>
 
                 {/* 2. Online Shop Button */}
                 <button
                   type="button"
                   onClick={() => setShowShopModal(true)}
-                  className="relative flex items-center justify-center gap-1 py-2.5 px-2 bg-indigo-50/70 hover:bg-indigo-100/70 border border-indigo-200/80 rounded-xl text-indigo-800 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
+                  className="relative flex items-center justify-center gap-1.5 py-2.5 px-3 bg-indigo-50/70 hover:bg-indigo-100/70 border border-indigo-200/80 rounded-xl text-indigo-800 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
                 >
-                  <ShoppingBag className="w-3 h-3 text-indigo-600 group-hover:scale-110 transition-transform shrink-0" />
-                  <span className="text-[9.5px] sm:text-[10px] font-bold tracking-tight whitespace-nowrap">
+                  <ShoppingBag className="w-3.5 h-3.5 text-indigo-600 group-hover:scale-110 transition-transform shrink-0" />
+                  <span className="text-[10px] sm:text-[11px] font-bold tracking-tight whitespace-nowrap">
                     {lang === 'bn' ? 'অনলাইন শপ' : 'Online Shop'}
                   </span>
                   {products.filter(p => p.inStock).length > 0 && (
@@ -534,18 +534,11 @@ export function PinLockScreen({
                     </span>
                   )}
                 </button>
+              </div>
 
-                {/* 3. Remote Type Button */}
-                <button
-                  type="button"
-                  onClick={() => setShowRemoteTypeModal(true)}
-                  className="relative flex items-center justify-center gap-1 py-2.5 px-2 bg-amber-50/80 hover:bg-amber-100/80 border border-amber-200/90 rounded-xl text-amber-900 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
-                >
-                  <Radio className="w-3 h-3 text-amber-600 group-hover:scale-110 transition-transform shrink-0 animate-pulse" />
-                  <span className="text-[9.5px] sm:text-[10px] font-bold tracking-tight whitespace-nowrap">
-                    {lang === 'bn' ? 'Air Typing' : 'Air Typing'}
-                  </span>
-                </button>
+              {/* In-App PWA Install Trigger Button for Visitors */}
+              <div className="w-full mt-2">
+                <PWAInstallButton lang={lang} variant="full" />
               </div>
             </div>
 
@@ -1058,15 +1051,6 @@ export function PinLockScreen({
         shopCustomers={shopCustomers}
         onCreateShopOrder={onCreateShopOrder}
         onSaveShopCustomer={onSaveShopCustomer}
-      />
-
-      {/* VISITOR REMOTE TYPE DIALPAD MODAL */}
-      <VisitorRemoteTypeModal
-        isOpen={showRemoteTypeModal}
-        onClose={() => setShowRemoteTypeModal(false)}
-        lang={lang}
-        remoteState={remoteTypeState || getInitialRemoteTypeState()}
-        onUpdateRemoteState={onUpdateRemoteTypeState || syncRemoteTypeStateInstant}
       />
 
       {/* REGISTRATION SUBMISSION LOADER */}

@@ -234,6 +234,12 @@ export function CustomerDetail({
     return getContactSummary(contact.id, transactions);
   }, [contact.id, transactions]);
 
+  const toBengaliNumber = (num: number | string): string => {
+    if (num === null || num === undefined) return '';
+    const bnDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+    return num.toString().replace(/\d/g, (d) => bnDigits[parseInt(d, 10)]);
+  };
+
   // Balance calculation progressively to match Screenshot 2's "Bal. ৳ ..." details on each line item
   // We need items in chronological order to calculate running balance
   const txsWithRunningBalance = useMemo(() => {
@@ -243,9 +249,9 @@ export function CustomerDetail({
     let running = 0;
     const mapped = list.map(t => {
       if (t.type === 'GAVE') {
-        running += t.amount; // shop gave, so customer owes more
+        running += (Number(t.amount) || 0); // shop gave, so customer owes more
       } else {
-        running -= t.amount; // shop got, so customer owes less
+        running -= (Number(t.amount) || 0); // shop got, so customer owes less
       }
       return {
         ...t,
@@ -254,22 +260,28 @@ export function CustomerDetail({
     });
     
     // Return order matching screen (newest first)
+    const query = (searchTxQuery || '').trim().toLowerCase();
+    if (!query) {
+      return mapped.reverse();
+    }
+
     return mapped.reverse().filter(t => {
-      const matchSearch = (t.note || '').toLowerCase().includes(searchTxQuery.toLowerCase()) || 
-        (t.billNo && t.billNo.toLowerCase().includes(searchTxQuery.toLowerCase())) ||
-        (toBengaliNumber(t.amount).includes(searchTxQuery) || t.amount.toString().includes(searchTxQuery));
-      return matchSearch;
+      const noteStr = (t.note || '').toLowerCase();
+      const billNoStr = (t.billNo || '').toLowerCase();
+      const amountNum = Number(t.amount) || 0;
+      const amountStr = String(amountNum).toLowerCase();
+      const bnAmountStr = toBengaliNumber(amountNum);
+
+      return noteStr.includes(query) ||
+        billNoStr.includes(query) ||
+        amountStr.includes(query) ||
+        bnAmountStr.includes(query);
     });
   }, [contact.id, transactions, searchTxQuery]);
 
   const isWeOwe = summary.balance < 0; 
   const isTheyOwe = summary.balance > 0;
   const absBalance = Math.abs(summary.balance);
-
-  const toBengaliNumber = (num: number | string): string => {
-    const bnDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
-    return num.toString().replace(/\d/g, (d) => bnDigits[parseInt(d, 10)]);
-  };
 
   const displayTime = (dateStr: string) => {
     try {
@@ -658,9 +670,9 @@ export function CustomerDetail({
 
             {/* Ledger Entries List */}
             <div>
-              <div className="flex justify-between items-center text-[9px] font-black tracking-widest text-slate-400 uppercase px-1 mb-1.5 pb-1 border-b border-slate-100">
-                <div className="flex items-center gap-1.5">
-                  <span>লেনদেন খতিয়ান তালিকা ({txsWithRunningBalance.length})</span>
+              <div className="flex justify-between items-center text-[9px] font-black tracking-widest text-slate-400 uppercase px-1 mb-1 pb-1 border-b border-slate-100">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="truncate">লেনদেন খতিয়ান তালিকা ({txsWithRunningBalance.length})</span>
                   <button 
                     type="button"
                     onClick={toggleHideRunningBalance}
@@ -674,10 +686,25 @@ export function CustomerDetail({
                     )}
                   </button>
                 </div>
-                <span className="flex gap-2">
-                  <span className="text-emerald-600">● পেয়েছি (+)</span>
-                  <span className="text-rose-500">● দিয়েছি (-)</span>
-                </span>
+                <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                  <span className="flex gap-1.5 text-[8.5px]">
+                    <span className="text-emerald-600 font-bold">● জমা (+)</span>
+                    <span className="text-rose-500 font-bold">● বাকি (-)</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Column labels matching 12-column row layout */}
+              <div className="grid grid-cols-12 items-center text-[8.5px] font-bold text-slate-400 uppercase px-2 sm:px-3 mb-1.5 select-none">
+                <div className="col-span-5 sm:col-span-5 flex items-center gap-1 min-w-0">
+                  <span className="truncate">ক্রমিক / তারিখ / বিবরণ</span>
+                </div>
+                <div className="col-span-4 sm:col-span-4 text-center">
+                  <span className="text-slate-500 dark:text-slate-400 font-black">মূল ব্যালেন্স</span>
+                </div>
+                <div className="col-span-3 sm:col-span-3 text-right">
+                  <span className="text-slate-500 dark:text-slate-400 font-black">{!hideRunningBalance ? 'জের ব্যালেন্স' : 'জের (লুকানো)'}</span>
+                </div>
               </div>
 
               <div id="ledger-rows-wrapper" className="space-y-3 sm:space-y-3.5 w-full flex flex-col">
@@ -737,9 +764,9 @@ export function CustomerDetail({
                               } border rounded-lg transition-all shadow-tiny hover:border-purple-300 select-none text-left flex flex-col overflow-hidden`}
                               id={`tx-card-${t.id}`}
                             >
-                              {/* Top-Row: Serial, Date, Category/Note, Mul Balance, and Jer Balance */}
-                              <div className={`${style.containerPadding} flex items-center justify-between cursor-pointer`}>
-                                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+                              {/* Top-Row: Left (Serial, Date, Note) | Middle (Main Balance) | Right (Jer Balance) */}
+                              <div className={`${style.containerPadding} grid grid-cols-12 items-center cursor-pointer gap-1 sm:gap-2`}>
+                                <div className="col-span-5 sm:col-span-5 flex items-center gap-1.5 sm:gap-2 min-w-0">
                                   {/* Serial Number: Clean typography without background or border */}
                                   <span 
                                     className="font-black font-mono text-[10px] sm:text-[11px] text-slate-700 dark:text-slate-200 shrink-0 min-w-[14px] text-center select-none"
@@ -762,29 +789,29 @@ export function CustomerDetail({
                                   
                                   <span className={`text-slate-300 dark:text-slate-600 ${style.separator} shrink-0 font-light`}>|</span>
 
-                                  {/* Note / Category & Main Balance (মুল ব্যালেন্স ক্যাটাগরির ডান পাশে) */}
-                                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                    <span className={`${style.noteText} font-extrabold text-slate-800 dark:text-slate-100 truncate`}>
-                                      {t.note || (isGaveType ? 'দিলেন (GAVE)' : 'পেলেন (RECEIVED)')}
-                                    </span>
-
-                                    {/* Main Balance (মুল ব্যালেন্স) right next to Category */}
-                                    <span className={`${style.amountText} font-black font-mono tracking-tight shrink-0 whitespace-nowrap ${
-                                      !isGaveType 
-                                        ? 'text-emerald-600 dark:text-emerald-400' 
-                                        : 'text-rose-600 dark:text-rose-400'
-                                    }`}>
-                                      {!isGaveType ? '+' : '-'}{currency}{t.amount.toFixed(2)}
-                                    </span>
-                                  </div>
+                                  {/* Note / Category */}
+                                  <span className={`${style.noteText} font-extrabold text-slate-800 dark:text-slate-100 truncate flex-1 min-w-0`}>
+                                    {t.note || (isGaveType ? 'দিলেন (GAVE)' : 'পেলেন (RECEIVED)')}
+                                  </span>
                                 </div>
 
-                                {/* Running Balance Column (জের ব্যালেন্স একটু বড় হবে) */}
-                                <div className="shrink-0 text-right flex items-center justify-end select-none pl-1.5">
+                                {/* Middle Column: Main Balance (মূল ব্যালেন্স) - centered in the middle, in a straight vertical line */}
+                                <div className="col-span-4 sm:col-span-4 flex items-center justify-center text-center">
+                                  <span className={`${style.amountText} font-black font-mono tabular-nums tracking-tight whitespace-nowrap text-center ${
+                                    !isGaveType 
+                                      ? 'text-emerald-600 dark:text-emerald-400' 
+                                      : 'text-rose-600 dark:text-rose-400'
+                                  }`}>
+                                    {!isGaveType ? '+' : '-'}{currency}{t.amount.toFixed(2)}
+                                  </span>
+                                </div>
+
+                                {/* Right Column: Jer Balance (জের ব্যালেন্স) - aligned right */}
+                                <div className="col-span-3 sm:col-span-3 flex items-center justify-end text-right">
                                   {!hideRunningBalance ? (
-                                    <span className={`${style.balanceText} font-bold tracking-tight leading-none inline-flex items-center gap-0.5 shrink-0`}>
+                                    <span className={`${style.balanceText} font-bold tracking-tight leading-none inline-flex items-center justify-end gap-0.5 shrink-0 whitespace-nowrap text-right`}>
                                       <span className="text-slate-400 dark:text-slate-500 font-normal">(</span>
-                                      <span className={`font-black font-mono ${
+                                      <span className={`font-black font-mono tabular-nums ${
                                         t.runningBalance < 0 
                                           ? 'text-emerald-600 dark:text-emerald-400' 
                                           : t.runningBalance > 0
@@ -797,7 +824,7 @@ export function CustomerDetail({
                                       <span className="text-slate-400 dark:text-slate-500 font-normal">)</span>
                                     </span>
                                   ) : (
-                                    <span className="text-[9px] font-extrabold text-slate-300 dark:text-slate-500 tracking-wider leading-none shrink-0">
+                                    <span className="text-[9px] font-extrabold text-slate-300 dark:text-slate-500 tracking-wider leading-none shrink-0 text-right">
                                       (•••)
                                     </span>
                                   )}

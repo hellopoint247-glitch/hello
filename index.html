@@ -4,11 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#6244a6" />
-    <!-- Apple Web App support -->
+    <!-- Mobile & PWA Web App support -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Hello Point" />
-    <link rel="apple-touch-icon" href="/icon-192.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon-192.svg" />
     <!-- Web App Manifest link -->
     <link rel="manifest" href="/manifest.json" />
     
@@ -17,7 +20,11 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
-    <title>Hello Point - Digital Cashbook</title>
+    <title>Hello Point</title>
+    <meta name="description" content="একটি নিরাপদ ও ক্লাউড-সংরক্ষিত ডিজিটাল হিসাব খাতা এবং ক্যাশবুক অ্যাপ্লিকেশন যা দিয়ে কাস্টমারদের বকেয়া এবং ব্যবসার দৈনিক লেনদেন সহজে ট্র্যাক করা যায়।" />
+    <meta property="og:title" content="Hello Point" />
+    <meta property="og:description" content="একটি নিরাপদ ও ক্লাউড-সংরক্ষিত ডিজিটাল হিসাব খাতা এবং ক্যাশবুক অ্যাপ্লিকেশন যা দিয়ে কাস্টমারদের বকেয়া এবং ব্যবসার দৈনিক লেনদেন সহজে ট্র্যাক করা যায়।" />
+    <meta property="og:image" content="/pwa-512x512.png" />
     <!-- Prevent Flash of Wrong Theme (FOWT) by resolving theme immediately -->
     <script>
       (function() {
