@@ -52,14 +52,14 @@ export function MonthlyReportFullView({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // Generate last 6 months list
-  const last6Months = useMemo(() => {
+  // Generate last 3 months list (Current month + past 2 months = total 3 months)
+  const last3Months = useMemo(() => {
     const months = [];
     const banglaMonths = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
     const englishMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     
     const now = new Date();
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 3; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const y = d.getFullYear();
       const m = d.getMonth() + 1;
@@ -76,14 +76,14 @@ export function MonthlyReportFullView({
   }, [lang]);
 
   const currentMonthObj = useMemo(() => {
-    return last6Months.find(m => m.key === selectedMonthKey) || {
+    return last3Months.find(m => m.key === selectedMonthKey) || {
       key: selectedMonthKey,
       labelBn: selectedMonthKey,
       labelEn: selectedMonthKey,
       fullLabelBn: selectedMonthKey,
       fullLabelEn: selectedMonthKey
     };
-  }, [last6Months, selectedMonthKey]);
+  }, [last3Months, selectedMonthKey]);
 
   // Compute month analytics
   const monthStats = useMemo(() => {
@@ -316,9 +316,9 @@ export function MonthlyReportFullView({
         </div>
       </div>
 
-      {/* 2. MONTH SELECTOR TABS (Last 6 Months) */}
+      {/* 2. MONTH SELECTOR TABS (Last 3 Months) */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {last6Months.map(m => {
+        {last3Months.map(m => {
           const isSelected = selectedMonthKey === m.key;
           return (
             <button

@@ -368,7 +368,7 @@ export function CashInView({
     return `${year}-${month}-${day}`;
   });
 
-  // Month-wise analytics filter (Default to current month, last 6 months)
+  // Month-wise analytics filter (Default to current month, last 3 months)
   const [selectedMonthKey, setSelectedMonthKey] = useState<string>(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -704,14 +704,14 @@ export function CashInView({
     });
   };
 
-  // Generate last 6 months list with Bengali and English names
-  const last6Months = useMemo(() => {
+  // Generate last 3 months list with Bengali and English names (চলতি মাস এবং পূর্ববর্তী ২ মাস = মোট ৩ মাস)
+  const last3Months = useMemo(() => {
     const months = [];
     const banglaMonths = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
     const englishMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
     const today = new Date();
-    for (let i = 5; i >= 0; i--) {
+    for (let i = 2; i >= 0; i--) {
       const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
       const year = d.getFullYear();
       const monthIdx = d.getMonth();
@@ -720,14 +720,17 @@ export function CashInView({
         key,
         year,
         monthIdx,
+        isCurrent: i === 0,
         labelBn: banglaMonths[monthIdx],
-        labelEn: englishMonths[monthIdx]
+        labelEn: englishMonths[monthIdx],
+        shortLabelBn: `${banglaMonths[monthIdx]} '${String(year).slice(-2)}`,
+        shortLabelEn: `${englishMonths[monthIdx].slice(0, 3)} '${String(year).slice(-2)}`
       });
     }
     return months;
   }, []);
 
-  // Compute month analytics for the selected month
+  // Compute month analytics for the selected month (within 3 months)
   const selectedMonthStats = useMemo(() => {
     const monthTxs = transactions.filter(tx => {
       const txDate = tx.createdAt ? tx.createdAt.slice(0, 7) : (tx.date ? tx.date.slice(0, 7) : '');
@@ -741,7 +744,7 @@ export function CashInView({
       .reduce((sum, tx) => sum + ((Number(tx.amount) || 0) / 1000) * 15, 0);
     const txCount = monthTxs.length;
 
-    const currentMonthObj = last6Months.find(m => m.key === selectedMonthKey);
+    const currentMonthObj = last3Months.find(m => m.key === selectedMonthKey);
 
     return {
       totalCashIn,
@@ -751,7 +754,7 @@ export function CashInView({
       labelBn: currentMonthObj?.labelBn || selectedMonthKey,
       labelEn: currentMonthObj?.labelEn || selectedMonthKey
     };
-  }, [transactions, selectedMonthKey, last6Months, accounts]);
+  }, [transactions, selectedMonthKey, last3Months, accounts]);
 
   // Daily Report stats and SIM-wise breakdown (এক নজরে একি সারিতে কোন নাম্বার থেকে কত ক্যাশ ইন)
   const selectedDailyStats = useMemo(() => {
@@ -1320,20 +1323,37 @@ export function CashInView({
     return accounts.find(a => a.id === targetId) || activeAccountForRecharge;
   }, [accounts, selectedAccIdForBalance, activeAccountForRecharge]);
 
-  // Combined history list for active account in modal (newest first)
-  const activeAccountCombinedHistory = useMemo(() => {
+  // Active SIM history month filter (Defaults to current active month: e.g. "2026-10", or "all")
+  // Ensures that as soon as a new month starts, history starts fresh while SIM balance stays intact
+  const [activeHistoryMonthKey, setActiveHistoryMonthKey] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  // All combined history for active account (within the allowed 3 months)
+  const activeAccountAllHistory = useMemo(() => {
     if (!currentActiveAccount) return [];
     return getCombinedHistoryForAccount(currentActiveAccount);
   }, [currentActiveAccount, transactions, lang]);
 
-  // Total recharged for this active account
+  // Combined history list for active account filtered by active month (newest first)
+  // By default, displays the current month fresh while the SIM balance remains intact!
+  const activeAccountCombinedHistory = useMemo(() => {
+    if (activeHistoryMonthKey === 'all') return activeAccountAllHistory;
+    return activeAccountAllHistory.filter(i => {
+      const dStr = i.date ? i.date.substring(0, 7) : '';
+      return dStr === activeHistoryMonthKey;
+    });
+  }, [activeAccountAllHistory, activeHistoryMonthKey]);
+
+  // Total recharged for this active account in selected month
   const activeAccountTotalRecharged = useMemo(() => {
     return activeAccountCombinedHistory
       .filter(i => i.type === 'recharge')
       .reduce((sum, item) => sum + item.amount, 0);
   }, [activeAccountCombinedHistory]);
 
-  // Total cash-in given from this active account
+  // Total cash-in given from this active account in selected month
   const activeAccountTotalCashIn = useMemo(() => {
     return activeAccountCombinedHistory
       .filter(i => i.type === 'cashin')
@@ -1884,6 +1904,48 @@ export function CashInView({
 
     return (
       <div className="space-y-2 flex flex-col h-full">
+        {/* 3-Month Separate History Selector (Current month + past 2 months) */}
+        <div className="flex items-center justify-between gap-1 pb-1 border-b border-slate-100 dark:border-slate-800/80 shrink-0">
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
+            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0 mr-0.5">
+              {lang === 'bn' ? 'মাস:' : 'Month:'}
+            </span>
+            {last3Months.map(m => {
+              const isSelected = activeHistoryMonthKey === m.key;
+              return (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => setActiveHistoryMonthKey(m.key)}
+                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold shrink-0 transition-all cursor-pointer flex items-center gap-1 ${
+                    isSelected
+                      ? 'bg-emerald-600 text-white shadow-xs font-black'
+                      : 'bg-slate-100 dark:bg-[#18202a] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800/60'
+                  }`}
+                >
+                  <span>{lang === 'bn' ? m.shortLabelBn : m.shortLabelEn}</span>
+                  {m.isCurrent && (
+                    <span className="px-1 py-0.2 rounded bg-amber-400 text-amber-950 font-black text-[8.5px] leading-none">
+                      {lang === 'bn' ? 'চলতি' : 'Now'}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setActiveHistoryMonthKey('all')}
+              className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold shrink-0 transition-all cursor-pointer ${
+                activeHistoryMonthKey === 'all'
+                  ? 'bg-purple-600 text-white shadow-xs font-black'
+                  : 'bg-slate-100 dark:bg-[#18202a] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800/60'
+              }`}
+            >
+              {lang === 'bn' ? 'সব (৩ মাস)' : 'All (3 Months)'}
+            </button>
+          </div>
+        </div>
+
         {/* Search and Filter Bar */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-1.5 shrink-0">
           {/* Search Box */}
@@ -3724,9 +3786,19 @@ export function CashInView({
               {/* Desktop Workspace Body: Split 2-Column Master-Detail Layout */}
               <div className="flex-1 flex overflow-hidden">
                 {/* ----------------------------------------------------------- */}
-                {/* Left Panel: ক্যাশ ইন এবং রিচার্জ এক পাশে (Control Desk) */}
+                {/* Left Panel: হিস্ট্রি সাইড বামে (History Master Table Stage) */}
                 {/* ----------------------------------------------------------- */}
-                <div className="w-[410px] xl:w-[440px] border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#141a22] p-4.5 space-y-3.5 overflow-y-auto shrink-0 flex flex-col">
+                <div className="flex-1 bg-slate-50/70 dark:bg-[#0c1015] p-4 lg:p-6 flex flex-col overflow-hidden space-y-3">
+                  {/* Customer-Style Ledger Stage */}
+                  <div className="flex-1 bg-white dark:bg-[#141a22] p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs overflow-hidden flex flex-col">
+                    {renderCustomerStyleHistory(currentActiveAccount, activeAccountCombinedHistory, true)}
+                  </div>
+                </div>
+
+                {/* ----------------------------------------------------------- */}
+                {/* Right Panel: এন্ট্রি সাইড ডানে (Control Desk: ক্যাশ ইন ও রিচার্জ) */}
+                {/* ----------------------------------------------------------- */}
+                <div className="w-[410px] xl:w-[440px] border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-[#141a22] p-4.5 space-y-3.5 overflow-y-auto shrink-0 flex flex-col">
                   {/* Account Overview Hero Card */}
                   <div className="bg-gradient-to-br from-emerald-600 via-teal-600 to-emerald-700 text-white rounded-2xl p-4 shadow-sm space-y-3">
                     <div className="flex items-center justify-between">
@@ -3977,16 +4049,6 @@ export function CashInView({
                         </span>
                       </div>
                     </div>
-                  </div>
-                </div>
-
-                {/* ----------------------------------------------------------- */}
-                {/* Right Panel: হিস্ট্রি এক পাশে (History Master Table Stage) */}
-                {/* ----------------------------------------------------------- */}
-                <div className="flex-1 bg-slate-50/70 dark:bg-[#0c1015] p-4 lg:p-6 flex flex-col overflow-hidden space-y-3">
-                  {/* Customer-Style Ledger Stage */}
-                  <div className="flex-1 bg-white dark:bg-[#141a22] p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-2xs overflow-hidden flex flex-col">
-                    {renderCustomerStyleHistory(currentActiveAccount, activeAccountCombinedHistory, true)}
                   </div>
                 </div>
               </div>

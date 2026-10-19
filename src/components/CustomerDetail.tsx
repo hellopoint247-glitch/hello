@@ -530,10 +530,10 @@ export function CustomerDetail({
   };
 
   return (
-    <div id="customer-detail-viewport" className="flex flex-col min-h-screen bg-[#eaeff5] dark:bg-[#252B33] text-slate-800 dark:text-[#F1F3F5] font-sans pb-20 select-none print:bg-white print:p-0">
+    <div id="customer-detail-viewport" className="flex flex-col min-h-screen bg-[#141b26] text-slate-100 font-sans pb-20 select-none print:bg-white print:p-0">
       
-      {/* Deep Purple Header containing Back buttons and options menu - Hides on print */}
-      <header className="bg-brand-primary text-white px-3 py-3.5 flex items-center justify-between shadow-md print:hidden">
+      {/* Signature Brand Theme Header containing Back buttons and options menu - Hides on print */}
+      <header className="bg-brand-primary text-white px-3 py-3.5 flex items-center justify-between shadow-md border-b-2 border-yellow-300 print:hidden">
         <div className="flex items-center gap-2">
           <button 
             id="btn-back"

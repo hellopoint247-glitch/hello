@@ -84,7 +84,6 @@ import ChatAutoReplySettingsModal from './ChatAutoReplySettingsModal';
 import { getContactSummary, loadQuickFaqs, saveQuickFaqs, loadSavedPayBillAccounts, addSavedPayBillAccount, findMatchingCashInAccount } from '../utils/storage';
 import BanglaCalendar from './BanglaCalendar';
 import { CashInView } from './CashInView';
-import { PWAInstallButton } from './PWAInstallButton';
 import { motion, AnimatePresence } from 'motion/react';
 
 const normalizeString = (str: string): string => {
@@ -195,6 +194,74 @@ const safeConfirm = (message: string): boolean => {
   }
 };
 
+const bnDigitsMap = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+const formatBengaliDigit = (numStr: string | number): string => {
+  return String(numStr).replace(/[0-9]/g, (digit) => bnDigitsMap[parseInt(digit, 10)]);
+};
+
+function formatHeaderLiveClock(lang: 'bn' | 'en') {
+  const dateObj = new Date();
+  if (lang === 'bn') {
+    const days = ['রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'];
+    const dayName = days[dateObj.getDay()];
+    const months = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
+    const dateNum = formatBengaliDigit(dateObj.getDate());
+    const monthName = months[dateObj.getMonth()];
+    
+    let hours = dateObj.getHours();
+    const ampm = hours >= 12 ? 'দুপুর' : 'সকাল';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+    const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+    
+    return {
+      formattedDate: `${dayName}, ${dateNum} ${monthName}`,
+      formattedTime: `${formatBengaliDigit(hours)}:${formatBengaliDigit(minutes)}:${formatBengaliDigit(seconds)} ${ampm}`
+    };
+  } else {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayName = days[dateObj.getDay()];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const dateNum = dateObj.getDate();
+    const monthName = months[dateObj.getMonth()];
+    
+    let hours = dateObj.getHours();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+    const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+    
+    return {
+      formattedDate: `${dayName}, ${dateNum} ${monthName}`,
+      formattedTime: `${hours}:${minutes}:${seconds} ${ampm}`
+    };
+  }
+}
+
+const HeaderLiveClock = React.memo(function HeaderLiveClock({ lang }: { lang: 'bn' | 'en' }) {
+  const [dateTime, setDateTime] = useState(() => formatHeaderLiveClock(lang));
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setDateTime(formatHeaderLiveClock(lang));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lang]);
+
+  return (
+    <div className="flex items-center gap-1.5 select-none leading-none mt-0.5">
+      <span className="text-[8px] sm:text-[9px] font-black text-yellow-300 tracking-tight leading-none border-r border-white/20 pr-1.5">
+        {dateTime.formattedDate}
+      </span>
+      <span className="text-[9px] sm:text-[10px] font-extrabold text-white/95 font-mono leading-none">
+        {dateTime.formattedTime}
+      </span>
+    </div>
+  );
+});
+
 export function MainDashboard({
   contacts,
   transactions,
@@ -239,7 +306,7 @@ export function MainDashboard({
   onDeleteChatMessage,
   onDeleteChatThread,
   onMarkChatsAsRead,
-  themeMode = 'system',
+  themeMode = 'dark',
   onChangeThemeMode,
   products = [],
   onSaveProduct,
@@ -393,11 +460,13 @@ export function MainDashboard({
     setTimeout(() => setTestNotificationSent(false), 4000);
   };
 
-  // Check reminders every 3 seconds for scheduled trigger wiggling & update tick time (Highly optimized functional updates)
+  // Check reminders periodically for scheduled trigger wiggling & update tick time (Highly optimized functional updates)
   useEffect(() => {
     const checkReminders = () => {
       const now = new Date();
-      setNowTicker(now);
+      if (showRemindersModal) {
+        setNowTicker(now);
+      }
       
       setReminders(prev => {
         let updated = false;
@@ -433,9 +502,9 @@ export function MainDashboard({
     };
 
     checkReminders();
-    const timer = setInterval(checkReminders, 3000);
+    const timer = setInterval(checkReminders, 15000);
     return () => clearInterval(timer);
-  }, []);
+  }, [showRemindersModal, lang]);
 
   // Synchronize reminders with localStorage updates (e.g. from customer logins or sync)
   useEffect(() => {
@@ -552,7 +621,6 @@ export function MainDashboard({
   
   // Replaced settings drawer with dynamic Three-Dot Menu
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
-  const [showThemeOptions, setShowThemeOptions] = useState(false);
   
   // Pay Bill State variables
   const [showPayBillModal, setShowPayBillModal] = useState(false);
@@ -924,62 +992,7 @@ export function MainDashboard({
     return String(enStr).replace(/[0-9]/g, (digit) => bnDigits[parseInt(digit, 10)]);
   };
 
-  // Real-time Bengali/English digital clock and day name
-  const [bnDateTime, setBnDateTime] = useState({ formattedDate: '', formattedTime: '' });
 
-  useEffect(() => {
-    const updateTime = () => {
-      const bnDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
-      const toBnDigits = (numStr: string | number): string => {
-        return String(numStr).replace(/[0-9]/g, (digit) => bnDigits[parseInt(digit, 10)]);
-      };
-      
-      const dateObj = new Date();
-      if (lang === 'bn') {
-        const days = ['রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'];
-        const dayName = days[dateObj.getDay()];
-        
-        const months = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
-        const dateNum = toBnDigits(dateObj.getDate());
-        const monthName = months[dateObj.getMonth()];
-        
-        let hours = dateObj.getHours();
-        const ampm = hours >= 12 ? 'দুপুর' : 'সকাল';
-        hours = hours % 12;
-        hours = hours ? hours : 12;
-        const minutes = String(dateObj.getMinutes()).padStart(2, '0');
-        const seconds = String(dateObj.getSeconds()).padStart(2, '0');
-        
-        setBnDateTime({
-          formattedDate: `${dayName}, ${dateNum} ${monthName}`,
-          formattedTime: `${toBnDigits(hours)}:${toBnDigits(minutes)}:${toBnDigits(seconds)} ${ampm}`
-        });
-      } else {
-        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const dayName = days[dateObj.getDay()];
-        
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const dateNum = dateObj.getDate();
-        const monthName = months[dateObj.getMonth()];
-        
-        let hours = dateObj.getHours();
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        hours = hours % 12;
-        hours = hours ? hours : 12;
-        const minutes = String(dateObj.getMinutes()).padStart(2, '0');
-        const seconds = String(dateObj.getSeconds()).padStart(2, '0');
-        
-        setBnDateTime({
-          formattedDate: `${dayName}, ${dateNum} ${monthName}`,
-          formattedTime: `${hours}:${minutes}:${seconds} ${ampm}`
-        });
-      }
-    };
-    
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, [lang]);
 
   const text = {
     bn: {
@@ -1134,6 +1147,7 @@ export function MainDashboard({
   };
 
   // Query search on contacts (sorted on selected filter criteria)
+  // Query search on contacts (sorted on selected filter criteria - 0 balance customers are NEVER hidden or deleted)
   const filteredContacts = useMemo(() => {
     const list = contacts
       .filter(c => c.type === 'customer')
@@ -1825,22 +1839,12 @@ export function MainDashboard({
               <div className="flex items-center gap-1 cursor-pointer">
                 <span className="text-base font-black tracking-tight text-white shadow-tiny">Hello Point</span>
               </div>
-              {/* Beautiful real-time Bengali/English calendar & clock */}
-              <div className="flex items-center gap-1.5 select-none leading-none mt-0.5 animate-pulse animate-duration-3000">
-                <span className="text-[8px] sm:text-[9px] font-black text-yellow-300 tracking-tight leading-none border-r border-white/20 pr-1.5">
-                  {bnDateTime.formattedDate}
-                </span>
-                <span className="text-[9px] sm:text-[10px] font-extrabold text-white/95 font-mono leading-none">
-                  {bnDateTime.formattedTime}
-                </span>
-              </div>
+              {/* Beautiful real-time Bengali/English calendar & clock (Isolated to prevent dashboard re-renders) */}
+              <HeaderLiveClock lang={lang} />
             </div>
           </div>
           
           <div className="flex items-center gap-1.5">
-            {/* In-App PWA Install Trigger Button */}
-            <PWAInstallButton lang={lang} variant="header" />
-
             {/* The Inbox Chat Button */}
             <motion.button 
               id="header-inbox-trigger"
@@ -2085,113 +2089,7 @@ export function MainDashboard({
                 </div>
               </div>
 
-              {/* Expandable Theme Settings Section */}
-              <div className="mb-3">
-                <button
-                  type="button"
-                  onClick={() => setShowThemeOptions(!showThemeOptions)}
-                  className="w-full flex items-center justify-between p-2.5 rounded-xl border border-slate-200/60 bg-white hover:bg-slate-50 transition-all cursor-pointer shadow-tiny select-none"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs">🎨</span>
-                    <span className="text-[10px] font-black tracking-wide text-slate-700 uppercase">
-                      {lang === 'bn' ? 'থিম ও স্টাইল সেটিংস' : 'Theme & Style Settings'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full border border-slate-200 shadow-tiny shrink-0" style={{ backgroundColor: themeColor }} />
-                    <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${showThemeOptions ? 'rotate-180' : ''}`} />
-                  </div>
-                </button>
 
-                {showThemeOptions && (
-                  <div className="mt-1.5 bg-slate-50/80 rounded-xl p-2.5 border border-slate-200/50 space-y-2.5 animate-fadeIn">
-                    {/* Theme Mode Selector (Light, Dark, System Default) */}
-                    <div>
-                      <p className="text-[8.5px] font-black text-slate-400 uppercase mb-1.5 font-sans">
-                        {lang === 'bn' ? 'থিম মোড (Theme Mode)' : 'Theme Mode'}
-                      </p>
-                      <div className="bg-white p-1 rounded-xl border border-slate-200/70 grid grid-cols-3 gap-1 shadow-tiny">
-                        {[
-                          { id: 'light', labelBn: 'লাইট', labelEn: 'Light', icon: Sun },
-                          { id: 'dark', labelBn: 'ডার্ক', labelEn: 'Dark', icon: Moon },
-                          { id: 'system', labelBn: 'সিস্টেম', labelEn: 'System', icon: Monitor }
-                        ].map((m) => {
-                          const Icon = m.icon;
-                          const isActive = themeMode === m.id;
-                          return (
-                            <button
-                              key={m.id}
-                              type="button"
-                              onClick={() => onChangeThemeMode && onChangeThemeMode(m.id as ThemeMode)}
-                              className={`py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 text-[9.5px] font-black transition-all cursor-pointer border ${
-                                isActive
-                                  ? 'text-white shadow-xs'
-                                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border-transparent'
-                              }`}
-                              style={isActive ? { backgroundColor: themeColor, borderColor: themeColor } : undefined}
-                              title={lang === 'bn' ? m.labelBn : m.labelEn}
-                            >
-                              <Icon className="w-3.5 h-3.5 shrink-0" />
-                              <span>{lang === 'bn' ? m.labelBn : m.labelEn}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Theme Color Palettes inside App Theme */}
-                    <div>
-                      <p className="text-[8.5px] font-black text-slate-400 uppercase mb-1.5 font-sans">
-                        {lang === 'bn' ? 'থিম কালার / App Theme' : 'App Theme Color'}
-                      </p>
-                      <div className="grid grid-cols-5 gap-1.5">
-                        {[
-                          { value: '#6244a6', title: 'Default' }, 
-                          { value: '#0284c7', title: 'Sky' },
-                          { value: '#0f766e', title: 'Teal' },
-                          { value: '#047857', title: 'Emerald' },
-                          { value: '#be123c', title: 'Rose' },
-                          { value: '#7c3aed', title: 'Violet' },
-                          { value: '#ea580c', title: 'Orange' },
-                          { value: '#334155', title: 'Slate' },
-                          { value: '#111827', title: 'Obsidian' }
-                        ].map(item => (
-                          <button
-                            key={item.value}
-                            type="button"
-                            onClick={() => onChangeThemeColor && onChangeThemeColor(item.value)}
-                            className="w-full aspect-square rounded-lg border transition-all cursor-pointer relative flex items-center justify-center hover:scale-105 active:scale-95 shadow-tiny"
-                            style={{ 
-                              backgroundColor: item.value,
-                              borderColor: themeColor === item.value ? '#eab308' : 'rgba(0,0,0,0.1)'
-                            }}
-                            title={item.title}
-                          >
-                            {themeColor === item.value && (
-                              <span className="w-1.5 h-1.5 bg-white rounded-full shadow-md" />
-                            )}
-                          </button>
-                        ))}
-                        
-                        {/* Custom Color Input Wheel */}
-                        <label 
-                          className="w-full aspect-square rounded-lg border border-slate-200 hover:border-slate-400 bg-white flex items-center justify-center cursor-pointer transition-all hover:scale-105 active:scale-95 relative shadow-tiny"
-                          title="Custom Color"
-                        >
-                          <span className="text-[10px]">🎨</span>
-                          <input 
-                            type="color" 
-                            value={themeColor} 
-                            onChange={(e) => onChangeThemeColor && onChangeThemeColor(e.target.value)}
-                            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" 
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
 
               {/* iPhone Calculator Trigger inside Three-Dot Dashboard */}
               <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
@@ -2644,31 +2542,31 @@ export function MainDashboard({
                   const isTheyOwe = summary.balance > 0;
                   const absoluteBalance = Math.abs(summary.balance);
 
-                  // Density sizes mapping configuration
+                  // Density sizes mapping configuration (prominently enlarged round profile avatar)
                   const dSizes = {
                     compact: {
-                      card: "p-1 px-1.5",
-                      avatar: "w-6 h-6 text-[9px]",
+                      card: "p-1.5 px-2",
+                      avatar: "w-9 h-9 text-xs",
                       title: "text-[10.5px]",
                       subtitle: "text-[8px]",
                       time: "text-[7.5px]",
                       amount: "text-[9.5px]",
                       label: "text-[7px]",
-                      gap: "gap-1"
+                      gap: "gap-2"
                     },
                     comfortable: {
-                      card: "p-1.5 px-2",
-                      avatar: "w-7.5 h-7.5 text-[11px]",
+                      card: "p-2 px-2.5",
+                      avatar: "w-11.5 h-11.5 text-sm",
                       title: "text-[11.5px]",
                       subtitle: "text-[9px]",
                       time: "text-[7.5px]",
                       amount: "text-[11px]",
                       label: "text-[7.5px]",
-                      gap: "gap-1.5"
+                      gap: "gap-2.5"
                     },
                     large: {
                       card: "p-4 sm:p-4.5",
-                      avatar: "w-11 h-11 text-sm",
+                      avatar: "w-15 h-15 text-lg",
                       title: "text-[13.5px]",
                       subtitle: "text-[10.5px]",
                       time: "text-[9px]",
@@ -2814,14 +2712,15 @@ export function MainDashboard({
                     {selectedMonthPaybills.filter(p => !p.isPaid).length} {lang === 'bn' ? 'টি বিল বাকি' : 'bills pending'}
                   </span>
                 </div>
-                <div className="px-1">
-                  <span className="block text-[8.5px] font-black text-slate-400 uppercase tracking-wider mb-0.5">
+                <div className="px-1.5 py-1 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200/80 dark:border-emerald-800/40">
+                  <span className="block text-[8.5px] font-black text-emerald-850 dark:text-emerald-300 uppercase tracking-wider mb-0.5 flex items-center justify-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                     {lang === 'bn' ? 'পরিশোধিত বিলসমূহ' : 'PAID BILLS'}
                   </span>
-                  <p className="text-sm font-black font-mono text-emerald-600">
+                  <p className="text-sm sm:text-base font-black font-mono text-emerald-700 dark:text-emerald-400">
                     {currency} {selectedMonthPaybills.filter(p => p.isPaid).reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
                   </p>
-                  <span className="text-[8.5px] font-extrabold text-brand-primary">
+                  <span className="text-[8.5px] font-bold text-emerald-700/80 dark:text-emerald-300/80">
                     {selectedMonthPaybills.filter(p => p.isPaid).length} {lang === 'bn' ? 'টি পরিশোধিত' : 'bills completed'}
                   </span>
                 </div>
@@ -3117,36 +3016,62 @@ export function MainDashboard({
                   };
                   const pClass = pSizes[cardDensity] || pSizes.comfortable;
 
+                  // Harmonious Palette:
+                  // - Paid Bills: Soft Sky Cyan (#142E3D) with Deep Green checkmark (✓)
+                  // - Unpaid Bills: Soft Light Khoyeri / Chestnut (#3D2622) with Deep Red mark (!)
+                  // - Crystal-clear bold white text on both cards for flawless readability
                   return (
-                    <motion.div 
+                    <div 
                       key={pb.id}
-                      whileHover={{ scale: 1.012, y: -0.5 }}
-                      whileTap={{ scale: 0.99 }}
                       onClick={() => {
                         setActivePayBillDetails(pb);
                         setPaidInfoText(pb.paidInfo || '');
                         setPaidAccountText(pb.paidAccount || '');
                         setAddPayBillToBaki(false);
                       }}
-                      className={`bg-white rounded-xl border flex flex-col transition-all shadow-tiny border-slate-200 hover:border-purple-300 cursor-pointer select-none overflow-hidden max-h-[44px] justify-center ${pClass}`}
+                      className={`relative rounded-xl border flex flex-col cursor-pointer select-none overflow-hidden max-h-[44px] justify-center transform-gpu transition-transform duration-75 ease-out hover:-translate-y-0.5 active:scale-[0.99] will-change-transform shadow-tiny ${
+                        pb.isPaid
+                          ? 'bg-[#142E3D] dark:bg-[#0F2430] hover:bg-[#193748] dark:hover:bg-[#142E3D] border-cyan-500/25 dark:border-cyan-500/30'
+                          : 'bg-[#3D2622] dark:bg-[#301D1A] hover:bg-[#4A2F2A] dark:hover:bg-[#38231F] border-[#A86958]/35 dark:border-[#965D4E]/40'
+                      } text-white ${pClass}`}
                     >
+                      {/* Soft Status Accent Bar on Left: Soft Cyan for Paid, Light Khoyeri for Unpaid */}
+                      <div className={`absolute left-0 top-0 bottom-0 w-1 ${pb.isPaid ? 'bg-cyan-400/80' : 'bg-[#C87D68]'}`} />
+
                       {/* Compact Top Row: strictly single-line horizontal alignment */}
-                      <div className="flex items-center justify-between gap-2 w-full overflow-hidden flex-nowrap">
-                        {/* Left: Serial Number, Bill Number, and Amount with Client details inline */}
+                      <div className="flex items-center justify-between gap-2 w-full overflow-hidden flex-nowrap relative z-10 pl-1">
+                        {/* Left: Serial Number, Biller Number, and Amount with Client details inline (Bold Crisp White) */}
                         <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden flex-nowrap whitespace-nowrap">
-                          <span className="text-[9px] px-1 py-0.5 bg-slate-100 text-slate-650 font-bold font-mono rounded shrink-0">
+                          {/* ক্রমিক নং */}
+                          <span className={`text-[9px] px-1.5 py-0.5 font-bold font-mono rounded shrink-0 border ${
+                            pb.isPaid
+                              ? 'bg-rose-500/20 text-rose-300 border-rose-400/35'
+                              : 'bg-[#A86958]/25 text-[#F5C2B5] border-[#A86958]/40'
+                          }`}>
                             #{monthSerialNo}
                           </span>
-                          <span className={`font-mono font-extrabold truncate shrink-0 max-w-[70px] sm:max-w-[120px] ${pb.isPaid ? 'text-slate-400 line-through' : 'text-slate-700'}`} title={pb.billerNumber}>
+
+                          {/* বিলার আইডি: গাঢ় স্পষ্ট সাদা */}
+                          <span className="font-mono font-bold truncate shrink-0 max-w-[70px] sm:max-w-[120px] text-white" title={pb.billerNumber}>
                             {pb.billerNumber}
                           </span>
-                          <span className="text-slate-300 font-mono shrink-0">|</span>
-                          <span className={`font-black font-mono shrink-0 ${pb.isPaid ? 'text-slate-400 line-through' : 'text-rose-500'}`}>
+
+                          <span className="font-mono shrink-0 text-white/35">|</span>
+
+                          {/* বিলের টাকা: গাঢ় স্পষ্ট সাদা */}
+                          <span className="font-black font-mono shrink-0 text-white">
                             {currency} {pb.amount.toFixed(2)}
                           </span>
-                          <span className="text-slate-300 font-mono shrink-0">|</span>
-                          <span className="text-[10px] text-slate-500 font-semibold truncate flex-1" title={`${pb.billerDetails}${pb.note ? ' - ' + pb.note : ''}`}>
-                            {pb.billerDetails} {pb.note && <span className="text-[9px] text-slate-400 font-normal font-mono">({pb.note})</span>}
+
+                          <span className="font-mono shrink-0 text-white/35">|</span>
+
+                          {/* কাস্টমার নাম ও বিবরণ: গাঢ় স্পষ্ট সাদা */}
+                          <span className="text-[10px] truncate flex-1 text-white font-bold" title={`${pb.billerDetails}${pb.note ? ' - ' + pb.note : ''}`}>
+                            {pb.billerDetails} {pb.note && (
+                              <span className="text-[9px] font-mono text-white/85 font-semibold">
+                                ({pb.note})
+                              </span>
+                            )}
                           </span>
                         </div>
 
@@ -3154,33 +3079,43 @@ export function MainDashboard({
                         <div className="flex items-center gap-1 shrink-0 pr-0.5">
                           {(pb.isOnline || Boolean(pb.contactId && pb.contactId.trim())) && (
                             <span 
-                              className="text-[7.5px] px-1 py-0.2 bg-blue-100 text-blue-800 font-black uppercase rounded shrink-0 flex items-center gap-0.5 border border-blue-200"
-                              title={lang === 'bn' ? 'কাস্টমার অনলাইনে বিলটি এন্ট্রি করেছেন' : 'Customer entered bill online'}
+                              className={`text-[7.5px] px-1 py-0.2 font-bold uppercase rounded shrink-0 flex items-center gap-0.5 border ${
+                                pb.isPaid
+                                  ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/30'
+                                  : 'bg-[#A86958]/25 text-[#F5C2B5] border-[#A86958]/40'
+                              }`}
+                              title={lang === 'bn' ? 'অনলাইন বিল' : 'Online Bill'}
                             >
-                              <Globe className="w-2 h-2 text-blue-600" />
+                              <Globe className={`w-2 h-2 ${pb.isPaid ? 'text-cyan-300' : 'text-[#F5C2B5]'}`} />
                               <span>online</span>
                             </span>
                           )}
 
+                          {/* লাস্ট নাম্বার */}
                           {pb.paidAccount && pb.paidAccount.trim() && (
                             <span 
-                              className="text-[8px] px-1 py-0.2 bg-purple-100 text-purple-800 font-mono font-bold rounded shrink-0 border border-purple-200"
+                              className={`text-[8px] px-1.5 py-0.2 font-mono font-bold rounded shrink-0 border ${
+                                pb.isPaid
+                                  ? 'bg-rose-500/20 text-rose-300 border-rose-400/35'
+                                  : 'bg-[#A86958]/25 text-[#F5C2B5] border-[#A86958]/40'
+                              }`}
                               title={lang === 'bn' ? `পরিশোধের লাস্ট নাম্বার: ${pb.paidAccount}` : `Paid Account: ${pb.paidAccount}`}
                             >
                               #{pb.paidAccount.trim()}
                             </span>
                           )}
 
+                          {/* স্ট্যাটাস: পেইড হলে গাঢ় সবুজ টিক মার্ক (✓), আনপেইড হলে গাঢ় লাল চিহ্ন (!) */}
                           {pb.isPaid ? (
                             <span 
-                              className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center font-black text-[10px] select-none border border-emerald-250 animate-fade-in shadow-tiny" 
+                              className="w-4 h-4 rounded-full flex items-center justify-center font-black text-[11px] select-none border shrink-0 bg-emerald-500/25 text-emerald-400 border-emerald-500 shadow-tiny" 
                               title={lang === 'bn' ? 'পরিশোধিত' : 'Paid'}
                             >
                               ✓
                             </span>
                           ) : (
                             <span 
-                              className="w-4 h-4 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center font-bold text-[9px] select-none border border-rose-100 animate-pulse shadow-tiny" 
+                              className="w-4 h-4 rounded-full flex items-center justify-center font-black text-[10px] select-none border shrink-0 bg-rose-500/25 text-rose-400 border-rose-500 shadow-tiny" 
                               title={lang === 'bn' ? 'বকেয়া' : 'Pending'}
                             >
                               !
@@ -3188,7 +3123,7 @@ export function MainDashboard({
                           )}
                         </div>
                       </div>
-                    </motion.div>
+                    </div>
                   );
                 })
               )}
@@ -3853,76 +3788,6 @@ export function MainDashboard({
 
             {/* List of active (triggered / due) notifications */}
             <div className="flex-1 overflow-y-auto space-y-3.5 min-h-0 pr-1 select-none">
-              {/* Background / Device Notification System Banner */}
-              <div className={`p-3.5 rounded-2xl border transition-all ${
-                notifPermission === 'granted'
-                  ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
-                  : 'bg-amber-50/80 border-amber-200 text-amber-950 shadow-sm'
-              }`}>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div className="flex items-start gap-2.5">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                      notifPermission === 'granted'
-                        ? 'bg-emerald-100 text-emerald-600'
-                        : 'bg-amber-100 text-amber-600 animate-pulse'
-                    }`}>
-                      {notifPermission === 'granted' ? (
-                        <CheckCircle2 className="w-5 h-5" />
-                      ) : (
-                        <Smartphone className="w-5 h-5" />
-                      )}
-                    </div>
-                    <div className="text-left space-y-0.5">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <h4 className="text-[11px] font-black leading-tight">
-                          {lang === 'bn' ? 'মোবাইল ব্যাকগ্রাউন্ড নোটিফিকেশন' : 'Mobile Background Notifications'}
-                        </h4>
-                        <span className={`text-[8.5px] font-black px-1.5 py-0.5 rounded-full ${
-                          notifPermission === 'granted'
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-amber-200 text-amber-900'
-                        }`}>
-                          {notifPermission === 'granted'
-                            ? (lang === 'bn' ? '✓ সক্রিয়' : '✓ Active')
-                            : (lang === 'bn' ? 'অনুমতি প্রয়োজন' : 'Action Needed')}
-                        </span>
-                      </div>
-                      <p className="text-[9px] text-slate-600 leading-relaxed font-medium">
-                        {notifPermission === 'granted'
-                          ? (lang === 'bn' 
-                              ? 'অ্যাপ বন্ধ বা স্ক্রিন লক থাকলেও নতুন নম্বর, রিচার্জ বা অর্ডারের সাউন্ড ও ভাইব্রেশন সরাসরি আপনার মোবাইলের নোটিফিকেশন বারে পৌঁছাবে।'
-                              : 'System alerts with sound & vibration will ring on your lockscreen even when the app is backgrounded.')
-                          : (lang === 'bn'
-                              ? 'অ্যাপ থেকে বের হয়ে গেলেও যাতে কাস্টমার নম্বর টাইপ করলে বা নতুন রিচার্জ এলে সাথে সাথে অ্যালার্ট পান, সেজন্য ব্যাকগ্রাউন্ড নোটিফিকেশন চালু করুন।'
-                              : 'Enable background alerts to receive notifications on your device status bar when away from the app.')}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 flex items-center gap-2 self-end sm:self-auto w-full sm:w-auto justify-end">
-                    {notifPermission === 'granted' ? (
-                      <button
-                        type="button"
-                        onClick={handleSendTestNotification}
-                        disabled={testNotificationSent}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-[9px] font-black transition-all shadow-xs cursor-pointer flex items-center gap-1"
-                      >
-                        <Volume2 className="w-3 h-3" />
-                        <span>{testNotificationSent ? (lang === 'bn' ? 'পাঠানো হয়েছে ✓' : 'Sent ✓') : (lang === 'bn' ? 'টেস্ট অ্যালার্ট পাঠান' : 'Send Test')}</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={handleRequestNotifPermission}
-                        className="px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 active:scale-95 text-white rounded-xl text-[9.5px] font-black transition-all shadow-md cursor-pointer flex items-center gap-1.5"
-                      >
-                        <Bell className="w-3.5 h-3.5 animate-bounce" />
-                        <span>{lang === 'bn' ? 'নোটিফিকেশন চালু করুন' : 'Enable Notifications'}</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
               {totalNotificationsCount === 0 ? (
                 <div className="text-center py-14 px-4 border border-dashed border-slate-200 rounded-2.5xl flex flex-col items-center justify-center text-slate-400">
                   <div className="bg-slate-50 p-4 rounded-full mb-3.5 border border-slate-100">
@@ -4899,41 +4764,51 @@ export function MainDashboard({
             <div className="flex-1 overflow-y-auto pr-1 space-y-2.5 scrollbar-thin text-[11px] text-slate-705">
               
               {/* Combined Single Side-by-Side Card (Left: Receipt/Amount/Biller ID, Right: Customer/Mobile/Dates) */}
-              <div className="bg-slate-50/80 border border-slate-200/80 p-2.5 rounded-2xl grid grid-cols-2 divide-x divide-slate-200/80 gap-2.5 items-center">
+              <div className={`p-2.5 rounded-2xl grid grid-cols-2 divide-x gap-2.5 items-center transition-all text-white shadow-md ${
+                activePayBillDetails.isPaid
+                  ? 'bg-[#142E3D] border border-cyan-500/30 divide-cyan-500/20'
+                  : 'bg-[#3D2622] border border-[#A86958]/35 divide-[#A86958]/25'
+              }`}>
                 {/* Left Side: Status, Amount & Biller ID */}
                 <div className="pr-1 text-center flex flex-col items-center justify-center space-y-1 min-w-0">
-                  <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full inline-block ${
-                    activePayBillDetails.isPaid ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-600 border border-rose-200'
+                  <span className={`text-[8.5px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full inline-block ${
+                    activePayBillDetails.isPaid 
+                      ? 'bg-emerald-500/25 text-emerald-400 border border-emerald-500' 
+                      : 'bg-rose-500/25 text-rose-400 border border-rose-500'
                   }`}>
-                    {activePayBillDetails.isPaid ? (lang === 'bn' ? 'পরিশোধিত / PAID' : 'PAID') : (lang === 'bn' ? 'বকেয়া / UNPAID' : 'PENDING')}
+                    {activePayBillDetails.isPaid ? (lang === 'bn' ? '✓ পরিশোধিত / PAID' : '✓ PAID') : (lang === 'bn' ? '! বকেয়া / UNPAID' : '! PENDING')}
                   </span>
                   
-                  <h4 className="text-base sm:text-lg font-black font-mono tracking-tight text-slate-850 leading-tight truncate max-w-full">
+                  <h4 className="text-base sm:text-lg font-black font-mono tracking-tight leading-tight truncate max-w-full text-white">
                     {currency} {activePayBillDetails.amount.toFixed(2)}
                   </h4>
                   
                   <div className="flex flex-col items-center justify-center gap-0.5 w-full">
-                    <span className="text-[8px] font-extrabold text-slate-400 uppercase leading-none">
+                    <span className={`text-[8px] font-extrabold uppercase leading-none ${
+                      activePayBillDetails.isPaid ? 'text-cyan-200/60' : 'text-[#F5C2B5]/75'
+                    }`}>
                       {lang === 'bn' ? 'বিলার আইডি' : 'Biller ID'}
                     </span>
                     <div className="flex items-center justify-center gap-1 max-w-full">
-                      <p className="text-[10px] text-rose-500 font-mono font-black leading-none select-all truncate">
+                      <p className={`text-[10px] font-mono font-black leading-none select-all truncate ${
+                        activePayBillDetails.isPaid ? 'text-rose-300' : 'text-[#F5C2B5]'
+                      }`}>
                         {activePayBillDetails.billerNumber}
                       </p>
                       <button
                         onClick={() => handleCopyText(activePayBillDetails.billerNumber, `${activePayBillDetails.id}-burl`)}
-                        className="p-0.5 rounded bg-white hover:bg-slate-100 border border-slate-200 transition-all text-slate-400 hover:text-slate-600 cursor-pointer flex items-center justify-center shrink-0"
+                        className="p-0.5 rounded bg-white/10 hover:bg-white/20 border border-white/10 transition-all text-white/70 hover:text-white cursor-pointer flex items-center justify-center shrink-0"
                         title={lang === 'bn' ? 'বিলার আইডি কপি' : 'Copy Biller ID'}
                       >
                         {copiedId === `${activePayBillDetails.id}-burl` ? (
-                          <Check className="w-2.5 h-2.5 text-emerald-600" />
+                          <Check className={`w-2.5 h-2.5 ${activePayBillDetails.isPaid ? 'text-emerald-300' : 'text-[#F5C2B5]'}`} />
                         ) : (
                           <Copy className="w-2.5 h-2.5" />
                         )}
                       </button>
                     </div>
                     {copiedId === `${activePayBillDetails.id}-burl` && (
-                      <span className="text-[7.5px] text-emerald-600 font-bold animate-fade-in">
+                      <span className={`text-[7.5px] font-bold animate-fade-in ${activePayBillDetails.isPaid ? 'text-emerald-300' : 'text-[#F5C2B5]'}`}>
                         {lang === 'bn' ? 'কপি হয়েছে' : 'Copied'}
                       </span>
                     )}
@@ -4943,18 +4818,20 @@ export function MainDashboard({
                 {/* Right Side: Customer Name, Mobile Number & Dates */}
                 <div className="pl-2.5 space-y-1.5 text-left min-w-0">
                   <div>
-                    <span className="font-extrabold text-slate-400 text-[8px] uppercase tracking-wider block leading-none">
+                    <span className={`font-extrabold text-[8px] uppercase tracking-wider block leading-none ${
+                      activePayBillDetails.isPaid ? 'text-cyan-200/60' : 'text-[#F5C2B5]/75'
+                    }`}>
                       {lang === 'bn' ? 'কাস্টমার নাম' : 'Customer Name'}
                     </span>
                     <div className="flex items-center gap-1 mt-0.5">
-                      <p className="font-black text-slate-800 text-[11px] truncate">{activePayBillDetails.billerDetails}</p>
+                      <p className="font-black text-[11px] truncate text-white">{activePayBillDetails.billerDetails}</p>
                       <button
                         onClick={() => handleCopyText(activePayBillDetails.billerDetails, `${activePayBillDetails.id}-dets`)}
-                        className="p-0.5 rounded bg-white hover:bg-slate-150 border border-slate-200 transition-all text-slate-500 cursor-pointer flex items-center justify-center shrink-0"
+                        className="p-0.5 rounded bg-white/10 hover:bg-white/20 border border-white/10 transition-all text-white/70 hover:text-white cursor-pointer flex items-center justify-center shrink-0"
                         title={lang === 'bn' ? 'নাম কপি করুন' : 'Copy Name'}
                       >
                         {copiedId === `${activePayBillDetails.id}-dets` ? (
-                          <Check className="w-2.5 h-2.5 text-emerald-600" />
+                          <Check className={`w-2.5 h-2.5 ${activePayBillDetails.isPaid ? 'text-emerald-300' : 'text-[#F5C2B5]'}`} />
                         ) : (
                           <Copy className="w-2.5 h-2.5" />
                         )}
@@ -4964,18 +4841,22 @@ export function MainDashboard({
 
                   {activePayBillDetails.note && (
                     <div>
-                      <span className="font-extrabold text-slate-400 text-[8px] uppercase tracking-wider block leading-none">
+                      <span className={`font-extrabold text-[8px] uppercase tracking-wider block leading-none ${
+                        activePayBillDetails.isPaid ? 'text-cyan-200/60' : 'text-[#F5C2B5]/75'
+                      }`}>
                         {lang === 'bn' ? 'মোবাইল নাম্বার' : 'Mobile Number'}
                       </span>
                       <div className="flex items-center gap-1 mt-0.5">
-                        <p className="text-purple-900 font-bold font-mono text-[10.5px] truncate">📱 {activePayBillDetails.note}</p>
+                        <p className={`font-bold font-mono text-[10.5px] truncate ${
+                          activePayBillDetails.isPaid ? 'text-rose-300' : 'text-[#F5C2B5]'
+                        }`}>📱 {activePayBillDetails.note}</p>
                         <button
                           onClick={() => handleCopyText(activePayBillDetails.note, `${activePayBillDetails.id}-note`)}
-                          className="p-0.5 rounded bg-white hover:bg-slate-150 border border-slate-200 transition-all text-slate-500 cursor-pointer flex items-center justify-center shrink-0"
+                          className="p-0.5 rounded bg-white/10 hover:bg-white/20 border border-white/10 transition-all text-white/70 hover:text-white cursor-pointer flex items-center justify-center shrink-0"
                           title={lang === 'bn' ? 'মোবাইল নম্বর কপি করুন' : 'Copy Mobile Number'}
                         >
                           {copiedId === `${activePayBillDetails.id}-note` ? (
-                            <Check className="w-2.5 h-2.5 text-emerald-600" />
+                            <Check className={`w-2.5 h-2.5 ${activePayBillDetails.isPaid ? 'text-emerald-300' : 'text-[#F5C2B5]'}`} />
                           ) : (
                             <Copy className="w-2.5 h-2.5" />
                           )}
@@ -5446,7 +5327,6 @@ export function MainDashboard({
                   const cs = contactSummaries.get(c.id) || { balance: 0 };
                   const isTheyOwe = cs.balance > 0;
                   const isWeOwe = cs.balance < 0;
-                  if (cs.balance === 0) return null;
                   return (
                     <tr key={c.id}>
                       <td className="py-2 px-3 font-bold">{c.name}</td>

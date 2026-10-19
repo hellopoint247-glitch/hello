@@ -12,6 +12,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Healthcheck test connection
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
     // Users (Store settings, PIN, theme, categories, balance card configs)
     match /users/{userId} {
       allow read, write: if true;

@@ -183,7 +183,7 @@ export function TransactionForm({
     } catch (e) {
       console.error('Auto tag prune error:', e);
     }
-  }, [customCategories]);
+  }, []);
 
   // Tag Favorite, Categorization & Usage Recency States
   const [favoriteTags, setFavoriteTags] = useState<string[]>(() => {
@@ -899,27 +899,29 @@ export function TransactionForm({
   };
 
   return (
-    <div id="transaction-form-viewport" className="flex flex-col min-h-screen bg-[#eaeff5] dark:bg-[#252B33] text-slate-800 dark:text-[#F1F3F5] font-sans pb-24">
+    <div id="transaction-form-viewport" className="flex flex-col min-h-screen bg-[#141b26] text-slate-100 font-sans pb-24">
       
-      {/* Dynamic Header adopting color of transaction type (Screenshot 1 green style or red style) */}
-      <header className={`px-4 py-4.5 flex items-center gap-3 border-b transition-all select-none ${
-        isGave 
-          ? 'bg-rose-50 dark:bg-rose-950/70 text-rose-900 dark:text-rose-200 border-rose-100 dark:border-rose-900/60' 
-          : 'bg-emerald-50/90 dark:bg-emerald-950/70 text-emerald-900 dark:text-emerald-200 border-emerald-100 dark:border-emerald-900/60'
-      }`}>
+      {/* Signature Brand Theme Header (Matches MainDashboard and CustomerDetail) */}
+      <header className="bg-brand-primary text-white px-4 py-3.5 flex items-center gap-3 shadow-md border-b-2 border-yellow-300 select-none print:hidden">
         <button 
           id="btn-close-form"
           onClick={onBack}
-          className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded-full transition-all shrink-0 cursor-pointer"
+          className="p-1.5 hover:bg-white/10 rounded-full transition-all shrink-0 cursor-pointer text-white"
+          title="ফিরে যান"
         >
-          <X className="w-6 h-6 border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-xs rounded-full p-0.5" />
+          <X className="w-5.5 h-5.5" />
         </button>
         
         <div className="min-w-0 flex-1">
-          <h2 className="text-xs sm:text-sm font-semibold truncate uppercase tracking-wider opacity-90">
-            {isGave ? 'মালামাল বা টাকা দিয়েছেন (ক্যাশ আউট)' : 'বকেয়া বা ক্যাশ পেয়েছেন (ক্যাশ ইন)'}
-          </h2>
-          <h3 id="form-dynamic-message" className="text-sm font-black line-clamp-2 md:text-base mt-0.5 text-slate-900 dark:text-white">
+          <div className="flex items-center gap-1.5">
+            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${isGave ? 'bg-rose-500 text-white' : 'bg-emerald-500 text-white'}`}>
+              {isGave ? 'ক্যাশ আউট (দিলাম)' : 'ক্যাশ ইন (পেলাম)'}
+            </span>
+            <span className="text-xs text-white/80 font-semibold truncate">
+              {contact.name}
+            </span>
+          </div>
+          <h3 id="form-dynamic-message" className="text-sm font-black line-clamp-1 md:text-base mt-0.5 text-white">
             {getHeaderTitle().bn}
           </h3>
         </div>
@@ -937,12 +939,12 @@ export function TransactionForm({
         <div className="grid grid-cols-2 gap-2 sm:gap-3 items-stretch">
           {/* Left Half: Amount Input Box */}
           <div className="space-y-1 flex flex-col justify-between">
-            <label className="text-[10px] uppercase tracking-widest font-bold text-slate-400 dark:text-slate-400 pl-1 truncate">
+            <label className="text-[10px] uppercase tracking-widest font-bold text-slate-300 pl-1 truncate">
               টাকার পরিমাণ (Amount)
             </label>
-            <div className="relative flex-1 bg-[#f8fafc] dark:bg-[#2D3540] border border-slate-200 dark:border-[#46515E] rounded-2xl px-3 py-2 sm:px-3.5 sm:py-2.5 flex items-center justify-between shadow-tiny focus-within:border-purple-500 dark:focus-within:border-amber-400 focus-within:bg-white dark:focus-within:bg-[#333C48] transition-all min-h-[66px]">
+            <div className="relative flex-1 bg-[#17202c] border border-slate-700/80 rounded-2xl px-3 py-2 sm:px-3.5 sm:py-2.5 flex items-center justify-between shadow-tiny focus-within:border-indigo-400 focus-within:bg-[#1a2536] transition-all min-h-[66px]">
               <div className="flex items-center gap-1.5 w-full">
-                <span className="text-lg sm:text-xl font-bold text-slate-400 dark:text-slate-400 font-mono shrink-0">{currency}</span>
+                <span className="text-lg sm:text-xl font-bold text-slate-400 font-mono shrink-0">{currency}</span>
                 <input 
                   id="input-amount"
                   type="text" 
@@ -954,7 +956,7 @@ export function TransactionForm({
                   step="any"
                   required
                   autoFocus
-                  className="bg-transparent border-none text-lg sm:text-xl font-black text-slate-800 dark:text-[#F1F3F5] outline-none w-full font-mono placeholder:text-slate-300 dark:placeholder:text-slate-500"
+                  className="bg-transparent border-none text-lg sm:text-xl font-black text-white outline-none w-full font-mono placeholder:text-slate-500"
                 />
               </div>
               <div className="bg-purple-100 dark:bg-purple-950/80 px-1.5 py-0.5 rounded-lg text-purple-700 dark:text-purple-300 font-bold text-[10px] shadow-tiny pointer-events-none hover:bg-purple-200 shrink-0 select-none hidden xs:block">
@@ -1008,14 +1010,14 @@ export function TransactionForm({
               </div>
 
               {/* Compact Date Box with Icon */}
-              <div className="relative bg-[#f8fafc] dark:bg-[#2D3540] hover:bg-slate-100/90 hover:dark:bg-[#333C48] border border-slate-200 dark:border-[#46515E] rounded-xl px-2.5 py-1 sm:py-1.5 flex items-center gap-1.5 shadow-2xs focus-within:border-purple-500 dark:focus-within:border-amber-400 focus-within:bg-white dark:focus-within:bg-[#333C48] transition-all cursor-pointer">
-                <Calendar className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+              <div className="relative bg-[#17202c] hover:bg-[#1f2c3d] border border-slate-700/80 rounded-xl px-2.5 py-1 sm:py-1.5 flex items-center gap-1.5 shadow-2xs focus-within:border-indigo-400 focus-within:bg-[#1a2536] transition-all cursor-pointer">
+                <Calendar className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                 <input 
                   id="input-date"
                   type="date" 
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
-                  className="w-full bg-transparent border-none text-[11px] font-bold text-slate-700 dark:text-[#F1F3F5] outline-none cursor-pointer font-mono p-0 [color-scheme:light] dark:[color-scheme:dark]"
+                  className="w-full bg-transparent border-none text-[11px] font-bold text-white outline-none cursor-pointer font-mono p-0 [color-scheme:dark]"
                 />
               </div>
             </div>
@@ -1024,15 +1026,15 @@ export function TransactionForm({
 
         {/* Note Input Box */}
         <div className="space-y-1">
-          <label className="text-[10px] uppercase tracking-widest font-bold text-slate-400 dark:text-slate-400 pl-1">Note (বিবরণ/পণ্যের নাম কন্ট্রোল)</label>
-          <div className="relative bg-[#f8fafc] dark:bg-[#2D3540] border border-slate-200 dark:border-[#46515E] rounded-xl px-3 py-2 flex flex-col justify-start shadow-tiny focus-within:border-purple-500 dark:focus-within:border-amber-400 focus-within:bg-white dark:focus-within:bg-[#333C48] transition-all">
+          <label className="text-[10px] uppercase tracking-widest font-bold text-slate-300 pl-1">Note (বিবরণ/পণ্যের নাম কন্ট্রোল)</label>
+          <div className="relative bg-[#17202c] border border-slate-700/80 rounded-xl px-3 py-2 flex flex-col justify-start shadow-tiny focus-within:border-indigo-400 focus-within:bg-[#1a2536] transition-all">
             <textarea 
               id="input-note"
               value={note}
               onChange={(e) => setNote(convertBengaliDigitsToEnglish(e.target.value))}
               placeholder="এখানে নোট বা নাম্বার লিখুন..."
               rows={1.5}
-              className="bg-transparent border-none text-xs font-semibold text-slate-800 dark:text-[#F1F3F5] outline-none w-full placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none leading-relaxed font-sans"
+              className="bg-transparent border-none text-xs font-semibold text-white outline-none w-full placeholder:text-slate-500 resize-none leading-relaxed font-sans"
             />
 
             {/* If user types a unique tag, show quick save button with cleaned value (numbers ignored) */}
@@ -1412,7 +1414,7 @@ export function TransactionForm({
       </main>
 
       {/* Persistent Bottom actions */}
-      <footer className={`fixed bottom-0 left-0 right-0 p-3 sm:p-4 bg-white/95 dark:bg-[#1E252D]/95 backdrop-blur-md border-t border-slate-100 dark:border-[#384250] shadow-[0_-4px_12px_rgba(0,0,0,0.04)] dark:shadow-[0_-4px_16px_rgba(0,0,0,0.4)] z-10 ${isDesktopMode ? 'max-w-7xl' : 'max-w-sm'} mx-auto rounded-t-2xl`}>
+      <footer className={`fixed bottom-0 left-0 right-0 p-3 sm:p-4 bg-[#202a3a]/95 backdrop-blur-md border-t border-slate-700/80 shadow-[0_-4px_16px_rgba(0,0,0,0.4)] z-10 ${isDesktopMode ? 'max-w-7xl' : 'max-w-sm'} mx-auto rounded-t-2xl`}>
         {/* Large full width Green Submit Button */}
         <button 
           id="btn-submit-tx"

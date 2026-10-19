@@ -46,8 +46,6 @@ import { soundEngine } from './utils/audio';
 import { notifyWithDeduplication } from './utils/notifications';
 import { QuotaWarningBanner } from './components/QuotaWarningBanner';
 import { isValidTagForSection, pruneTags, touchTagUsage } from './utils/tagManager';
-import { PWAInstallBanner } from './components/PWAInstallBanner';
-import { OfflineIndicator } from './components/OfflineIndicator';
 
 // Firebase core integration imports
 import { 
@@ -108,10 +106,10 @@ export default function App() {
   const [loadingCloud, setLoadingCloud] = useState(false);
 
   // Application database hooks
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [cashbook, setCashbook] = useState<CashbookEntry[]>([]);
-  const [paybills, setPayBills] = useState<PayBillEntry[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>(() => loadContacts());
+  const [transactions, setTransactions] = useState<Transaction[]>(() => loadTransactions());
+  const [cashbook, setCashbook] = useState<CashbookEntry[]>(() => loadCashbook());
+  const [paybills, setPayBills] = useState<PayBillEntry[]>(() => loadPayBills());
   const [cashInAccounts, setCashInAccounts] = useState<CashInAccount[]>(() => loadCashInAccounts());
   const [cashInTransactions, setCashInTransactions] = useState<CashInTransaction[]>(() => loadCashInTransactions());
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -124,7 +122,7 @@ export default function App() {
   const [deletedCategories, setDeletedCategories] = useState<string[]>([]);
   const [themeColor, setThemeColor] = useState<string>(() => localStorage.getItem('hellopoint_theme_color') || '#6244a6');
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => getSavedThemeMode());
-  const [ownerUid, setOwnerUid] = useState<string | null>(() => localStorage.getItem('hellopoint_synced_owner_uid'));
+  const [ownerUid, setOwnerUid] = useState<string>(() => localStorage.getItem('hellopoint_synced_owner_uid') || 'lJRGRj5w92RxSUcGybklzs3cFho1');
 
   // Dynamic theme support
   useEffect(() => {
@@ -136,26 +134,13 @@ export default function App() {
     root.style.setProperty('--brand-dark-border', `color-mix(in srgb, ${themeColor} 50%, #46515e)`);
   }, [themeColor]);
 
-  // Dark / Light / System Mode management
+  // Built-in soft dark theme enforcement (always active, zero eye strain)
   useEffect(() => {
-    applyTheme(themeMode);
+    applyTheme();
+  }, []);
 
-    const mediaQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
-    const handleSystemThemeChange = () => {
-      if (getSavedThemeMode() === 'system') {
-        applyTheme('system');
-      }
-    };
-
-    if (mediaQuery && mediaQuery.addEventListener) {
-      mediaQuery.addEventListener('change', handleSystemThemeChange);
-      return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
-    }
-  }, [themeMode]);
-
-  const handleUpdateThemeMode = (newMode: ThemeMode) => {
-    setThemeModeState(newMode);
-    saveThemeMode(newMode);
+  const handleUpdateThemeMode = () => {
+    applyTheme();
   };
 
   const handleUpdateThemeColor = async (color: string) => {
@@ -243,21 +228,24 @@ export default function App() {
     });
   };
 
-  // Automated Tag Cleanup:
+  // Automated Tag Cleanup (Debounced to ensure ultra-smooth performance):
   // 1. Tags written in English are not accumulated/saved in the tag section
   // 2. Tags that are 1 month old and unused in the last 1 month are automatically deleted
   useEffect(() => {
     if (customCategories.length === 0) return;
-    const { prunedCategories, deletedTags } = pruneTags(customCategories, transactions);
-    if (deletedTags.length > 0) {
-      setCustomCategories(prunedCategories);
-      const activeUid = user?.uid || ownerUid;
-      if (activeUid && auth.currentUser && auth.currentUser.uid === activeUid) {
-        setDoc(doc(db, 'users', activeUid), { customCategories: prunedCategories }, { merge: true })
-          .catch(err => console.error('Failed to sync pruned categories:', err));
+    const timer = setTimeout(() => {
+      const { prunedCategories, deletedTags } = pruneTags(customCategories, transactions);
+      if (deletedTags.length > 0) {
+        setCustomCategories(prunedCategories);
+        const activeUid = user?.uid || ownerUid;
+        if (activeUid && auth.currentUser && auth.currentUser.uid === activeUid) {
+          setDoc(doc(db, 'users', activeUid), { customCategories: prunedCategories }, { merge: true })
+            .catch(err => console.error('Failed to sync pruned categories:', err));
+        }
       }
-    }
-  }, [transactions, customCategories, user, ownerUid]);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [transactions.length, customCategories.length, user, ownerUid]);
 
   const handleDeleteCategory = async (category: string) => {
     const trimmed = category.trim();
@@ -415,6 +403,8 @@ export default function App() {
       setAuthLoading(false);
       
       if (currentUser) {
+        localStorage.setItem('hellopoint_has_owner_logged_in', 'true');
+        localStorage.setItem('hellopoint_is_owner_device', 'true');
         // Run background migration of local storage ledger records to cloud on first login
         await migrateLocalToCloud(currentUser.uid);
 
@@ -452,46 +442,9 @@ export default function App() {
     };
   }, []);
 
-  // Sync state loading & real-time updates based on account state (Offline fallback or Unified Cloud synchronization)
+  // Sync state loading & real-time updates based on account state (Unified Cloud synchronization with resilient local fallback)
   useEffect(() => {
-    if (authLoading) return;
-
-    const activeUid = user?.uid || ownerUid;
-
-    if (!activeUid) {
-      // Offline/Signed-Out Mode: Load from localStorage
-      const offlineContacts = loadContacts();
-      setContacts(offlineContacts);
-      setTransactions(loadTransactions());
-      setCashbook(loadCashbook());
-      setPayBills(loadPayBills());
-      setCashInAccounts(loadCashInAccounts());
-      setCashInTransactions(loadCashInTransactions());
-      try {
-        const savedRecharges = localStorage.getItem('hellopoint_recharge_requests');
-        if (savedRecharges) setRechargeRequests(JSON.parse(savedRecharges));
-      } catch (e) {
-        console.error(e);
-      }
-      try {
-        const savedPaybillsReq = localStorage.getItem('hellopoint_paybill_requests');
-        if (savedPaybillsReq) setPaybillRequests(JSON.parse(savedPaybillsReq));
-      } catch (e) {
-        console.error(e);
-      }
-      try {
-        const savedChats = localStorage.getItem('hellopoint_chat_messages');
-        if (savedChats) {
-          const parsed: ChatMessage[] = JSON.parse(savedChats);
-          const valid = parsed.filter(m => isWithin7Days(m.createdAt));
-          setChatMessages(valid);
-          localStorage.setItem('hellopoint_chat_messages', JSON.stringify(valid));
-        }
-      } catch (e) {
-        console.error(e);
-      }
-      return;
-    }
+    const activeUid = user?.uid || ownerUid || 'lJRGRj5w92RxSUcGybklzs3cFho1';
 
     // Centrally unified Synced Mode: Setup Real-Time Subscriptions
     setLoadingCloud(true);
@@ -502,12 +455,23 @@ export default function App() {
       snapshot.forEach((snapDoc) => {
         list.push(snapDoc.data() as Contact);
       });
-      // Sort by last update
-      const sorted = list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      setContacts(sorted);
-      saveContacts(sorted);
+      if (list.length > 0) {
+        // Sort by last update
+        const sorted = list.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+        setContacts(sorted);
+        saveContacts(sorted);
+      } else {
+        const local = loadContacts();
+        if (local.length > 0) {
+          setContacts(local);
+        }
+      }
       setLoadingCloud(false);
     }, (error) => {
+      const local = loadContacts();
+      if (local.length > 0) {
+        setContacts(local);
+      }
       handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/contacts`);
     });
 
@@ -518,43 +482,22 @@ export default function App() {
       snapshot.forEach((snapDoc) => {
         list.push(snapDoc.data() as Transaction);
       });
-
-      if (!isTransInitial) {
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'added') {
-            const tx = change.doc.data() as Transaction;
-            const isOwnerDevice = Boolean((user && user.email) || (auth.currentUser && auth.currentUser.email));
-            const isCustDevice = !isOwnerDevice;
-            const activeCustId = (sessionRole === 'customer' && loggedInCustomerId)
-              ? loggedInCustomerId
-              : (localStorage.getItem('hellopoint_session_customer_id') || localStorage.getItem('hellopoint_remembered_cust_id'));
-
-            if (isCustDevice && activeCustId && tx.contactId === activeCustId) {
-              const isDue = tx.type === 'GAVE';
-              notifyWithDeduplication({
-                title: isDue
-                  ? (lang === 'bn' ? '📒 বাকির খাতায় নতুন বাকি যোগ হয়েছে' : '📒 New Due Added to Ledger')
-                  : (lang === 'bn' ? '💵 বাকির খাতায় জমা যোগ হয়েছে ✓' : '💵 Payment Credited to Ledger ✓'),
-                body: isDue
-                  ? (lang === 'bn'
-                      ? `আপনার বাকির খাতায় ৳${tx.amount} টাকা যোগ করা হয়েছে। ${tx.note ? `বিবরণ: ${tx.note}` : ''}`
-                      : `৳${tx.amount} has been added to your due balance.`)
-                  : (lang === 'bn'
-                      ? `আপনার বাকির খাতায় ৳${tx.amount} টাকা জমা গ্রহণ করা হয়েছে। ${tx.note ? `বিবরণ: ${tx.note}` : ''}`
-                      : `৳${tx.amount} payment has been credited to your balance.`),
-                tag: `ledger-tx-${change.doc.id}`,
-                dedupeKey: `ledger-tx-${change.doc.id}`,
-                playSound: true
-              });
-            }
-          }
-        });
-      }
       isTransInitial = false;
 
-      setTransactions(list);
-      saveTransactions(list);
+      if (list.length > 0) {
+        setTransactions(list);
+        saveTransactions(list);
+      } else {
+        const local = loadTransactions();
+        if (local.length > 0) {
+          setTransactions(local);
+        }
+      }
     }, (error) => {
+      const local = loadTransactions();
+      if (local.length > 0) {
+        setTransactions(local);
+      }
       handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/transactions`);
     });
 
@@ -1603,15 +1546,28 @@ export default function App() {
   };
 
   // Fetching customer's outstanding ledger entries live from Firestore
+  // STRICT RULE: Only the specific customer whose entry was added receives the notification!
+  // The owner device NEVER receives notifications for entries they create.
   useEffect(() => {
     const activeUid = user?.uid || ownerUid;
-    // A device is Owner if connected with Gmail; otherwise it's a Customer device
-    const isOwnerDevice = Boolean((user && user.email) || (auth.currentUser && auth.currentUser.email));
+    // Strict Owner device detection: owner has logged in with PIN, Google, or session role
+    const isOwnerDevice = Boolean(
+      sessionRole === 'owner' ||
+      (user && user.email) ||
+      (auth.currentUser && auth.currentUser.email) ||
+      localStorage.getItem('hellopoint_session_role') === 'owner' ||
+      localStorage.getItem('hellopoint_has_owner_logged_in') === 'true' ||
+      localStorage.getItem('hellopoint_is_owner_device') === 'true'
+    );
+
+    // If this is an owner device, strictly do not subscribe to customer transaction alerts
+    if (isOwnerDevice) return;
+
     const targetCustId = (sessionRole === 'customer' && loggedInCustomerId) 
       ? loggedInCustomerId 
       : (localStorage.getItem('hellopoint_session_customer_id') || localStorage.getItem('hellopoint_remembered_cust_id'));
 
-    if (targetCustId && activeUid && !isOwnerDevice) {
+    if (targetCustId && activeUid) {
       const qTxs = query(
         collection(db, 'users', activeUid, 'transactions'),
         where('contactId', '==', targetCustId)
@@ -1627,22 +1583,25 @@ export default function App() {
           snapshot.docChanges().forEach((change) => {
             if (change.type === 'added') {
               const tx = change.doc.data() as Transaction;
-              const isGave = tx.type === 'GAVE';
-              notifyWithDeduplication({
-                title: isGave 
-                  ? (lang === 'bn' ? '📖 বাকির খাতায় নতুন এন্ট্রি!' : '📖 New Due Added!') 
-                  : (lang === 'bn' ? '✅ টাকা জমা গ্রহণ!' : '✅ Payment Received!'),
-                body: isGave
-                  ? (lang === 'bn' 
-                      ? `আপনার হিসাবে ৳${tx.amount} টাকা বাকি যোগ হয়েছে।${tx.note ? ` (${tx.note})` : ''}` 
-                      : `৳${tx.amount} was added to your ledger.${tx.note ? ` (${tx.note})` : ''}`)
-                  : (lang === 'bn' 
-                      ? `আপনার হিসাবে ৳${tx.amount} টাকা জমা নেওয়া হয়েছে।${tx.note ? ` (${tx.note})` : ''}` 
-                      : `৳${tx.amount} payment received.${tx.note ? ` (${tx.note})` : ''}`),
-                tag: `cust-tx-${change.doc.id}`,
-                dedupeKey: `cust-tx-${change.doc.id}`,
-                playSound: true
-              });
+              // Ensure this notification is STRICTLY for this specific customer
+              if (tx.contactId === targetCustId) {
+                const isGave = tx.type === 'GAVE';
+                notifyWithDeduplication({
+                  title: isGave 
+                    ? (lang === 'bn' ? '📖 বাকির খাতায় নতুন এন্ট্রি!' : '📖 New Due Added!') 
+                    : (lang === 'bn' ? '✅ টাকা জমা গ্রহণ!' : '✅ Payment Received!'),
+                  body: isGave
+                    ? (lang === 'bn' 
+                        ? `আপনার হিসাবে ৳${tx.amount} টাকা বাকি যোগ হয়েছে।${tx.note ? ` (${tx.note})` : ''}` 
+                        : `৳${tx.amount} was added to your ledger.${tx.note ? ` (${tx.note})` : ''}`)
+                    : (lang === 'bn' 
+                        ? `আপনার হিসাবে ৳${tx.amount} টাকা জমা নেওয়া হয়েছে।${tx.note ? ` (${tx.note})` : ''}` 
+                        : `৳${tx.amount} payment received.${tx.note ? ` (${tx.note})` : ''}`),
+                  tag: `cust-tx-${change.doc.id}`,
+                  dedupeKey: `cust-tx-${change.doc.id}`,
+                  playSound: true
+                });
+              }
             }
           });
         }
@@ -2833,13 +2792,14 @@ export default function App() {
     }
   };
 
-  // Auto cleanup Cash In transactions older than 6 months (retaining current month + previous 5 months)
+  // Auto cleanup Cash In transactions older than 3 months (retaining current month + previous 2 months = total 3 months)
+  // Ensures SIM balance remains completely intact and history starts fresh every month
   useEffect(() => {
     if (!cashInTransactions || cashInTransactions.length === 0) return;
 
     const now = new Date();
-    // 6-month window: current month + past 5 months (total 6 calendar months)
-    const oldestAllowedDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    // 3-month window: current month + past 2 months (total 3 calendar months)
+    const oldestAllowedDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
     const oldestAllowedKey = `${oldestAllowedDate.getFullYear()}-${String(oldestAllowedDate.getMonth() + 1).padStart(2, '0')}`;
 
     const getTxMonthKey = (dateStr?: string) => {
@@ -2860,18 +2820,29 @@ export default function App() {
     });
 
     if (expiredTxs.length > 0) {
-      expiredTxs.forEach(tx => {
-        handleDeleteCashInTransaction(tx.id, false); // false = do not refund account on 6-month archival cleanup
+      const expiredIds = new Set(expiredTxs.map(t => t.id));
+      setCashInTransactions(prev => {
+        const updated = prev.filter(t => !expiredIds.has(t.id));
+        saveCashInTransactions(updated);
+        return updated;
       });
-    }
-  }, [cashInTransactions]);
 
-  // Auto cleanup SIM account recharge records older than 6 months without modifying account balance
+      const activeUid = user?.uid || ownerUid;
+      if (activeUid) {
+        expiredTxs.forEach(tx => {
+          deleteDoc(doc(db, 'users', activeUid, 'cashin_transactions', tx.id)).catch(() => {});
+        });
+      }
+    }
+  }, [cashInTransactions, user, ownerUid]);
+
+  // Auto cleanup SIM account recharge records older than 3 months without modifying account balance
   useEffect(() => {
     if (!cashInAccounts || cashInAccounts.length === 0) return;
 
     const now = new Date();
-    const oldestAllowedDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    // 3-month window: current month + past 2 months (total 3 calendar months)
+    const oldestAllowedDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
     const oldestAllowedKey = `${oldestAllowedDate.getFullYear()}-${String(oldestAllowedDate.getMonth() + 1).padStart(2, '0')}`;
 
     let accountsModified = false;
@@ -3036,6 +3007,10 @@ export default function App() {
     setLoggedInCustomerId(contactId || null);
     
     localStorage.setItem('hellopoint_session_role', role);
+    if (role === 'owner') {
+      localStorage.setItem('hellopoint_has_owner_logged_in', 'true');
+      localStorage.setItem('hellopoint_is_owner_device', 'true');
+    }
     if (contactId) {
       localStorage.setItem('hellopoint_session_customer_id', contactId);
       const custObj = contacts.find(c => c.id === contactId) || customerOfflineObj;
@@ -3305,12 +3280,6 @@ export default function App() {
           onMarkChatsAsRead={handleMarkChatsAsRead}
         />
       )}
-
-      {/* Welcoming PWA Browser In-App Install Banner for all visitors */}
-      <PWAInstallBanner lang={lang} />
-
-      {/* Offline Mode Indicator */}
-      <OfflineIndicator lang={lang} />
 
     </div>
   );

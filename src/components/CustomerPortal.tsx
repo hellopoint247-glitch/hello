@@ -31,7 +31,6 @@ import { getContactSummary } from '../utils/storage';
 import { soundEngine } from '../utils/audio';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatBox } from './ChatBox';
-import { PWAInstallButton } from './PWAInstallButton';
 
 interface CustomerPortalProps {
   customer: Contact;
@@ -589,9 +588,6 @@ export function CustomerPortal({
           </div>
 
           <div className="flex items-center gap-1.5">
-            {/* PWA Install Trigger button for Customers */}
-            <PWAInstallButton lang={lang} variant="header" />
-
             {/* Language Toggle switch */}
             <button 
               onClick={() => {

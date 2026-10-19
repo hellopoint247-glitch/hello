@@ -3,11 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#6244a6" />
-    <!-- Mobile & PWA Web App support -->
-    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#1a2232" />
+    <!-- Apple Web App support -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Hello Point" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
@@ -20,30 +19,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
-    <title>Hello Point</title>
-    <meta name="description" content="একটি নিরাপদ ও ক্লাউড-সংরক্ষিত ডিজিটাল হিসাব খাতা এবং ক্যাশবুক অ্যাপ্লিকেশন যা দিয়ে কাস্টমারদের বকেয়া এবং ব্যবসার দৈনিক লেনদেন সহজে ট্র্যাক করা যায়।" />
-    <meta property="og:title" content="Hello Point" />
-    <meta property="og:description" content="একটি নিরাপদ ও ক্লাউড-সংরক্ষিত ডিজিটাল হিসাব খাতা এবং ক্যাশবুক অ্যাপ্লিকেশন যা দিয়ে কাস্টমারদের বকেয়া এবং ব্যবসার দৈনিক লেনদেন সহজে ট্র্যাক করা যায়।" />
-    <meta property="og:image" content="/pwa-512x512.png" />
-    <!-- Prevent Flash of Wrong Theme (FOWT) by resolving theme immediately -->
+    <title>Hello Point - Digital Cashbook</title>
+    <!-- Built-in Soft Dark Eye-Comfort Theme Initialization -->
     <script>
       (function() {
         try {
-          var mode = localStorage.getItem('hellopoint_theme_mode') || 'system';
-          var isDark = false;
-          if (mode === 'dark') {
-            isDark = true;
-          } else if (mode === 'system') {
-            isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          }
           var root = document.documentElement;
-          if (isDark) {
-            root.classList.add('dark');
-            root.setAttribute('data-theme', 'dark');
-          } else {
-            root.classList.remove('dark');
-            root.setAttribute('data-theme', 'light');
-          }
+          root.classList.add('dark');
+          root.setAttribute('data-theme', 'dark');
         } catch (e) {}
       })();
     </script>
@@ -51,23 +34,30 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <!-- Register Service Worker safely, ignoring sandbox/iframe errors -->
+    <!-- Register Service Worker safely, self-healing ghost workers -->
     <script>
       try {
         if ('serviceWorker' in navigator) {
-          window.addEventListener('load', () => {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            for (var i = 0; i < regs.length; i++) {
+              var reg = regs[i];
+              if (reg && reg.active && (reg.active.scriptURL.indexOf('dev-sw') !== -1 || reg.active.scriptURL.indexOf('workbox') !== -1)) {
+                reg.unregister();
+              }
+            }
+          }).catch(function() {});
+
+          window.addEventListener('load', function() {
             try {
               navigator.serviceWorker.register('/sw.js')
-                .then(reg => console.debug('Service Worker registered:', reg.scope))
-                .catch(err => console.warn('Service worker registration failed (blocked by sandbox iframe):', err));
-            } catch (innerError) {
-              console.warn('Service worker error in load event:', innerError);
-            }
+                .then(function(reg) {
+                  try { reg.update(); } catch (e) {}
+                })
+                .catch(function() {});
+            } catch (innerError) {}
           });
         }
-      } catch (err) {
-        console.warn('Service worker check blocked or unsupported:', err);
-      }
+      } catch (err) {}
     </script>
   </body>
 </html>

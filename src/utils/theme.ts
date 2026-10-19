@@ -1,71 +1,38 @@
-export type ThemeMode = 'light' | 'dark' | 'system';
+export type ThemeMode = 'dark';
 
 export const THEME_STORAGE_KEY = 'hellopoint_theme_mode';
 
 /**
- * Reads the stored theme mode or returns 'system' as default.
+ * Built-in eye-comfort soft dark theme (আলকা ডার্ক).
+ * Eliminates screen glare for long hours of accounting work.
  */
 export function getSavedThemeMode(): ThemeMode {
-  try {
-    const saved = localStorage.getItem(THEME_STORAGE_KEY) as ThemeMode | null;
-    if (saved === 'light' || saved === 'dark' || saved === 'system') {
-      return saved;
-    }
-  } catch (e) {
-    console.warn('Unable to read theme mode from storage', e);
-  }
-  return 'system';
+  return 'dark';
+}
+
+export function isDarkActive(_mode?: any): boolean {
+  return true;
 }
 
 /**
- * Calculates whether dark theme is effectively active.
+ * Applies the built-in eye-comfort soft dark theme to documentElement.
  */
-export function isDarkActive(mode: ThemeMode): boolean {
-  if (mode === 'dark') return true;
-  if (mode === 'light') return false;
-  if (typeof window !== 'undefined' && window.matchMedia) {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
-  }
-  return false;
-}
-
-/**
- * Applies the theme to documentElement with appropriate classes and data attributes.
- */
-export function applyTheme(mode: ThemeMode): boolean {
-  const isDark = isDarkActive(mode);
+export function applyTheme(_mode?: any): boolean {
+  if (typeof document === 'undefined') return true;
   const root = document.documentElement;
-  
-  if (isDark) {
-    root.classList.add('dark');
-    root.setAttribute('data-theme', 'dark');
-  } else {
-    root.classList.remove('dark');
-    root.setAttribute('data-theme', 'light');
-  }
-
-  // Clean up any remaining legacy neon attribute
+  root.classList.add('dark');
+  root.setAttribute('data-theme', 'dark');
   root.removeAttribute('data-neon-style');
 
   // Update theme-color meta tag for mobile browsers (status bar)
   const metaThemeColor = document.querySelector('meta[name="theme-color"]');
   if (metaThemeColor) {
-    metaThemeColor.setAttribute('content', isDark ? '#0A0E17' : '#6244a6');
+    metaThemeColor.setAttribute('content', '#1a2232');
   }
 
-  return isDark;
+  return true;
 }
 
-/**
- * Saves and applies a theme mode.
- */
-export function saveThemeMode(mode: ThemeMode): boolean {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, mode);
-  } catch (e) {
-    console.warn('Unable to save theme mode to storage', e);
-  }
-  const isDark = applyTheme(mode);
-  window.dispatchEvent(new CustomEvent('hellopoint_theme_change', { detail: { mode, isDark } }));
-  return isDark;
+export function saveThemeMode(_mode?: any): boolean {
+  return applyTheme();
 }

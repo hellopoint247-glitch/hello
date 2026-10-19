@@ -158,23 +158,519 @@ const DEFAULT_PAYBILLS: PayBillEntry[] = [
   }
 ];
 
-// Pre-populated data mirroring the user's screenshots
-const DEFAULT_CONTACTS: Contact[] = [
+// Pre-populated data restoring and safeguarding the store's actual customers
+export const DEFAULT_CONTACTS: Contact[] = [
   {
-    id: 'abul-123',
-    name: 'আবুল',
-    phone: '01712345678',
-    type: 'customer',
-    createdAt: '2026-05-30T19:29:00Z',
-    updatedAt: '2026-05-30T19:30:00Z'
+    "updatedAt": "2026-10-16T15:33:23.324Z",
+    "id": "contact-1780380842335",
+    "name": "কাস্টমার (01728549509)",
+    "phone": "01728549509",
+    "type": "customer",
+    "createdAt": "2026-06-02T06:14:08.597Z"
   },
   {
-    id: 'babul-456',
-    name: 'বাবুল স্টোর (কাস্টমার)',
-    phone: '01887654321',
-    type: 'customer',
-    createdAt: '2026-05-30T10:00:00Z',
-    updatedAt: '2026-05-30T10:15:00Z'
+    "phone": "",
+    "name": "আনোয়ার / কাদির",
+    "type": "customer",
+    "createdAt": "2026-06-22T05:28:17.822Z",
+    "updatedAt": "2026-10-16T15:29:04.820Z",
+    "id": "contact-1781158297091"
+  },
+  {
+    "createdAt": "2026-09-22T12:29:42.121Z",
+    "id": "contact-1781962173615",
+    "phone": "01646295564",
+    "type": "customer",
+    "name": "রুবেল / কাস্টমার",
+    "updatedAt": "2026-10-16T15:27:23.292Z"
+  },
+  {
+    "createdAt": "2026-06-04T15:23:13.450Z",
+    "phone": "01736187764",
+    "id": "contact-1780586354959",
+    "updatedAt": "2026-10-15T14:35:41.601Z",
+    "name": "দৈনিক লোড গ্রাহক",
+    "type": "customer"
+  },
+  {
+    "createdAt": "2026-10-03T04:08:24.345Z",
+    "phone": "01743258998",
+    "id": "contact-1780469182390",
+    "type": "customer",
+    "name": "পুলক দা (Pulok Da)",
+    "updatedAt": "2026-10-14T15:55:16.351Z"
+  },
+  {
+    "phone": "",
+    "name": "দোকান খরচ / গ্রাহক",
+    "createdAt": "2026-06-04T15:36:48.396Z",
+    "type": "customer",
+    "id": "contact-1780587389441",
+    "updatedAt": "2026-10-14T14:50:55.807Z"
+  },
+  {
+    "type": "customer",
+    "id": "contact-1780847819011",
+    "name": "দোকান সামগ্রী হিসাব",
+    "createdAt": "2026-09-04T13:29:00.118Z",
+    "phone": "",
+    "updatedAt": "2026-10-14T10:54:55.335Z"
+  },
+  {
+    "id": "contact-1780238095178",
+    "updatedAt": "2026-10-14T10:52:37.870Z",
+    "type": "customer",
+    "phone": "",
+    "name": "ওয়াইফাই গ্রাহক (WiFi)",
+    "createdAt": "2026-05-31T14:35:05.618Z"
+  },
+  {
+    "updatedAt": "2026-10-14T10:52:22.913Z",
+    "createdAt": "2026-05-31T09:14:23.048Z",
+    "id": "contact-1780218847616",
+    "name": "শাফি (Shafii)",
+    "phone": "",
+    "type": "customer"
+  },
+  {
+    "createdAt": "2026-05-31T13:33:07.021Z",
+    "phone": "01774466423",
+    "id": "contact-1780218997441",
+    "updatedAt": "2026-10-14T10:51:34.524Z",
+    "type": "customer",
+    "name": "ব্যাংক হিসাব (Bank)"
+  },
+  {
+    "createdAt": "2026-09-26T06:49:32.678Z",
+    "id": "contact-1788183599584",
+    "type": "customer",
+    "phone": "",
+    "name": "আজিদ",
+    "updatedAt": "2026-10-14T04:37:18.582Z"
+  },
+  {
+    "createdAt": "2026-10-13T15:20:04.977Z",
+    "id": "contact-1791904804977",
+    "updatedAt": "2026-10-13T15:23:34.194Z",
+    "name": "deu2",
+    "phone": "",
+    "type": "customer"
+  },
+  {
+    "name": "deu",
+    "type": "customer",
+    "phone": "",
+    "createdAt": "2026-10-13T15:16:49.731Z",
+    "id": "contact-1791904609731",
+    "updatedAt": "2026-10-13T15:19:10.302Z"
+  },
+  {
+    "createdAt": "2026-10-13T15:01:47.764Z",
+    "type": "customer",
+    "phone": "",
+    "name": "Fojlu",
+    "id": "contact-1791903707764",
+    "updatedAt": "2026-10-13T15:02:34.893Z"
+  },
+  {
+    "createdAt": "2026-10-13T14:52:37.957Z",
+    "phone": "",
+    "id": "contact-1780231090350",
+    "updatedAt": "2026-10-13T14:52:37.957Z",
+    "type": "customer",
+    "name": "বিকাশ"
+  },
+  {
+    "updatedAt": "2026-10-13T13:32:19.748Z",
+    "phone": "",
+    "name": "এম্বি",
+    "id": "contact-1780839912656",
+    "type": "customer",
+    "createdAt": "2026-06-07T13:45:21.539Z"
+  },
+  {
+    "phone": "01810848021",
+    "createdAt": "2026-09-20T12:08:30.306Z",
+    "name": "বিকাশ কাস্টমার",
+    "type": "customer",
+    "id": "contact-1781158271230",
+    "updatedAt": "2026-10-13T05:06:36.373Z"
+  },
+  {
+    "createdAt": "2026-10-13T04:59:53.716Z",
+    "updatedAt": "2026-10-13T05:03:29.071Z",
+    "id": "contact-1782991942331",
+    "phone": "",
+    "name": "হালিমা বেগম / আজাদ",
+    "type": "customer"
+  },
+  {
+    "createdAt": "2026-06-04T13:52:31.865Z",
+    "phone": "01795485049",
+    "id": "contact-1780581125756",
+    "updatedAt": "2026-10-12T15:32:45.751Z",
+    "type": "customer",
+    "name": "মসজিদ হিসাব"
+  },
+  {
+    "id": "contact-1780839584559",
+    "type": "customer",
+    "createdAt": "2026-10-12T13:41:41.655Z",
+    "name": "খরচ",
+    "phone": "",
+    "updatedAt": "2026-10-12T13:41:41.655Z"
+  },
+  {
+    "type": "customer",
+    "phone": "",
+    "name": "ফ্লেক্সিলোড",
+    "id": "contact-1782658551655",
+    "createdAt": "2026-10-02T14:21:52.069Z",
+    "updatedAt": "2026-10-12T13:39:29.800Z"
+  },
+  {
+    "updatedAt": "2026-10-11T11:54:04.135Z",
+    "id": "contact-1787842201733",
+    "type": "customer",
+    "name": "মামুন (Mamun)",
+    "phone": "",
+    "createdAt": "2026-09-30T13:57:38.672Z"
+  },
+  {
+    "createdAt": "2026-10-08T08:12:32.180Z",
+    "phone": "",
+    "id": "contact-1782395254210",
+    "type": "customer",
+    "updatedAt": "2026-10-11T05:19:43.876Z",
+    "name": "মেজো ভাই / ভাবি"
+  },
+  {
+    "type": "customer",
+    "id": "contact-1780413132021",
+    "phone": "",
+    "createdAt": "2026-09-06T15:03:00.948Z",
+    "name": "রুবেল (গাড়ি)",
+    "updatedAt": "2026-10-10T08:09:52.812Z"
+  },
+  {
+    "id": "contact-1781535671825",
+    "createdAt": "2026-08-21T14:54:18.323Z",
+    "type": "customer",
+    "name": "খালেদ / রুয়েল",
+    "phone": "",
+    "updatedAt": "2026-10-10T07:35:58.174Z"
+  },
+  {
+    "id": "contact-1780242059599",
+    "phone": "",
+    "createdAt": "2026-05-31T15:41:36.559Z",
+    "updatedAt": "2026-10-10T07:06:29.432Z",
+    "type": "customer",
+    "name": "ওয়াইফাই / বিকাশ গ্রাহক"
+  },
+  {
+    "phone": "01715860095",
+    "updatedAt": "2026-10-10T07:05:28.429Z",
+    "name": "ওয়াইফাই / বিকাশ গ্রাহক",
+    "id": "contact-1780849087969",
+    "createdAt": "2026-06-07T16:18:17.537Z",
+    "type": "customer"
+  },
+  {
+    "phone": "01617845581",
+    "updatedAt": "2026-10-09T16:26:48.009Z",
+    "type": "customer",
+    "id": "contact-1780832630181",
+    "name": "কাস্টমার (01617845581)",
+    "createdAt": "2026-06-07T11:48:15.062Z"
+  },
+  {
+    "createdAt": "2026-09-30T13:59:59.427Z",
+    "id": "contact-1780247821312",
+    "phone": "",
+    "type": "customer",
+    "name": "আক্কাস ভাই",
+    "updatedAt": "2026-10-09T13:02:52.941Z"
+  },
+  {
+    "createdAt": "2026-07-06T16:11:35.486Z",
+    "phone": "",
+    "name": "সাবেক",
+    "type": "customer",
+    "id": "contact-1783354281781",
+    "updatedAt": "2026-10-09T03:42:00.581Z"
+  },
+  {
+    "updatedAt": "2026-10-09T03:16:32.161Z",
+    "name": "mitul",
+    "type": "customer",
+    "phone": "",
+    "createdAt": "2026-09-22T14:48:38.879Z",
+    "id": "contact-1790088518879"
+  },
+  {
+    "id": "contact-1781967447774",
+    "phone": "01762585267",
+    "createdAt": "2026-06-20T14:57:55.788Z",
+    "updatedAt": "2026-10-08T07:40:35.514Z",
+    "type": "customer",
+    "name": "কাস্টমার (01762585267)"
+  },
+  {
+    "id": "contact-1782543777665",
+    "type": "customer",
+    "updatedAt": "2026-10-08T07:27:03.769Z",
+    "name": "রাজু ভাই",
+    "phone": "",
+    "createdAt": "2026-06-27T07:03:15.076Z"
+  },
+  {
+    "phone": "",
+    "createdAt": "2026-06-21T09:20:33.358Z",
+    "updatedAt": "2026-10-07T15:28:03.283Z",
+    "name": "সুরামান আলি",
+    "id": "contact-1782033613203",
+    "type": "customer"
+  },
+  {
+    "createdAt": "2026-09-14T15:16:06.062Z",
+    "updatedAt": "2026-10-07T15:27:51.929Z",
+    "name": "ফ্লেক্সিলোড",
+    "phone": "",
+    "id": "contact-1780314008322",
+    "type": "customer"
+  },
+  {
+    "type": "customer",
+    "phone": "01749913041",
+    "name": "সিয়াম (Siam)",
+    "createdAt": "2026-06-07T11:46:28.758Z",
+    "id": "contact-1780832725974",
+    "updatedAt": "2026-10-07T08:40:53.318Z"
+  },
+  {
+    "updatedAt": "2026-10-04T13:47:39.238Z",
+    "id": "contact-1784900421959",
+    "type": "customer",
+    "name": "বিকাশ",
+    "phone": "",
+    "createdAt": "2026-09-28T07:28:57.941Z"
+  },
+  {
+    "name": "omna",
+    "type": "customer",
+    "phone": "",
+    "createdAt": "2026-10-03T15:28:26.424Z",
+    "updatedAt": "2026-10-03T15:28:26.424Z",
+    "id": "contact-1781508194169"
+  },
+  {
+    "id": "contact-1782129239024",
+    "updatedAt": "2026-09-30T16:38:58.621Z",
+    "type": "customer",
+    "createdAt": "2026-06-22T11:56:10.126Z",
+    "name": "রুয়েল",
+    "phone": ""
+  },
+  {
+    "name": "বিদ্যুৎ বিল / বিকাশ",
+    "type": "customer",
+    "createdAt": "2026-06-15T07:20:34.311Z",
+    "phone": "01710187721",
+    "updatedAt": "2026-09-29T12:27:53.702Z",
+    "id": "contact-1781508007242"
+  },
+  {
+    "createdAt": "2026-06-21T09:44:50.758Z",
+    "phone": "",
+    "id": "contact-1782034409798",
+    "type": "customer",
+    "name": "ফ্লেক্সিলোড",
+    "updatedAt": "2026-09-28T16:06:37.768Z"
+  },
+  {
+    "type": "customer",
+    "updatedAt": "2026-09-28T05:35:58.502Z",
+    "name": "এম্বি",
+    "phone": "",
+    "id": "contact-1787492756370",
+    "createdAt": "2026-08-23T13:46:25.350Z"
+  },
+  {
+    "phone": "",
+    "createdAt": "2026-09-16T08:15:52.042Z",
+    "updatedAt": "2026-09-27T14:04:37.173Z",
+    "id": "contact-1785656651477",
+    "name": "টান্ডা",
+    "type": "customer"
+  },
+  {
+    "name": "Moklis, sundor",
+    "updatedAt": "2026-09-26T12:21:05.710Z",
+    "type": "customer",
+    "phone": "",
+    "createdAt": "2026-09-23T12:07:37.281Z",
+    "id": "contact-1790165257281"
+  },
+  {
+    "phone": "",
+    "createdAt": "2026-09-03T14:45:04.248Z",
+    "type": "customer",
+    "name": "ফলিক (বিদ্যুৎ বিল)",
+    "id": "contact-1788446692450",
+    "updatedAt": "2026-09-26T04:12:38.319Z"
+  },
+  {
+    "type": "customer",
+    "id": "contact-1782184131461",
+    "createdAt": "2026-06-23T03:09:18.383Z",
+    "phone": "",
+    "name": "শেফার",
+    "updatedAt": "2026-09-23T14:39:36.503Z"
+  },
+  {
+    "phone": "",
+    "createdAt": "2026-09-08T06:13:15.243Z",
+    "updatedAt": "2026-09-22T14:38:28.136Z",
+    "name": "জেনি / জুলির জামাই",
+    "id": "contact-1788847964910",
+    "type": "customer"
+  },
+  {
+    "updatedAt": "2026-09-20T17:26:27.648Z",
+    "id": "contact-1789661021557",
+    "phone": "",
+    "type": "customer",
+    "createdAt": "2026-09-17T16:03:41.557Z",
+    "name": "layes"
+  },
+  {
+    "phone": "01712497482",
+    "id": "contact-1781792422609",
+    "type": "customer",
+    "updatedAt": "2026-09-20T12:17:58.163Z",
+    "name": "কাস্টমার (01712497482)",
+    "createdAt": "2026-06-18T14:20:35.108Z"
+  },
+  {
+    "id": "contact-1783229692732",
+    "createdAt": "2026-07-05T05:35:02.292Z",
+    "type": "customer",
+    "name": "তাজুল মামা",
+    "updatedAt": "2026-09-20T11:50:31.102Z",
+    "phone": "01746943653"
+  },
+  {
+    "updatedAt": "2026-09-19T13:15:59.167Z",
+    "type": "customer",
+    "phone": "",
+    "name": "নিজ",
+    "id": "contact-1780483284216",
+    "createdAt": "2026-09-19T13:15:59.167Z"
+  },
+  {
+    "createdAt": "2026-08-29T14:55:08.403Z",
+    "id": "contact-1788015208475",
+    "phone": "",
+    "type": "customer",
+    "name": "আইপিএস ও মালামাল হিসাব",
+    "updatedAt": "2026-09-15T12:06:47.602Z"
+  },
+  {
+    "name": "এম্বি+মিনিট",
+    "type": "customer",
+    "createdAt": "2026-07-01T11:08:57.447Z",
+    "id": "contact-1780323831243",
+    "updatedAt": "2026-09-10T12:14:50.924Z",
+    "phone": ""
+  },
+  {
+    "updatedAt": "2026-09-09T12:06:47.754Z",
+    "phone": "01711467107",
+    "id": "contact-1780218107844",
+    "type": "customer",
+    "createdAt": "2026-09-09T12:06:47.754Z",
+    "name": "বিকাশ কাস্টমার"
+  },
+  {
+    "createdAt": "2026-09-06T02:37:27.401Z",
+    "id": "contact-1788662235448",
+    "phone": "",
+    "type": "customer",
+    "updatedAt": "2026-09-06T02:37:36.927Z",
+    "name": "এম্বি"
+  },
+  {
+    "type": "customer",
+    "id": "contact-1787663352980",
+    "name": "জুস",
+    "updatedAt": "2026-08-28T12:10:17.358Z",
+    "phone": "",
+    "createdAt": "2026-08-25T13:09:22.902Z"
+  },
+  {
+    "createdAt": "2026-06-21T07:04:12.521Z",
+    "phone": "",
+    "id": "contact-1782025054015",
+    "type": "customer",
+    "name": "ক্যাশ জমা",
+    "updatedAt": "2026-08-22T08:16:54.274Z"
+  },
+  {
+    "id": "contact-1780731327631",
+    "type": "customer",
+    "createdAt": "2026-06-06T07:35:34.170Z",
+    "name": "পারিবারিক হিসাব",
+    "phone": "",
+    "updatedAt": "2026-08-05T14:16:47.788Z"
+  },
+  {
+    "type": "customer",
+    "id": "contact-1783229532724",
+    "createdAt": "2026-07-05T05:33:21.745Z",
+    "name": "সাবেক",
+    "phone": "",
+    "updatedAt": "2026-07-05T05:33:21.745Z"
+  },
+  {
+    "updatedAt": "2026-06-30T15:58:27.317Z",
+    "name": "এম্বি+মিনিট",
+    "type": "customer",
+    "phone": "",
+    "id": "contact-1780591717918",
+    "createdAt": "2026-06-04T16:48:51.499Z"
+  },
+  {
+    "phone": "",
+    "type": "customer",
+    "id": "contact-1780239727147",
+    "name": "মিনিট",
+    "updatedAt": "2026-06-30T14:28:27.361Z",
+    "createdAt": "2026-05-31T15:02:16.897Z"
+  },
+  {
+    "createdAt": "2026-06-02T14:58:33.764Z",
+    "name": "bill",
+    "type": "customer",
+    "updatedAt": "2026-06-02T14:58:33.764Z",
+    "id": "contact-1780412300050",
+    "phone": ""
+  },
+  {
+    "id": "contact-1780244039610",
+    "createdAt": "2026-05-31T16:14:08.736Z",
+    "type": "customer",
+    "phone": "",
+    "updatedAt": "2026-05-31T16:14:16.313Z",
+    "name": "mb"
+  },
+  {
+    "updatedAt": "2026-05-31T13:32:02.348Z",
+    "id": "contact-1780219010807",
+    "type": "customer",
+    "name": "mb",
+    "createdAt": "2026-05-31T13:32:02.348Z",
+    "phone": ""
   }
 ];
 
@@ -249,7 +745,12 @@ export function loadContacts(): Contact[] {
     return DEFAULT_CONTACTS;
   }
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      localStorage.setItem(CONTACTS_KEY, JSON.stringify(DEFAULT_CONTACTS));
+      return DEFAULT_CONTACTS;
+    }
+    return parsed;
   } catch (e) {
     return DEFAULT_CONTACTS;
   }
@@ -469,7 +970,32 @@ export function loadCashInAccounts(): CashInAccount[] {
     const data = localStorage.getItem(CASHIN_ACCOUNTS_KEY);
     if (!data) return [];
     const parsed = JSON.parse(data);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+
+    // Auto-prune recharge history older than 3 months without altering current account balance
+    const now = new Date();
+    const oldestAllowedDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    const oldestAllowedKey = `${oldestAllowedDate.getFullYear()}-${String(oldestAllowedDate.getMonth() + 1).padStart(2, '0')}`;
+
+    let accountsModified = false;
+    const cleaned = parsed.map((acc: CashInAccount) => {
+      if (!acc.rechargeHistory || acc.rechargeHistory.length === 0) return acc;
+      const validHistory = acc.rechargeHistory.filter(r => {
+        const dStr = r.date || r.createdAt || '';
+        const mKey = dStr.length >= 7 ? dStr.substring(0, 7) : '';
+        return !mKey || mKey >= oldestAllowedKey;
+      });
+      if (validHistory.length !== acc.rechargeHistory.length) {
+        accountsModified = true;
+        return { ...acc, rechargeHistory: validHistory };
+      }
+      return acc;
+    });
+
+    if (accountsModified) {
+      saveCashInAccounts(cleaned);
+    }
+    return cleaned;
   } catch (e) {
     console.error('Failed to load cashin accounts', e);
     return [];
@@ -489,7 +1015,23 @@ export function loadCashInTransactions(): CashInTransaction[] {
     const data = localStorage.getItem(CASHIN_TRANSACTIONS_KEY);
     if (!data) return [];
     const parsed = JSON.parse(data);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+
+    // Auto-prune Cash In transactions older than 3 months (Current month + previous 2 months)
+    const now = new Date();
+    const oldestAllowedDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    const oldestAllowedKey = `${oldestAllowedDate.getFullYear()}-${String(oldestAllowedDate.getMonth() + 1).padStart(2, '0')}`;
+
+    const validTxs = parsed.filter((tx: CashInTransaction) => {
+      const dStr = tx.date || tx.createdAt || '';
+      const mKey = dStr.length >= 7 ? dStr.substring(0, 7) : '';
+      return !mKey || mKey >= oldestAllowedKey;
+    });
+
+    if (validTxs.length !== parsed.length) {
+      saveCashInTransactions(validTxs);
+    }
+    return validTxs;
   } catch (e) {
     console.error('Failed to load cashin transactions', e);
     return [];

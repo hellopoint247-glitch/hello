@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { safeLocalStorage as localStorage } from '../utils/safeStorage';
-import { Lock, ShieldCheck, X, KeyRound, ArrowRight, ArrowLeft, UserPlus, User, Users, Phone, Clock, Camera, Trash2, MessageCircle, ShoppingBag } from 'lucide-react';
+import { Lock, ShieldCheck, X, KeyRound, ArrowRight, ArrowLeft, UserPlus, User, Users, Phone, Clock, Camera, Trash2, MessageCircle, ShoppingBag, Download } from 'lucide-react';
 import { Contact, Product, ChatMessage, ChatQuickFAQ, ShopOrder, ShopCustomerAccount } from '../types';
-import { PWAInstallButton } from './PWAInstallButton';
+import { usePwaInstall } from '../utils/usePwaInstall';
 
 export interface RememberedCustomer {
   id: string;
@@ -143,6 +143,9 @@ export function PinLockScreen({
   const [chatInitialMessage, setChatInitialMessage] = useState<string>('');
   const [chatInitialName, setChatInitialName] = useState<string>('');
   const [chatInitialPhone, setChatInitialPhone] = useState<string>('');
+
+  // PWA Install hook (hidden once installed)
+  const { isInstalled, promptInstall, showGuide, setShowGuide } = usePwaInstall();
 
   // Register state management
   const [showRegisterModal, setShowRegisterModal] = useState<boolean>(false);
@@ -423,7 +426,7 @@ export function PinLockScreen({
   };
 
   return (
-    <div id="unified-auth-viewport" className="fixed inset-0 flex items-center justify-center p-4 pt-16 z-[9999] font-sans overflow-y-auto select-none transition-colors duration-300 bg-slate-50 text-slate-805">
+    <div id="unified-auth-viewport" className="fixed inset-0 flex items-center justify-center p-4 pt-16 z-[9999] font-sans overflow-y-auto select-none bg-slate-50 text-slate-805">
       
       {/* TOP HEADER WITH LANGUAGE TOGGLE & SECURE DIGITAL STATEMENT */}
       <div className="absolute top-0 inset-x-0 bg-white border-b border-slate-150 py-2.5 px-4 flex justify-between items-center z-[10000] shadow-tiny select-none">
@@ -436,21 +439,16 @@ export function PinLockScreen({
           </span>
         </div>
         
-        <div className="flex items-center gap-1.5 shrink-0">
-          {/* Header PWA Install Trigger */}
-          <PWAInstallButton lang={lang} variant="header" />
-
-          {/* Language Selection Switch on-screen */}
-          {setLang && (
-            <button 
-              type="button"
-              onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')}
-              className="bg-purple-50 hover:bg-purple-100 text-purple-755 border border-purple-200/50 hover:border-purple-300 active:scale-95 transition-all text-[9px] px-2 py-0.8 rounded-md font-black tracking-wide shrink-0 cursor-pointer"
-            >
-              {lang === 'bn' ? 'ENGLISH / ভাষা' : 'বাংলা / LANG'}
-            </button>
-          )}
-        </div>
+        {/* Language Selection Switch on-screen */}
+        {setLang && (
+          <button 
+            type="button"
+            onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')}
+            className="bg-purple-50 hover:bg-purple-100 text-purple-755 border border-purple-200/50 hover:border-purple-300 active:scale-95 transition-all text-[9px] px-2 py-0.8 rounded-md font-black tracking-wide shrink-0 cursor-pointer"
+          >
+            {lang === 'bn' ? 'ENGLISH / ভাষা' : 'বাংলা / LANG'}
+          </button>
+        )}
       </div>
 
       {/* Decorative premium ambient gradient backdrops */}
@@ -490,7 +488,7 @@ export function PinLockScreen({
 
             {/* VISITOR SERVICES: LIVE CHAT & ONLINE SHOP - DIRECTLY UNDER HELLOPOINT LOGO */}
             <div className="w-full mt-2 mb-2">
-              <div className="grid grid-cols-2 gap-2">
+              <div className={`grid ${!isInstalled ? 'grid-cols-3' : 'grid-cols-2'} gap-1.5`}>
                 {/* 1. Live Chat Button with dot */}
                 <button
                   type="button"
@@ -498,7 +496,7 @@ export function PinLockScreen({
                     setChatInitialMessage('');
                     setShowLiveChatModal(true);
                   }}
-                  className="relative flex items-center justify-center gap-1.5 py-2.5 px-3 bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-200/80 rounded-xl text-emerald-800 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
+                  className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2.5 px-1.5 sm:px-2 bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-200/80 rounded-xl text-emerald-800 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
                 >
                   {/* Blinking Dot Indicator in front of name */}
                   <span className="relative flex h-1.5 w-1.5 shrink-0">
@@ -522,7 +520,7 @@ export function PinLockScreen({
                 <button
                   type="button"
                   onClick={() => setShowShopModal(true)}
-                  className="relative flex items-center justify-center gap-1.5 py-2.5 px-3 bg-indigo-50/70 hover:bg-indigo-100/70 border border-indigo-200/80 rounded-xl text-indigo-800 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
+                  className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2.5 px-1.5 sm:px-2 bg-indigo-50/70 hover:bg-indigo-100/70 border border-indigo-200/80 rounded-xl text-indigo-800 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
                 >
                   <ShoppingBag className="w-3.5 h-3.5 text-indigo-600 group-hover:scale-110 transition-transform shrink-0" />
                   <span className="text-[10px] sm:text-[11px] font-bold tracking-tight whitespace-nowrap">
@@ -534,11 +532,21 @@ export function PinLockScreen({
                     </span>
                   )}
                 </button>
-              </div>
 
-              {/* In-App PWA Install Trigger Button for Visitors */}
-              <div className="w-full mt-2">
-                <PWAInstallButton lang={lang} variant="full" />
+                {/* 3. App Install Button (Hidden once installed - "ইনস্টল হয়ে গেলে ইস্টোলেট দেখানো লাগবে না") */}
+                {!isInstalled && (
+                  <button
+                    type="button"
+                    onClick={promptInstall}
+                    className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2.5 px-1.5 sm:px-2 bg-purple-50/80 hover:bg-purple-100/80 border border-purple-200/90 rounded-xl text-purple-900 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
+                    title={lang === 'bn' ? 'অ্যাপ ইন্সটল করুন' : 'Install App'}
+                  >
+                    <Download className="w-3.5 h-3.5 text-purple-700 group-hover:scale-110 transition-transform shrink-0 animate-bounce" />
+                    <span className="text-[10px] sm:text-[11px] font-black tracking-tight whitespace-nowrap">
+                      {lang === 'bn' ? 'অ্যাপ ইন্সটল' : 'Install App'}
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1062,6 +1070,51 @@ export function PinLockScreen({
         ringColor="border-purple-500"
         progressColor="from-purple-500 to-indigo-500"
       />
+      {/* PWA INSTALL INSTRUCTIONS MODAL */}
+      {showGuide && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-[#1c222d] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 max-w-sm w-full shadow-2xl relative">
+            <button
+              type="button"
+              onClick={() => setShowGuide(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className="w-10 h-10 rounded-2xl bg-purple-100 dark:bg-purple-950/50 flex items-center justify-center text-purple-700 dark:text-purple-300">
+                <Download className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                  {lang === 'bn' ? 'অ্যাপ ইন্সটল করার নিয়ম' : 'How to Install App'}
+                </h3>
+                <p className="text-[11px] text-slate-500 font-bold">HelloPoint Digital Cashbook</p>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#141a23] p-3 rounded-2xl border border-slate-200/70 dark:border-slate-800">
+              <div className="flex items-start gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-purple-600 text-white font-black text-[10px] shrink-0 mt-0.5">১</span>
+                <span>{lang === 'bn' ? 'Android/Chrome-এ: ব্রাউজারের উপরে ৩-ডট মেনু (⋮) চাপুন এবং "Install app" বা "Add to Home screen" নির্বাচন করুন।' : 'On Android/Chrome: Tap 3 dots (⋮) and select "Install app" or "Add to Home screen".'}</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-purple-600 text-white font-black text-[10px] shrink-0 mt-0.5">২</span>
+                <span>{lang === 'bn' ? 'iPhone/Safari-তে: নিচে Share বাটনে ট্যাপ করে "Add to Home Screen" (+) এ চাপুন।' : 'On iPhone/Safari: Tap Share button and select "Add to Home Screen" (+).'}</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowGuide(false)}
+              className="w-full mt-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black shadow-xs cursor-pointer transition-all"
+            >
+              {lang === 'bn' ? 'ঠিক আছে' : 'Got it'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
