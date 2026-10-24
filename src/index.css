@@ -527,6 +527,44 @@ select:focus {
   animation: colorCycle 6s ease-in-out infinite;
 }
 
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-18px) scale(1.04); }
+}
+.animate-float-slow {
+  animation: floatSlow 8s ease-in-out infinite;
+}
+
+@keyframes floatReverse {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(16px) scale(0.96); }
+}
+.animate-float-reverse {
+  animation: floatReverse 10s ease-in-out infinite;
+}
+
+@keyframes neonGlow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.2), inset 0 0 15px rgba(139, 92, 246, 0.08);
+    border-color: rgba(168, 85, 247, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(34, 211, 238, 0.3), inset 0 0 20px rgba(34, 211, 238, 0.12);
+    border-color: rgba(34, 211, 238, 0.55);
+  }
+}
+.animate-neon-glow {
+  animation: neonGlow 4s ease-in-out infinite;
+}
+
+@keyframes glassShine {
+  0% { transform: translateX(-150%) skewX(-20deg); }
+  100% { transform: translateX(250%) skewX(-20deg); }
+}
+.animate-glass-shine {
+  animation: glassShine 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 /* Safari and iOS mobile optimizations */
 button, 
 a, 

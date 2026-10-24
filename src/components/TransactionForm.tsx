@@ -169,6 +169,7 @@ export function TransactionForm({
   };
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Automatically prune English tags and 1-month-unused tags on mount
   useEffect(() => {
@@ -732,8 +733,8 @@ export function TransactionForm({
     img.onload = () => {
       try {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 750;
-        const MAX_HEIGHT = 750;
+        const MAX_WIDTH = 640;
+        const MAX_HEIGHT = 640;
         let width = img.width;
         let height = img.height;
 
@@ -754,8 +755,8 @@ export function TransactionForm({
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
-          // Compress high quality JPEG (e.g. 50-80KB in size) to fit under Firestore size caps
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.80);
+          // High-efficiency lightweight JPEG for instant loading and minimal storage footprint
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.65);
           setAttachFile(dataUrl);
         }
       } catch (err) {
@@ -876,11 +877,15 @@ export function TransactionForm({
   };
 
   const handleSavingTransaction = () => {
+    if (isSubmitting) return;
+
     const parsedAmount = parseAmountWithBilingualSupport(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       setError('দয়া করে সঠিক অংক লিখুন!');
       return;
     }
+
+    setIsSubmitting(true);
 
     const trimmedNote = convertBengaliDigitsToEnglish(note.trim());
     if (trimmedNote && isValidTagForSection(trimmedNote)) {
@@ -1419,11 +1424,12 @@ export function TransactionForm({
         <button 
           id="btn-submit-tx"
           type="button"
+          disabled={isSubmitting}
           onClick={handleSavingTransaction}
-          className="w-full bg-[#4caf50] hover:bg-[#43a047] active:scale-98 text-white py-3 sm:py-3.5 rounded-xl font-black text-xs sm:text-sm tracking-wider flex items-center justify-center gap-1.5 shadow-md hover:shadow-lg transition-all cursor-pointer select-none"
+          className={`w-full bg-[#4caf50] hover:bg-[#43a047] active:scale-98 text-white py-3 sm:py-3.5 rounded-xl font-black text-xs sm:text-sm tracking-wider flex items-center justify-center gap-1.5 shadow-md hover:shadow-lg transition-all cursor-pointer select-none ${isSubmitting ? 'opacity-70 pointer-events-none' : ''}`}
         >
           <Check className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
-          {transaction ? 'Update (পরিবর্তন নিশ্চিত করুন)' : 'Save (নতুন হিসাব জমা করুন)'}
+          {isSubmitting ? 'সংরক্ষণ হচ্ছে...' : (transaction ? 'Update (পরিবর্তন নিশ্চিত করুন)' : 'Save (নতুন হিসাব জমা করুন)')}
         </button>
       </footer>
 

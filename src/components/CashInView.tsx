@@ -42,7 +42,6 @@ import {
 } from 'lucide-react';
 import { CashInAccount, CashInTransaction, Contact, AccountRechargeRecord } from '../types';
 import { isTxOwnNumberTransfer, isPhoneOwnAccount, findOwnAccountByPhone, getTransactionCommission } from '../utils/cashInUtils';
-import { PremiumAppLoader } from './PremiumAppLoader';
 import { soundEngine } from '../utils/audio';
 import { DailyReportFullView } from './DailyReportFullView';
 import { MonthlyReportFullView } from './MonthlyReportFullView';
@@ -130,6 +129,7 @@ interface CashInViewProps {
     signature?: string;
     contactId?: string;
     transactionId?: string;
+    skipSaveAnimation?: boolean;
   }) => Promise<void> | void;
 }
 
@@ -194,7 +194,6 @@ export function CashInView({
 
   // Processing & Loading State
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingProgress, setProcessingProgress] = useState(0);
   const [successTx, setSuccessTx] = useState<{
     tx: CashInTransaction;
     account?: CashInAccount;
@@ -1031,23 +1030,10 @@ export function CashInView({
       return;
     }
 
-    // Trigger smooth loading animation
     setIsProcessing(true);
-    setProcessingProgress(15);
-
-    const interval = setInterval(() => {
-      setProcessingProgress(prev => {
-        if (prev >= 90) {
-          clearInterval(interval);
-          return 95;
-        }
-        return prev + 30;
-      });
-    }, 120);
-
-    setTimeout(async () => {
-      clearInterval(interval);
-      setProcessingProgress(100);
+    try {
+      // Short tactile pause for smooth button spinning feedback
+      await new Promise(r => setTimeout(r, 250));
 
       // Perform deduction if matchedAccount exists
       let prevBal: number | undefined = undefined;
@@ -1124,68 +1110,67 @@ export function CashInView({
               : (initialIsOwn ? (lang === 'bn' ? 'নিজ নাম্বারে লেনদেন' : 'Own number transfer') : undefined))
       };
 
-      try {
-        // 1. Save cash-in transaction and deduct from sender account
-        await onSaveTransaction(newTx, updatedAccount);
+      // 1. Save cash-in transaction and deduct from sender account
+      await onSaveTransaction(newTx, updatedAccount);
 
-        // 2. Auto-recharge receiving SIM account balance
-        if (updatedDestAccount) {
-          if (updatedAccount && updatedDestAccount.id === updatedAccount.id) {
-            // If sender and receiver are the same account, save the merged state
-            await onSaveAccount(updatedDestAccount);
-          } else {
-            await onSaveAccount(updatedDestAccount);
-          }
+      // 2. Auto-recharge receiving SIM account balance
+      if (updatedDestAccount) {
+        if (updatedAccount && updatedDestAccount.id === updatedAccount.id) {
+          // If sender and receiver are the same account, save the merged state
+          await onSaveAccount(updatedDestAccount);
+        } else {
+          await onSaveAccount(updatedDestAccount);
         }
-
-        // Requirement: Automatically create a "GAVE" (দিয়েছি) transaction in that customer's baki ledger!
-        if (shouldRecordBaki && targetBaki && onSaveCustomerTransaction) {
-          try {
-            const catLabels: Record<string, string> = {
-              bkash: lang === 'bn' ? 'বিকাশ' : 'bKash',
-              nagad: lang === 'bn' ? 'নগদ' : 'Nagad',
-              flexiload: lang === 'bn' ? 'ফ্লেক্সিলোড' : 'Flexiload',
-              own: lang === 'bn' ? 'নিজ' : 'Own'
-            };
-            const serviceLabel = catLabels[selectedCategory] || (lang === 'bn' ? 'বিকাশ' : 'bKash');
-            const ownTag = isOwnNumber ? (lang === 'bn' ? ' [নিজ নম্বর]' : ' [Own Number]') : '';
-
-            await onSaveCustomerTransaction({
-              amount: numAmount,
-              type: 'GAVE',
-              note: `${serviceLabel} (${cleanPhone})${ownTag}`,
-              billNo: cleanPhone,
-              date: new Date().toISOString().split('T')[0],
-              contactId: targetBaki.id
-            });
-          } catch (bakiErr) {
-            console.error('Failed to auto-save customer baki entry:', bakiErr);
-          }
-        }
-
-        setIsProcessing(false);
-        setSuccessTx({
-          tx: newTx,
-          account: updatedAccount,
-          prevBalance: prevBal,
-          newBalance: newBal,
-          destinationAccount: updatedDestAccount,
-          destinationNewBalance: updatedDestAccount?.balance,
-          bakiCustomer: shouldRecordBaki ? targetBaki : undefined
-        });
-
-        // Reset form
-        setCustomerPhone('');
-        setCustomerName('');
-        setBakiAutoEntryContact(null);
-        setAmount('');
-        setLastDigits('');
-        setSelectedCategory('bkash');
-      } catch (err) {
-        setIsProcessing(false);
-        setFormError(lang === 'bn' ? 'ক্যাশ-ইন সম্পন্ন করতে সমস্যা হয়েছে' : 'Failed to complete cash-in');
       }
-    }, 600);
+
+      // Requirement: Automatically create a "GAVE" (দিয়েছি) transaction in that customer's baki ledger!
+      if (shouldRecordBaki && targetBaki && onSaveCustomerTransaction) {
+        try {
+          const catLabels: Record<string, string> = {
+            bkash: lang === 'bn' ? 'বিকাশ' : 'bKash',
+            nagad: lang === 'bn' ? 'নগদ' : 'Nagad',
+            flexiload: lang === 'bn' ? 'ফ্লেক্সিলোড' : 'Flexiload',
+            own: lang === 'bn' ? 'নিজ' : 'Own'
+          };
+          const serviceLabel = catLabels[selectedCategory] || (lang === 'bn' ? 'বিকাশ' : 'bKash');
+          const ownTag = isOwnNumber ? (lang === 'bn' ? ' [নিজ নম্বর]' : ' [Own Number]') : '';
+
+          await onSaveCustomerTransaction({
+            amount: numAmount,
+            type: 'GAVE',
+            note: `${serviceLabel} (${cleanPhone})${ownTag}`,
+            billNo: cleanPhone,
+            date: new Date().toISOString().split('T')[0],
+            contactId: targetBaki.id,
+            skipSaveAnimation: true
+          });
+        } catch (bakiErr) {
+          console.error('Failed to auto-save customer baki entry:', bakiErr);
+        }
+      }
+
+      setSuccessTx({
+        tx: newTx,
+        account: updatedAccount,
+        prevBalance: prevBal,
+        newBalance: newBal,
+        destinationAccount: updatedDestAccount,
+        destinationNewBalance: updatedDestAccount?.balance,
+        bakiCustomer: shouldRecordBaki ? targetBaki : undefined
+      });
+
+      // Reset form
+      setCustomerPhone('');
+      setCustomerName('');
+      setBakiAutoEntryContact(null);
+      setAmount('');
+      setLastDigits('');
+      setSelectedCategory('bkash');
+    } catch (err) {
+      setFormError(lang === 'bn' ? 'ক্যাশ-ইন সম্পন্ন করতে সমস্যা হয়েছে' : 'Failed to complete cash-in');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   // Add / Edit Account Handler
@@ -1468,6 +1453,7 @@ export function CashInView({
 
     setSimCashInProcessing(true);
     try {
+      await new Promise(r => setTimeout(r, 250));
       const prevBal = currentActiveAccount.balance;
       const newBal = Math.max(0, prevBal - numAmount);
       const updatedAccount: CashInAccount = {
@@ -2680,10 +2666,14 @@ export function CashInView({
                   type="submit"
                   id="btn-submit-cashin-icon"
                   disabled={isProcessing}
-                  className="h-[35px] w-[40px] rounded-xl bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-600 hover:to-teal-700 active:scale-95 text-white flex items-center justify-center shrink-0 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                  className="h-[35px] w-[40px] rounded-xl bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-600 hover:to-teal-700 active:scale-95 text-white flex items-center justify-center shrink-0 shadow-sm transition-all cursor-pointer disabled:opacity-80"
                   title={lang === 'bn' ? 'ক্যাশ-ইন সম্পন্ন করুন' : 'Complete Cash-In'}
                 >
-                  <Check className="w-5 h-5 stroke-[3]" />
+                  {isProcessing ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Check className="w-5 h-5 stroke-[3]" />
+                  )}
                 </button>
               </div>
             </div>
@@ -2952,16 +2942,6 @@ export function CashInView({
         )}
       </div>
 
-      {/* 4. SMOOTH PROCESSING / LOADING ANIMATION (STANDARDIZED) */}
-      <PremiumAppLoader
-        isOpen={isProcessing}
-        title={lang === 'bn' ? 'ক্যাশ-ইন সম্পন্ন হচ্ছে...' : 'Processing Cash-In...'}
-        icon={Send}
-        iconGradient="from-emerald-600 to-teal-500"
-        ringColor="border-emerald-500"
-        progressColor="from-emerald-500 to-teal-500"
-        progress={processingProgress}
-      />
 
       {/* 5. SUCCESS CONFIRMATION MODAL */}
       <AnimatePresence>

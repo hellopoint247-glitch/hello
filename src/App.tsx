@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { safeLocalStorage as localStorage } from './utils/safeStorage';
 import { motion, AnimatePresence } from 'motion/react';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount } from './types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, ChatQuickFAQ, CashInAccount, CashInTransaction } from './types';
 import { 
   loadContacts, 
   saveContacts, 
@@ -16,12 +16,6 @@ import {
   saveCashbook,
   loadPayBills,
   savePayBills,
-  loadProducts,
-  saveProducts,
-  loadShopOrders,
-  saveShopOrders,
-  loadShopCustomers,
-  saveShopCustomers,
   loadQuickFaqs,
   saveQuickFaqs,
   loadCashInAccounts,
@@ -113,9 +107,6 @@ export default function App() {
   const [cashInAccounts, setCashInAccounts] = useState<CashInAccount[]>(() => loadCashInAccounts());
   const [cashInTransactions, setCashInTransactions] = useState<CashInTransaction[]>(() => loadCashInTransactions());
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [products, setProducts] = useState<Product[]>(() => loadProducts());
-  const [shopOrders, setShopOrders] = useState<ShopOrder[]>(() => loadShopOrders());
-  const [shopCustomers, setShopCustomers] = useState<ShopCustomerAccount[]>(() => loadShopCustomers());
   const [quickFaqs, setQuickFaqs] = useState<ChatQuickFAQ[]>(() => loadQuickFaqs());
   const [currency, setCurrencyState] = useState('৳');
   const [customCategories, setCustomCategories] = useState<string[]>([]);
@@ -183,9 +174,8 @@ export default function App() {
   // Paybill requests state
   const [paybillRequests, setPaybillRequests] = useState<PayBillRequest[]>([]);
 
-  // Synchronized security and shop configuration states
+  // Synchronized security passcode state
   const [ownerPin, setOwnerPin] = useState<string>(() => localStorage.getItem('hellopoint_pin') || '1234');
-  const [shopStatus, setShopStatus] = useState<'open' | 'closed'>(() => (localStorage.getItem('hellopoint_shop_status') as 'open' | 'closed') || 'open');
 
   const handleSaveCategory = async (category: string) => {
     const trimmed = category.trim();
@@ -291,23 +281,9 @@ export default function App() {
     
     if (user?.uid) {
       try {
-        await setDoc(doc(db, 'users', user.uid), { pin: newPin, shopStatus }, { merge: true });
+        await setDoc(doc(db, 'users', user.uid), { pin: newPin }, { merge: true });
       } catch (err) {
         console.error('Failed to sync updated PIN to Firestore:', err);
-      }
-    }
-  };
-
-  const handleUpdateShopStatus = async (newStatus: 'open' | 'closed') => {
-    setShopStatus(newStatus);
-    localStorage.setItem('hellopoint_shop_status', newStatus);
-    window.dispatchEvent(new Event('storage'));
-
-    if (user?.uid) {
-      try {
-        await setDoc(doc(db, 'users', user.uid), { pin: ownerPin, shopStatus: newStatus }, { merge: true });
-      } catch (err) {
-        console.error('Failed to sync updated shop status to Firestore:', err);
       }
     }
   };
@@ -335,11 +311,15 @@ export default function App() {
     const foundLocal = contacts.find(c => c.type === 'customer' && isPhoneMatch(c.phone, cleanCompleted));
     if (foundLocal) {
       setCustomerOfflineObj(foundLocal);
+      const localMatched = (transactions.length > 0 ? transactions : loadTransactions()).filter(t => t.contactId === foundLocal.id);
+      if (localMatched.length > 0) {
+        setCustomerTransactions(localMatched);
+      }
       return foundLocal;
     }
 
     // 2. Try Firestore lookup using the synced ownerUid
-    const activeUid = user?.uid || ownerUid;
+    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid') || 'lJRGRj5w92RxSUcGybklzs3cFho1';
     if (activeUid) {
       try {
         const contactsRef = collection(db, 'users', activeUid, 'contacts');
@@ -351,9 +331,23 @@ export default function App() {
 
         if (list.length > 0) {
           setContacts(list);
+          saveContacts(list);
           const found = list.find(c => c.type === 'customer' && isPhoneMatch(c.phone, cleanCompleted));
           if (found) {
             setCustomerOfflineObj(found);
+            // Pre-fetch transactions concurrently so they appear immediately on login
+            getDocs(query(collection(db, 'users', activeUid, 'transactions'), where('contactId', '==', found.id)))
+              .then(txSnap => {
+                const txList: Transaction[] = [];
+                txSnap.forEach(d => txList.push({ ...d.data(), id: d.id } as Transaction));
+                if (txList.length > 0) {
+                  setCustomerTransactions(txList);
+                  setTransactions(prev => {
+                    const existingIds = new Set(txList.map(t => t.id));
+                    return [...txList, ...prev.filter(p => !existingIds.has(p.id))];
+                  });
+                }
+              }).catch(() => {});
             return found;
           }
         }
@@ -559,76 +553,7 @@ export default function App() {
       handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/cashin_transactions`);
     });
 
-    const qReminders = collection(db, 'users', activeUid, 'reminders');
-    let isRemindersInitial = true;
-    const unsubReminders = onSnapshot(qReminders, (snapshot) => {
-      const list: any[] = [];
-      snapshot.forEach((snapDoc) => {
-        list.push(snapDoc.data());
-      });
 
-      const isOwnerDevice = Boolean((user && user.email) || (auth.currentUser && auth.currentUser.email));
-      const isCustDevice = !isOwnerDevice;
-      const activeCustId = (sessionRole === 'customer' && loggedInCustomerId) 
-        ? loggedInCustomerId 
-        : (localStorage.getItem('hellopoint_session_customer_id') || localStorage.getItem('hellopoint_remembered_cust_id'));
-
-      // Customer-specific due reminder / tagada alert (for non-Gmail customer devices)
-      if (!isRemindersInitial && isCustDevice && activeCustId) {
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'added' || change.type === 'modified') {
-            const r = change.doc.data() as any;
-            if (r.contactId === activeCustId && !r.isCompleted && r.isTriggered) {
-              notifyWithDeduplication({
-                title: lang === 'bn' ? '⏰ বাকির তাগাদা!' : '⏰ Payment Reminder Alert!',
-                body: lang === 'bn' 
-                  ? `সম্মানিত গ্রাহক, আপনার বাকির হিসাব পরিশোধের জন্য অনুরোধ জানানো হচ্ছে। (${r.text})` 
-                  : `Valued customer, you have a payment reminder for your account. (${r.text})`,
-                tag: `cust-tagada-${change.doc.id}`,
-                dedupeKey: `cust-tagada-${change.doc.id}`,
-                playSound: true
-              });
-            }
-          }
-        });
-      }
-      isRemindersInitial = false;
-
-      try {
-        const localSaved = localStorage.getItem('hellopoint_reminders');
-        const localList = localSaved ? JSON.parse(localSaved) : [];
-        const mergedMap = new Map();
-        
-        // Put Firestore values in first
-        list.forEach((r: any) => mergedMap.set(r.id, r));
-        
-        // Let local list override / merge wisely
-        localList.forEach((r: any) => {
-          const existing = mergedMap.get(r.id);
-          if (existing) {
-            const isCompleted = existing.isCompleted || r.isCompleted;
-            const isTriggered = isCompleted ? false : (existing.isTriggered || r.isTriggered);
-            mergedMap.set(r.id, {
-              ...existing,
-              ...r,
-              isCompleted,
-              isTriggered
-            });
-          } else {
-            mergedMap.set(r.id, r);
-          }
-        });
-
-        const mergedArray = Array.from(mergedMap.values());
-        mergedArray.sort((a, b) => b.id.localeCompare(a.id));
-        localStorage.setItem('hellopoint_reminders', JSON.stringify(mergedArray));
-        window.dispatchEvent(new Event('storage'));
-      } catch (err) {
-        console.error('Failed to merge reminders:', err);
-      }
-    }, (error) => {
-      console.error('Failed to subscribe to reminders:', error);
-    });
 
     const isOwnerDevice = Boolean((user && user.email) || (auth.currentUser && auth.currentUser.email));
     const isCustDevice = !isOwnerDevice;
@@ -851,50 +776,6 @@ export default function App() {
       console.error('Failed to subscribe to chats:', error);
     });
 
-    let isProductsInitial = true;
-    const qProducts = collection(db, 'users', activeUid, 'products');
-    const unsubProducts = onSnapshot(qProducts, (snapshot) => {
-      const list: Product[] = [];
-      snapshot.forEach((snapDoc) => {
-        const data = snapDoc.data() as Product;
-        list.push({ ...data, id: data.id || snapDoc.id });
-      });
-
-      // Special promotional offers notification for visitors & customers
-      if (!isProductsInitial) {
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'added') {
-            const p = change.doc.data() as Product;
-            const hasDiscount = Boolean(p.originalPrice && p.originalPrice > p.price);
-            notifyWithDeduplication({
-              title: hasDiscount 
-                ? (lang === 'bn' ? '🎉 নতুন স্পেশাল অফার!' : '🎉 Special Offer Alert!')
-                : (lang === 'bn' ? '🛍️ নতুন পণ্য যুক্ত হয়েছে!' : '🛍️ New Product Added!'),
-              body: hasDiscount
-                ? (lang === 'bn' 
-                    ? `${p.name} - মাত্র ৳${p.price} (আগের দাম ৳${p.originalPrice})` 
-                    : `${p.name} - now only ৳${p.price} (was ৳${p.originalPrice})`)
-                : `${p.name} - ৳${p.price}`,
-              tag: `product-offer-${change.doc.id}`,
-              dedupeKey: `product-offer-${change.doc.id}`,
-              playSound: true
-            });
-          }
-        });
-      }
-      isProductsInitial = false;
-
-      list.sort((a, b) => {
-        const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-        const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
-        return timeB - timeA;
-      });
-      setProducts(list);
-      saveProducts(list);
-    }, (error) => {
-      console.error('Failed to subscribe to products:', error);
-    });
-
     const qQuickFaqs = collection(db, 'users', activeUid, 'quick_faqs');
     const unsubQuickFaqs = onSnapshot(qQuickFaqs, (snapshot) => {
       const list: ChatQuickFAQ[] = [];
@@ -908,80 +789,6 @@ export default function App() {
       console.error('Failed to subscribe to quick_faqs:', error);
     });
 
-    let isOrdersInitial = true;
-    const qShopOrders = collection(db, 'users', activeUid, 'shop_orders');
-    const unsubShopOrders = onSnapshot(qShopOrders, (snapshot) => {
-      const list: ShopOrder[] = [];
-      snapshot.forEach((snapDoc) => {
-        const data = snapDoc.data() as ShopOrder;
-        list.push({ ...data, id: data.id || snapDoc.id });
-      });
-
-      if (!isOrdersInitial) {
-        snapshot.docChanges().forEach((change) => {
-          if (isCustDevice && activeCustId) {
-            // Customer receives update when their order status is modified
-            if (change.type === 'modified') {
-              const order = change.doc.data() as ShopOrder;
-              if (order.customerId === activeCustId) {
-                const statusBn = order.status === 'delivered' 
-                  ? 'ডেলিভারি সম্পন্ন হয়েছে ✓' 
-                  : order.status === 'shipped' 
-                  ? 'পাঠানো হয়েছে (Shipped)' 
-                  : order.status === 'confirmed' 
-                  ? 'নিশ্চিত করা হয়েছে (Confirmed)' 
-                  : order.status === 'cancelled' 
-                  ? 'বাতিল করা হয়েছে' 
-                  : 'প্রসেসিং হচ্ছে';
-                notifyWithDeduplication({
-                  title: lang === 'bn' ? `📦 অর্ডার আপডেট (#${order.orderNumber || ''})` : `📦 Order Update (#${order.orderNumber || ''})`,
-                  body: lang === 'bn' 
-                    ? `আপনার অর্ডার #${order.orderNumber || ''} ${statusBn}` 
-                    : `Your order #${order.orderNumber || ''} is now ${order.status}`,
-                  tag: `order-${change.doc.id}`,
-                  dedupeKey: `order-${change.doc.id}-${order.status}`,
-                  playSound: true
-                });
-              }
-            }
-          } else if (!isCustDevice) {
-            // Owner receives alert for new incoming orders
-            if (change.type === 'added') {
-              const data = change.doc.data() as any;
-              notifyWithDeduplication({
-                title: '🛍️ নতুন শপ অর্ডার এসেছে!',
-                body: `অর্ডার #${data.orderNumber || ''}: ৳${data.totalAmount || 0}`,
-                tag: `order-${change.doc.id}`,
-                dedupeKey: `order-${change.doc.id}`,
-                playSound: true
-              });
-            }
-          }
-        });
-      }
-      isOrdersInitial = false;
-
-      list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      setShopOrders(list);
-      saveShopOrders(list);
-    }, (error) => {
-      console.error('Failed to subscribe to shop_orders:', error);
-    });
-
-    const qShopCustomers = collection(db, 'users', activeUid, 'shop_customers');
-    const unsubShopCustomers = onSnapshot(qShopCustomers, (snapshot) => {
-      const list: ShopCustomerAccount[] = [];
-      snapshot.forEach((snapDoc) => {
-        const data = snapDoc.data() as ShopCustomerAccount;
-        list.push({ ...data, id: data.id || snapDoc.id });
-      });
-      list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      setShopCustomers(list);
-      saveShopCustomers(list);
-    }, (error) => {
-      console.error('Failed to subscribe to shop_customers:', error);
-    });
-
     return () => {
       unsubContacts();
       unsubTransactions();
@@ -989,14 +796,10 @@ export default function App() {
       unsubPayBills();
       unsubCashInAccounts();
       unsubCashInTransactions();
-      unsubReminders();
       unsubRecharges();
       unsubPaybillRequests();
       unsubChats();
-      unsubProducts();
       unsubQuickFaqs();
-      unsubShopOrders();
-      unsubShopCustomers();
     };
   }, [user, ownerUid, authLoading, sessionRole, loggedInCustomerId]);
 
@@ -1027,9 +830,6 @@ export default function App() {
   // Real-time cross-tab synchronization listener
   useEffect(() => {
     const handleStorageChange = () => {
-      setProducts(loadProducts());
-      setShopOrders(loadShopOrders());
-      setShopCustomers(loadShopCustomers());
       setQuickFaqs(loadQuickFaqs());
       const savedChats = localStorage.getItem('hellopoint_chat_messages');
       if (savedChats) {
@@ -1098,11 +898,7 @@ export default function App() {
             localStorage.setItem('hellopoint_pin', data.pin);
             window.dispatchEvent(new Event('storage'));
           }
-          if (data.shopStatus && data.shopStatus !== localStorage.getItem('hellopoint_shop_status')) {
-            setShopStatus(data.shopStatus);
-            localStorage.setItem('hellopoint_shop_status', data.shopStatus);
-            window.dispatchEvent(new Event('storage'));
-          }
+
           if (data.themeColor && data.themeColor !== localStorage.getItem('hellopoint_theme_color')) {
             setThemeColor(data.themeColor);
             localStorage.setItem('hellopoint_theme_color', data.themeColor);
@@ -1628,7 +1424,6 @@ export default function App() {
       const offlinePayBills = loadPayBills();
       const offlineCashInAccounts = loadCashInAccounts();
       const offlineCashInTransactions = loadCashInTransactions();
-      const offlineProducts = loadProducts();
       const offlineQuickFaqs = loadQuickFaqs();
 
       const hasOfflineData = 
@@ -1638,7 +1433,6 @@ export default function App() {
         offlinePayBills.length > 0 ||
         offlineCashInAccounts.length > 0 ||
         offlineCashInTransactions.length > 0 ||
-        offlineProducts.length > 0 ||
         offlineQuickFaqs.length > 0;
       if (!hasOfflineData) return;
 
@@ -1671,10 +1465,6 @@ export default function App() {
       for (const cit of offlineCashInTransactions) {
         if (isQuotaExceeded()) break;
         await setDoc(doc(db, 'users', uid, 'cashin_transactions', cit.id), cleanForFirestore(cit));
-      }
-      for (const prod of offlineProducts) {
-        if (isQuotaExceeded()) break;
-        await setDoc(doc(db, 'users', uid, 'products', prod.id), cleanForFirestore(prod));
       }
       for (const faq of offlineQuickFaqs) {
         if (isQuotaExceeded()) break;
@@ -1945,230 +1735,6 @@ export default function App() {
     }
   };
 
-  const handleSaveProduct = async (product: Product) => {
-    const formattedProduct: Product = {
-      ...product,
-      updatedAt: new Date().toISOString(),
-      createdAt: product.createdAt || new Date().toISOString()
-    };
-
-    setProducts(prev => {
-      const existingIndex = prev.findIndex(p => p.id === formattedProduct.id);
-      let updated: Product[];
-      if (existingIndex >= 0) {
-        updated = [...prev];
-        updated[existingIndex] = formattedProduct;
-      } else {
-        updated = [formattedProduct, ...prev];
-      }
-      saveProducts(updated);
-      return updated;
-    });
-
-    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid');
-    if (activeUid) {
-      try {
-        await setDoc(doc(db, 'users', activeUid, 'products', formattedProduct.id), cleanForFirestore(formattedProduct));
-      } catch (err) {
-        console.error('Failed to sync product to Firestore:', err);
-      }
-    }
-  };
-
-  const handleDeleteProduct = async (productId: string) => {
-    setProducts(prev => {
-      const updated = prev.filter(p => p.id !== productId);
-      saveProducts(updated);
-      return updated;
-    });
-
-    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid');
-    if (activeUid) {
-      try {
-        await deleteDoc(doc(db, 'users', activeUid, 'products', productId));
-      } catch (err) {
-        console.error('Failed to delete product from Firestore:', err);
-      }
-    }
-  };
-
-  const handleCreateShopOrder = async (order: ShopOrder) => {
-    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid');
-
-    // 1. Save Order to state and local storage
-    setShopOrders(prev => {
-      const updated = [order, ...prev.filter(o => o.id !== order.id)];
-      saveShopOrders(updated);
-      return updated;
-    });
-
-    // 2. Deduct stockQuantity from ordered products
-    const updatedProductsToSync: Product[] = [];
-    setProducts(prev => {
-      const updated = prev.map(p => {
-        const orderedItem = order.items.find(item => item.productId === p.id);
-        if (!orderedItem) return p;
-        const currentStock = typeof p.stockQuantity === 'number' ? p.stockQuantity : (p.inStock ? 20 : 0);
-        const newStock = Math.max(0, currentStock - orderedItem.quantity);
-        const nextProd: Product = {
-          ...p,
-          stockQuantity: newStock,
-          inStock: newStock > 0,
-          updatedAt: new Date().toISOString()
-        };
-        updatedProductsToSync.push(nextProd);
-        return nextProd;
-      });
-      saveProducts(updated);
-      return updated;
-    });
-
-    // 3. Create owner notification reminder for new order
-    try {
-      const remId = 'rem_order_' + Date.now();
-      const now = new Date();
-      const tzoffset = now.getTimezoneOffset() * 60000;
-      const localISO = (new Date(now.getTime() - tzoffset)).toISOString().slice(0, 16);
-      const itemsText = order.items.map(i => `${i.name || i.productName || 'পণ্য'} (${i.quantity} পিস)`).join(', ');
-      const reminderObj = {
-        id: remId,
-        text: `🛒 নতুন অনলাইন শপ অর্ডার (#${order.id.slice(-6).toUpperCase()}): ${order.customerName} (${order.customerPhone}) — ${itemsText} | মোট: ${currency}${order.totalAmount}`,
-        datetime: localISO,
-        isCompleted: false,
-        isTriggered: true
-      };
-      const savedRem = localStorage.getItem('hellopoint_reminders');
-      const remList = savedRem ? JSON.parse(savedRem) : [];
-      localStorage.setItem('hellopoint_reminders', JSON.stringify([reminderObj, ...remList]));
-      window.dispatchEvent(new Event('storage'));
-      if (activeUid) {
-        setDoc(doc(db, 'users', activeUid, 'reminders', remId), reminderObj).catch(() => {});
-      }
-    } catch (e) {
-      console.error('Failed to create order notification reminder:', e);
-    }
-
-    // 4. Sync to Firestore
-    if (activeUid) {
-      try {
-        await setDoc(doc(db, 'users', activeUid, 'shop_orders', order.id), cleanForFirestore(order));
-        for (const prod of updatedProductsToSync) {
-          await setDoc(doc(db, 'users', activeUid, 'products', prod.id), cleanForFirestore(prod));
-        }
-      } catch (err) {
-        console.error('Failed to sync shop order to Firestore:', err);
-      }
-    }
-  };
-
-  const handleUpdateShopOrderStatus = async (orderId: string, status: ShopOrder['status']) => {
-    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid');
-    const existingOrder = shopOrders.find(o => o.id === orderId);
-    if (!existingOrder) return;
-
-    const updatedOrder: ShopOrder = {
-      ...existingOrder,
-      status,
-      updatedAt: new Date().toISOString()
-    };
-
-    setShopOrders(prev => {
-      const updated = prev.map(o => o.id === orderId ? updatedOrder : o);
-      saveShopOrders(updated);
-      return updated;
-    });
-
-    // Restore stock if transitioning to cancelled from non-cancelled
-    const updatedProductsToSync: Product[] = [];
-    if (status === 'cancelled' && existingOrder.status !== 'cancelled') {
-      setProducts(prev => {
-        const updated = prev.map(p => {
-          const orderedItem = existingOrder.items.find(item => item.productId === p.id);
-          if (!orderedItem) return p;
-          const currentStock = typeof p.stockQuantity === 'number' ? p.stockQuantity : 0;
-          const newStock = currentStock + orderedItem.quantity;
-          const nextProd: Product = {
-            ...p,
-            stockQuantity: newStock,
-            inStock: newStock > 0,
-            updatedAt: new Date().toISOString()
-          };
-          updatedProductsToSync.push(nextProd);
-          return nextProd;
-        });
-        saveProducts(updated);
-        return updated;
-      });
-    }
-
-    if (activeUid) {
-      try {
-        await setDoc(doc(db, 'users', activeUid, 'shop_orders', orderId), cleanForFirestore(updatedOrder));
-        for (const prod of updatedProductsToSync) {
-          await setDoc(doc(db, 'users', activeUid, 'products', prod.id), cleanForFirestore(prod));
-        }
-      } catch (err) {
-        console.error('Failed to update shop order status in Firestore:', err);
-      }
-    }
-  };
-
-  const handleDeleteShopOrder = async (orderId: string) => {
-    soundEngine.playDeleteSound();
-    setShopOrders(prev => {
-      const updated = prev.filter(o => o.id !== orderId);
-      saveShopOrders(updated);
-      return updated;
-    });
-
-    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid');
-    if (activeUid) {
-      try {
-        await deleteDoc(doc(db, 'users', activeUid, 'shop_orders', orderId));
-      } catch (err) {
-        console.error('Failed to delete shop order from Firestore:', err);
-      }
-    }
-  };
-
-  const handleSaveShopCustomer = async (customer: ShopCustomerAccount) => {
-    setShopCustomers(prev => {
-      const exists = prev.some(c => c.id === customer.id);
-      const updated = exists
-        ? prev.map(c => c.id === customer.id ? customer : c)
-        : [customer, ...prev];
-      saveShopCustomers(updated);
-      return updated;
-    });
-
-    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid');
-    if (activeUid) {
-      try {
-        await setDoc(doc(db, 'users', activeUid, 'shop_customers', customer.id), cleanForFirestore(customer));
-      } catch (err) {
-        console.error('Failed to sync shop customer to Firestore:', err);
-      }
-    }
-  };
-
-  const handleDeleteShopCustomer = async (customerId: string) => {
-    soundEngine.playDeleteSound();
-    setShopCustomers(prev => {
-      const updated = prev.filter(c => c.id !== customerId);
-      saveShopCustomers(updated);
-      return updated;
-    });
-
-    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid');
-    if (activeUid) {
-      try {
-        await deleteDoc(doc(db, 'users', activeUid, 'shop_customers', customerId));
-      } catch (err) {
-        console.error('Failed to delete shop customer from Firestore:', err);
-      }
-    }
-  };
-
   const handleSaveQuickFaqs = async (faqs: ChatQuickFAQ[]) => {
     setQuickFaqs(faqs);
     saveQuickFaqs(faqs);
@@ -2221,7 +1787,7 @@ export default function App() {
   };
 
   // Transaction handlers
-  const handleSaveTransaction = async (data: {
+  const handleSaveTransaction = (data: {
     amount: number;
     type: 'GAVE' | 'GOT';
     note: string;
@@ -2231,9 +1797,13 @@ export default function App() {
     signature?: string;
     contactId?: string;
     transactionId?: string;
+    skipSaveAnimation?: boolean;
   }) => {
-    triggerSaveAnimation();
-    soundEngine.playCashEntrySound(data.type);
+    try {
+      soundEngine.playCashEntrySound(data.type);
+    } catch {
+      // ignore
+    }
     const contactId = data.contactId || (screen.type === 'transaction_form' ? screen.contactId : (screen.type === 'contact_detail' ? screen.contactId : ''));
     if (!contactId) return;
     const transactionId = data.transactionId || (screen.type === 'transaction_form' ? screen.transactionId : undefined);
@@ -2259,7 +1829,12 @@ export default function App() {
       updatedAt: new Date().toISOString()
     } : null;
 
-    // Instantaneous optimistic update for real-time transactions & balances
+    // ⚡ 0ms INSTANTANEOUS SCREEN RETURN TO CUSTOMER LEDGER (NO LAG)
+    if (screen.type === 'transaction_form') {
+      setScreen({ type: 'contact_detail', contactId });
+    }
+
+    // ⚡ INSTANTANEOUS OPTIMISTIC UPDATE FOR TRANSACTIONS & BALANCES
     setTransactions(prev => {
       let finalTxs = [];
       if (isEditing) {
@@ -2267,40 +1842,45 @@ export default function App() {
       } else {
         finalTxs = [...prev, formattedTx];
       }
-      saveTransactions(finalTxs);
+      // Asynchronously offload JSON.stringify so the UI thread doesn't stutter
+      setTimeout(() => {
+        saveTransactions(finalTxs);
+      }, 0);
       return finalTxs;
     });
 
     if (updatedContact) {
       setContacts(prev => {
         const finalContacts = prev.map(c => c.id === contactId ? updatedContact : c);
-        saveContacts(finalContacts);
+        setTimeout(() => {
+          saveContacts(finalContacts);
+        }, 0);
         return finalContacts;
       });
     }
 
+    // ⚡ BACKGROUND CLOUD PERSISTENCE (Non-blocking promise)
     const activeUid = user?.uid || ownerUid;
     if (activeUid) {
-      try {
-        // Save transaction document
-        await setDoc(doc(db, 'users', activeUid, 'transactions', txId), cleanForFirestore(formattedTx));
-        // Refresh contact update timer
-        if (updatedContact) {
-          await setDoc(doc(db, 'users', activeUid, 'contacts', contactId), cleanForFirestore(updatedContact));
+      (async () => {
+        try {
+          await setDoc(doc(db, 'users', activeUid, 'transactions', txId), cleanForFirestore(formattedTx));
+          if (updatedContact) {
+            await setDoc(doc(db, 'users', activeUid, 'contacts', contactId), cleanForFirestore(updatedContact));
+          }
+        } catch (err) {
+          handleFirestoreError(err, OperationType.WRITE, `users/${activeUid}/transactions/${txId}`);
         }
-      } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `users/${activeUid}/transactions/${txId}`);
-      }
-    }
-
-    // Return to Customer ledger folder if from full form
-    if (screen.type === 'transaction_form') {
-      setScreen({ type: 'contact_detail', contactId });
+      })();
     }
   };
 
-  const handleDeleteTransaction = async (targetTxId?: string) => {
-    soundEngine.playDeleteSound();
+  const handleDeleteTransaction = (targetTxId?: string) => {
+    try {
+      soundEngine.playDeleteSound();
+    } catch {
+      // ignore
+    }
     let transactionId = targetTxId;
     let contactId = (screen.type === 'transaction_form' || screen.type === 'contact_detail') ? screen.contactId : '';
 
@@ -2321,49 +1901,60 @@ export default function App() {
     const linkedCbId = txToDelete.cashbookEntryId;
     const activeUid = user?.uid || ownerUid;
 
-    // Instantaneous optimistic update
+    // ⚡ 0ms INSTANT SCREEN TRANSITION
+    if (contactId) {
+      setScreen({ type: 'contact_detail', contactId });
+    } else {
+      setScreen({ type: 'dashboard' });
+    }
+
+    // ⚡ INSTANTANEOUS OPTIMISTIC UPDATE
     setTransactions(prev => {
       const updatedTxs = prev.filter(t => t.id !== transactionId);
-      saveTransactions(updatedTxs);
+      setTimeout(() => {
+        saveTransactions(updatedTxs);
+      }, 0);
       return updatedTxs;
     });
 
     if (linkedCbId) {
       setCashbook(prev => {
         const updatedCb = prev.filter(e => e.id !== linkedCbId);
-        saveCashbook(updatedCb);
+        setTimeout(() => {
+          saveCashbook(updatedCb);
+        }, 0);
         return updatedCb;
       });
     }
 
+    // ⚡ BACKGROUND FIRESTORE DELETION (Non-blocking)
     if (activeUid && transactionId) {
-      try {
-        await deleteDoc(doc(db, 'users', activeUid, 'transactions', transactionId));
-        if (linkedCbId) {
-          await deleteDoc(doc(db, 'users', activeUid, 'cashbook', linkedCbId));
+      (async () => {
+        try {
+          await deleteDoc(doc(db, 'users', activeUid, 'transactions', transactionId));
+          if (linkedCbId) {
+            await deleteDoc(doc(db, 'users', activeUid, 'cashbook', linkedCbId));
+          }
+        } catch (err) {
+          handleFirestoreError(err, OperationType.DELETE, `users/${activeUid}/transactions/${transactionId}`);
         }
-      } catch (err) {
-        handleFirestoreError(err, OperationType.DELETE, `users/${activeUid}/transactions/${transactionId}`);
-      }
-    }
-
-    if (contactId) {
-      setScreen({ type: 'contact_detail', contactId });
-    } else {
-      setScreen({ type: 'dashboard' });
+      })();
     }
   };
 
   // Cashbook journal handlers
-  const handleSaveCashbookEntry = async (data: {
+  const handleSaveCashbookEntry = (data: {
     amount: number;
     type: 'IN' | 'OUT';
     note: string;
     date: string;
     contactId?: string;
   }) => {
-    triggerSaveAnimation();
-    soundEngine.playCashbookSound(data.type);
+    try {
+      soundEngine.playCashbookSound(data.type);
+    } catch {
+      // ignore
+    }
     const entryId = 'cb-' + Date.now();
 
     const entry: CashbookEntry = {
@@ -2376,22 +1967,27 @@ export default function App() {
       contactId: data.contactId
     };
 
+    setIsCashbookOpen(false);
+
     // Instantaneous optimistic update
     setCashbook(prev => {
       const updatedCb = [entry, ...prev];
-      saveCashbook(updatedCb);
+      setTimeout(() => {
+        saveCashbook(updatedCb);
+      }, 0);
       return updatedCb;
     });
 
     const activeUid = user?.uid || ownerUid;
     if (activeUid) {
-      try {
-        await setDoc(doc(db, 'users', activeUid, 'cashbook', entryId), cleanForFirestore(entry));
-      } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `users/${activeUid}/cashbook/${entryId}`);
-      }
+      (async () => {
+        try {
+          await setDoc(doc(db, 'users', activeUid, 'cashbook', entryId), cleanForFirestore(entry));
+        } catch (err) {
+          handleFirestoreError(err, OperationType.WRITE, `users/${activeUid}/cashbook/${entryId}`);
+        }
+      })();
     }
-    setIsCashbookOpen(false);
   };
 
   const handleDeleteCashbookEntry = async (id: string) => {
@@ -2940,67 +2536,6 @@ export default function App() {
     return undefined;
   }, [screen, transactions]);
 
-  const recordCustomerVisitNotification = async (customer: Contact) => {
-    const activeUid = user?.uid || ownerUid;
-    const remId = 'rem_' + Date.now();
-    const now = new Date();
-    const tzoffset = now.getTimezoneOffset() * 60000;
-    const localISO = (new Date(now.getTime() - tzoffset)).toISOString().slice(0, 16);
-    
-    const textBn = `গ্রাহক '${customer.name}' (${customer.phone}) তার হিসাব খাতা ভিজিট করেছেন`;
-    const textEn = `Customer '${customer.name}' (${customer.phone}) visited their statement book`;
-    
-    const visitReminder = {
-      id: remId,
-      text: lang === 'bn' ? textBn : textEn,
-      datetime: localISO,
-      isCompleted: false,
-      isTriggered: true
-    };
-
-    try {
-      const saved = localStorage.getItem('hellopoint_reminders');
-      const list = saved ? JSON.parse(saved) : [];
-      
-      const isDuplicate = list.some((r: any) => 
-        r.text === visitReminder.text && 
-        (Date.now() - parseInt(r.id.split('_')[1] || '0') < 60000)
-      );
-      
-      if (!isDuplicate) {
-        const updated = [visitReminder, ...list];
-        localStorage.setItem('hellopoint_reminders', JSON.stringify(updated));
-        window.dispatchEvent(new Event('storage'));
-        
-        if (activeUid) {
-          await setDoc(doc(db, 'users', activeUid, 'reminders', remId), visitReminder);
-        }
-      }
-    } catch (e) {
-      console.error('Failed to record customer visit:', e);
-    }
-  };
-
-  const handleSaveReminder = async (reminder: any) => {
-    const activeUid = user?.uid || ownerUid;
-    if (!activeUid) return;
-    try {
-      await setDoc(doc(db, 'users', activeUid, 'reminders', reminder.id), cleanForFirestore(reminder));
-    } catch (err) {
-      console.error('Failed to sync reminder to Firestore:', err);
-    }
-  };
-
-  const handleDeleteReminder = async (id: string) => {
-    const activeUid = user?.uid || ownerUid;
-    if (!activeUid) return;
-    try {
-      await deleteDoc(doc(db, 'users', activeUid, 'reminders', id));
-    } catch (err) {
-      console.error('Failed to delete reminder from Firestore:', err);
-    }
-  };
-
   const handleUnlock = (role: 'owner' | 'customer', contactId?: string) => {
     setIsLocked(false);
     setSessionRole(role);
@@ -3013,9 +2548,33 @@ export default function App() {
     }
     if (contactId) {
       localStorage.setItem('hellopoint_session_customer_id', contactId);
+      
+      // 1. Immediately populate from local cached transactions (0ms instant display)
+      const allTxList = transactions.length > 0 ? transactions : loadTransactions();
+      const matched = allTxList.filter(t => t.contactId === contactId);
+      if (matched.length > 0) {
+        setCustomerTransactions(matched);
+      }
+
+      // 2. High-speed Firestore sync for this customer's latest transactions
+      const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid') || 'lJRGRj5w92RxSUcGybklzs3cFho1';
+      if (activeUid) {
+        getDocs(query(collection(db, 'users', activeUid, 'transactions'), where('contactId', '==', contactId)))
+          .then(snap => {
+            const list: Transaction[] = [];
+            snap.forEach(d => list.push({ ...d.data(), id: d.id } as Transaction));
+            if (list.length > 0) {
+              setCustomerTransactions(list);
+              setTransactions(prev => {
+                const existingIds = new Set(list.map(l => l.id));
+                return [...list, ...prev.filter(p => !existingIds.has(p.id))];
+              });
+            }
+          }).catch(err => console.warn('Customer transactions sync notice:', err));
+      }
+
       const custObj = contacts.find(c => c.id === contactId) || customerOfflineObj;
       if (custObj) {
-        recordCustomerVisitNotification(custObj);
         try {
           let list: { id: string; name: string; phone: string }[] = [];
           const raw = localStorage.getItem('hellopoint_remembered_customers');
@@ -3065,7 +2624,11 @@ export default function App() {
         <NotificationPermissionPrompt lang={lang} />
         <CustomerPortal 
           customer={loggedInCustomerObj}
-          allTransactions={user ? transactions : customerTransactions}
+          allTransactions={
+            transactions.length > 0 
+              ? transactions 
+              : (customerTransactions.length > 0 ? customerTransactions : loadTransactions())
+          }
           lang={lang}
           currency={currency}
           onLogout={handleCustomerLogout}
@@ -3128,11 +2691,7 @@ export default function App() {
               lang={lang}
               setLang={setLang}
               onLogout={handleCustomerLogout}
-              shopStatus={shopStatus}
-              onToggleShopStatus={handleUpdateShopStatus}
               onPinChange={handleUpdatePin}
-              onSaveReminder={handleSaveReminder}
-              onDeleteReminder={handleDeleteReminder}
               signupRequests={signupRequests}
               onAcceptSignUpRequest={handleAcceptSignUpRequest}
               onRejectSignUpRequest={handleRejectSignUpRequest}
@@ -3151,14 +2710,6 @@ export default function App() {
               onMarkChatsAsRead={handleMarkChatsAsRead}
               themeMode={themeMode}
               onChangeThemeMode={handleUpdateThemeMode}
-              products={products}
-              onSaveProduct={handleSaveProduct}
-              onDeleteProduct={handleDeleteProduct}
-              shopOrders={shopOrders}
-              onUpdateShopOrderStatus={handleUpdateShopOrderStatus}
-              onDeleteShopOrder={handleDeleteShopOrder}
-              shopCustomers={shopCustomers}
-              onDeleteShopCustomer={handleDeleteShopCustomer}
               quickFaqs={quickFaqs}
               onSaveQuickFaqs={handleSaveQuickFaqs}
               cashInAccounts={cashInAccounts}
@@ -3265,17 +2816,11 @@ export default function App() {
           user={user}
           onRegisterRequest={handleRegisterRequest}
           setLang={setLang}
-          products={products}
-          shopOrders={shopOrders}
-          shopCustomers={shopCustomers}
-          onCreateShopOrder={handleCreateShopOrder}
-          onSaveShopCustomer={handleSaveShopCustomer}
           chatMessages={chatMessages}
           onSendChatMessage={handleSendChatMessage}
           onDeleteChatMessage={handleDeleteChatMessage}
           currency={currency}
           themeColor={themeColor}
-          shopStatus={shopStatus}
           quickFaqs={quickFaqs}
           onMarkChatsAsRead={handleMarkChatsAsRead}
         />

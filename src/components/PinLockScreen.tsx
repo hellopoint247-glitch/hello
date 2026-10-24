@@ -1,8 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { safeLocalStorage as localStorage } from '../utils/safeStorage';
-import { Lock, ShieldCheck, X, KeyRound, ArrowRight, ArrowLeft, UserPlus, User, Users, Phone, Clock, Camera, Trash2, MessageCircle, ShoppingBag, Download } from 'lucide-react';
-import { Contact, Product, ChatMessage, ChatQuickFAQ, ShopOrder, ShopCustomerAccount } from '../types';
+import { 
+  ShieldCheck, 
+  X, 
+  KeyRound, 
+  ArrowRight, 
+  ArrowLeft, 
+  UserPlus, 
+  User, 
+  Users, 
+  Phone, 
+  Clock, 
+  Camera, 
+  Trash2, 
+  MessageCircle, 
+  Download,
+  Sparkles,
+  Lock
+} from 'lucide-react';
+import { Contact, ChatMessage, ChatQuickFAQ } from '../types';
 import { usePwaInstall } from '../utils/usePwaInstall';
+import { VisitorLiveChatModal } from './VisitorLiveChatModal';
+import { soundEngine } from '../utils/audio';
+import { PremiumAppLoader } from './PremiumAppLoader';
 
 export interface RememberedCustomer {
   id: string;
@@ -80,11 +100,6 @@ const saveRememberedList = (list: RememberedCustomer[]) => {
     console.error('Failed to save remembered customer list:', e);
   }
 };
-import { APP_PROPRIETOR_NAME } from '../version';
-import { VisitorLiveChatModal } from './VisitorLiveChatModal';
-import { VisitorShopModal } from './VisitorShopModal';
-import { soundEngine } from '../utils/audio';
-import { PremiumAppLoader } from './PremiumAppLoader';
 
 interface PinLockScreenProps {
   onUnlock: (role: 'owner' | 'customer', customerId?: string) => void;
@@ -95,17 +110,11 @@ interface PinLockScreenProps {
   user?: any;
   onRegisterRequest?: (name: string, phone: string, photoUrl?: string) => Promise<{ success: boolean; isAlreadyPending?: boolean; message: string }>;
   setLang?: (lang: 'bn' | 'en') => void;
-  products?: Product[];
-  shopOrders?: ShopOrder[];
-  shopCustomers?: ShopCustomerAccount[];
-  onCreateShopOrder?: (order: ShopOrder) => void;
-  onSaveShopCustomer?: (customer: ShopCustomerAccount) => void;
   chatMessages?: ChatMessage[];
   onSendChatMessage?: (contactId: string, text: string, senderRole?: 'owner' | 'customer', senderName?: string, senderPhone?: string) => void;
   onDeleteChatMessage?: (messageId: string) => void;
   currency?: string;
   themeColor?: string;
-  shopStatus?: 'open' | 'closed';
   quickFaqs?: ChatQuickFAQ[];
   onMarkChatsAsRead?: (contactId: string, role: 'owner' | 'customer') => void;
 }
@@ -114,22 +123,16 @@ export function PinLockScreen({
   onUnlock, 
   contacts, 
   lang, 
-  onGoogleSignIn, 
+  onGoogleSignIn: _onGoogleSignIn, 
   onVerifyPhone, 
-  user,
+  user: _user,
   onRegisterRequest,
   setLang,
-  products = [],
-  shopOrders = [],
-  shopCustomers = [],
-  onCreateShopOrder,
-  onSaveShopCustomer,
   chatMessages = [],
   onSendChatMessage,
   onDeleteChatMessage,
-  currency = '৳',
+  currency: _currency = '৳',
   themeColor = '#6244a6',
-  shopStatus: propShopStatus,
   quickFaqs,
   onMarkChatsAsRead
 }: PinLockScreenProps) {
@@ -139,10 +142,9 @@ export function PinLockScreen({
 
   // Visitor Feature Modals State
   const [showLiveChatModal, setShowLiveChatModal] = useState<boolean>(false);
-  const [showShopModal, setShowShopModal] = useState<boolean>(false);
   const [chatInitialMessage, setChatInitialMessage] = useState<string>('');
-  const [chatInitialName, setChatInitialName] = useState<string>('');
-  const [chatInitialPhone, setChatInitialPhone] = useState<string>('');
+  const [chatInitialName] = useState<string>('');
+  const [chatInitialPhone] = useState<string>('');
 
   // PWA Install hook (hidden once installed)
   const { isInstalled, promptInstall, showGuide, setShowGuide } = usePwaInstall();
@@ -156,13 +158,11 @@ export function PinLockScreen({
   const [isRegisterSubmitting, setIsRegisterSubmitting] = useState<boolean>(false);
   const [registerSuccessMsg, setRegisterSuccessMsg] = useState<string | null>(null);
 
-  // New States for Shop Status level indicators and Saved logins (up to last 2 accounts)
-  const [localShopStatus, setLocalShopStatus] = useState<'open' | 'closed'>('open');
-  const shopStatus = propShopStatus || localShopStatus;
+  // Saved logins (up to last 2 accounts)
   const [rememberedCustomers, setRememberedCustomers] = useState<RememberedCustomer[]>(() => getStoredRememberedCustomers());
-  const [rememberedCustId, setRememberedCustId] = useState<string | null>(() => getStoredRememberedCustomers()[0]?.id || null);
-  const [rememberedCustName, setRememberedCustName] = useState<string | null>(() => getStoredRememberedCustomers()[0]?.name || null);
-  const [rememberedCustNum, setRememberedCustNum] = useState<string | null>(() => getStoredRememberedCustomers()[0]?.phone || null);
+  const [_rememberedCustId, setRememberedCustId] = useState<string | null>(() => getStoredRememberedCustomers()[0]?.id || null);
+  const [_rememberedCustName, setRememberedCustName] = useState<string | null>(() => getStoredRememberedCustomers()[0]?.name || null);
+  const [_rememberedCustNum, setRememberedCustNum] = useState<string | null>(() => getStoredRememberedCustomers()[0]?.phone || null);
 
   // Brute force protection lockout states
   const [failedAttempts, setFailedAttempts] = useState<number>(0);
@@ -171,9 +171,6 @@ export function PinLockScreen({
   useEffect(() => {
     // Dynamic storage sync helper
     const syncStatus = () => {
-      const status = (localStorage.getItem('hellopoint_shop_status') as 'open' | 'closed') || 'open';
-      setLocalShopStatus(status);
-
       const list = getStoredRememberedCustomers();
       setRememberedCustomers(list);
       if (list.length > 0) {
@@ -221,8 +218,6 @@ export function PinLockScreen({
       setRememberedCustNum(null);
       return;
     }
-    // Remove one account at a time (the first one):
-    // If 2 exist, leaves 1. If 1 exists, leaves 0.
     const updated = existing.slice(1);
     saveRememberedList(updated);
     setRememberedCustomers(updated);
@@ -310,8 +305,6 @@ export function PinLockScreen({
         setFailedAttempts(0);
         onUnlock('owner');
       }
-      // If it doesn't match the owner's 4-digit PIN, is it the beginning of a customer's phone?
-      // Do nothing, let them keep entering up to 11 digits seamlessly.
     } else {
       // First-time owner setup
       soundEngine.playPinUnlockSound();
@@ -402,16 +395,6 @@ export function PinLockScreen({
     }
   };
 
-  const handleDelete = () => {
-    setErrorMsg('');
-    setPin(prev => prev.slice(0, -1));
-  };
-
-  const handleClear = () => {
-    setErrorMsg('');
-    setPin('');
-  };
-
   const triggerError = (msg: string) => {
     soundEngine.playPinErrorSound();
     setErrorMsg(msg);
@@ -426,15 +409,39 @@ export function PinLockScreen({
   };
 
   return (
-    <div id="unified-auth-viewport" className="fixed inset-0 flex items-center justify-center p-4 pt-16 z-[9999] font-sans overflow-y-auto select-none bg-slate-50 text-slate-805">
-      
-      {/* TOP HEADER WITH LANGUAGE TOGGLE & SECURE DIGITAL STATEMENT */}
-      <div className="absolute top-0 inset-x-0 bg-white border-b border-slate-150 py-2.5 px-4 flex justify-between items-center z-[10000] shadow-tiny select-none">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <div className="font-extrabold text-[8.5px] tracking-wider uppercase text-slate-400 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded leading-none shrink-0">
-            {lang === 'bn' ? 'নিরাপদ খাতা' : 'SECURE LEDGER'}
+    <div 
+      id="unified-auth-viewport" 
+      className="fixed inset-0 flex items-center justify-center p-3 sm:p-4 pt-14 pb-8 z-[9999] font-sans overflow-y-auto select-none bg-[#090d16] text-slate-100"
+    >
+      {/* =========================================================================
+          LIQUID GLASS BACKGROUND: Ambient Floating Fluid Orbs & Light Reflections
+          ========================================================================= */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden select-none">
+        {/* Soft violet floating liquid orb */}
+        <div className="absolute -top-32 -left-32 w-[420px] h-[420px] rounded-full bg-gradient-to-tr from-purple-600/35 via-violet-500/25 to-pink-500/20 blur-3xl animate-float-slow opacity-75" />
+        {/* Soft cyan & teal floating liquid orb */}
+        <div className="absolute -bottom-32 -right-32 w-[440px] h-[440px] rounded-full bg-gradient-to-bl from-cyan-500/30 via-sky-500/25 to-indigo-600/25 blur-3xl animate-float-reverse opacity-70" />
+        {/* Deep ambient indigo center pulse */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] rounded-full bg-indigo-600/15 blur-3xl animate-pulse pointer-events-none opacity-60" />
+        {/* Micro glass grid pattern */}
+        <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none opacity-60" />
+      </div>
+
+      {/* =========================================================================
+          TOP BAR: Frosted Liquid Glass Header with Language Switch & Security Dot
+          ========================================================================= */}
+      <div className="absolute top-0 inset-x-0 bg-slate-950/70 backdrop-blur-xl border-b border-white/10 py-2.5 px-4 flex justify-between items-center z-[10000] shadow-[0_4px_30px_rgba(0,0,0,0.3)] select-none">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-1.5 px-2.5 py-0.8 rounded-full bg-cyan-500/10 border border-cyan-400/30 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.2)] shrink-0">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400" />
+            </span>
+            <span className="text-[9px] font-black uppercase tracking-wider">
+              {lang === 'bn' ? 'নিরাপদ খাতা' : 'SECURE'}
+            </span>
           </div>
-          <span className="text-[10px] sm:text-xs font-black text-slate-855 uppercase tracking-wide truncate">
+          <span className="text-[11px] sm:text-xs font-black text-slate-200 uppercase tracking-wide truncate">
             {lang === 'bn' ? 'নিরাপদ ডিজিটাল খাতা' : 'SECURE DIGITAL STATEMENT'}
           </span>
         </div>
@@ -444,300 +451,343 @@ export function PinLockScreen({
           <button 
             type="button"
             onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')}
-            className="bg-purple-50 hover:bg-purple-100 text-purple-755 border border-purple-200/50 hover:border-purple-300 active:scale-95 transition-all text-[9px] px-2 py-0.8 rounded-md font-black tracking-wide shrink-0 cursor-pointer"
+            className="relative px-3 py-1 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-200 border border-purple-400/35 hover:border-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.2)] active:scale-95 transition-all text-[9.5px] font-black tracking-wide shrink-0 cursor-pointer flex items-center gap-1.5 backdrop-blur-md"
           >
-            {lang === 'bn' ? 'ENGLISH / ভাষা' : 'বাংলা / LANG'}
+            <Sparkles className="w-3 h-3 text-purple-300" />
+            <span>{lang === 'bn' ? 'ENGLISH / ভাষা' : 'বাংলা / LANG'}</span>
           </button>
         )}
       </div>
 
-      {/* Decorative premium ambient gradient backdrops */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full mix-blend-multiply filter blur-3xl opacity-40 animate-pulse bg-purple-200/30"></div>
-        <div className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full mix-blend-multiply filter blur-3xl opacity-45 animate-pulse bg-indigo-100/30" style={{ animationDelay: '2s' }}></div>
-      </div>
-
-      {/* Main Landing / Locked Screen Card - Refined Premium Clean Card with Crisp Contrast */}
-      <div className="relative w-full max-w-sm rounded-3xl p-5 sm:p-5.5 flex flex-col justify-between h-auto transition-all duration-300 transform bg-white border border-slate-200/90 shadow-[0_10px_35px_-5px_rgba(15,23,42,0.08),0_0_1px_rgba(15,23,42,0.1)]">
+      {/* =========================================================================
+          MAIN AUTH SECTION: Login Card with Companion Saved Accounts Beside It
+          ========================================================================= */}
+      <div className="relative flex flex-col md:flex-row items-center justify-center gap-3.5 w-full max-w-3xl my-auto py-2 z-10">
         
-        {/* Brand logo section */}
-        <div className="mb-2.5 flex flex-col items-center w-full">
-          <div className="relative flex items-center justify-center w-11 h-11 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-sm border border-white/20 mb-2">
-            <ShieldCheck className="w-5.5 h-5.5" />
-          </div>
+        {/* Main Landing / Locked Screen Card */}
+        <div className="relative w-full max-w-sm rounded-[28px] p-4 sm:p-5 flex flex-col justify-between h-auto transition-all duration-300 bg-slate-900/70 backdrop-blur-2xl border border-white/15 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_35px_rgba(139,92,246,0.12)] before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-white/50 before:to-transparent before:rounded-t-[28px]">
+          
+          {/* Brand logo & Visual Header */}
+          <div className="mb-2 flex flex-col items-center w-full">
+            {/* Luminous Liquid Glass Shield Icon */}
+            <div className="relative flex items-center justify-center w-10 h-10 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow-[0_0_20px_rgba(124,58,237,0.45)] border border-white/25 mb-1.5 group">
+              <ShieldCheck className="w-5 h-5 drop-shadow-[0_2px_8px_rgba(0,0,0,0.3)]" />
+              {/* Ambient neon pulse ring */}
+              <div className="absolute inset-0 rounded-2xl border border-cyan-400/40 animate-ping opacity-25 pointer-events-none" />
+            </div>
 
-          {/* HelloPoint Brand Title & Direct authentication Form on-card */}
-          <div className="flex flex-col items-center gap-1.5 justify-center w-full">
-            <h1 className="text-[38px] sm:text-[46px] font-black tracking-tight sm:tracking-tighter leading-none select-none flex items-center gap-2">
-              <span>
-                <span className="text-slate-900">Hello</span>
-                <span className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 bg-clip-text text-transparent">Point</span>
-              </span>
-              {shopStatus === 'open' ? (
-                <div className="border rounded-full px-2 py-0.5 flex items-center gap-1 text-[8.5px] font-extrabold tracking-wide bg-emerald-50 text-emerald-700 border-emerald-200/60">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse relative flex" />
-                  <span>Open</span>
-                </div>
-              ) : (
-                <div className="border rounded-full px-2 py-0.5 flex items-center gap-1 text-[8.5px] font-extrabold tracking-wide bg-rose-50 text-rose-700 border-rose-200/60">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 relative flex" />
-                  <span>Closed</span>
-                </div>
-              )}
-            </h1>
+            {/* HelloPoint Brand Title */}
+            <div className="flex flex-col items-center gap-0.5 justify-center w-full">
+              <h1 className="text-3xl sm:text-[38px] font-black tracking-tight leading-none select-none flex items-center justify-center">
+                <span className="text-white drop-shadow-[0_2px_10px_rgba(255,255,255,0.2)]">Hello</span>
+                <span className="bg-gradient-to-r from-violet-400 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent drop-shadow-[0_2px_15px_rgba(168,85,247,0.4)]">
+                  Point
+                </span>
+              </h1>
+              <p className="text-[9.5px] font-bold text-slate-300/80 uppercase tracking-widest text-center">
+                {lang === 'bn' ? 'ডিজিটাল হিসাব খাতা ও কাস্টমার লেজার' : 'DIGITAL CASHBOOK & CUSTOMER LEDGER'}
+              </p>
 
-            {/* VISITOR SERVICES: LIVE CHAT & ONLINE SHOP - DIRECTLY UNDER HELLOPOINT LOGO */}
-            <div className="w-full mt-2 mb-2">
-              <div className={`grid ${!isInstalled ? 'grid-cols-3' : 'grid-cols-2'} gap-1.5`}>
-                {/* 1. Live Chat Button with dot */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setChatInitialMessage('');
-                    setShowLiveChatModal(true);
-                  }}
-                  className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2.5 px-1.5 sm:px-2 bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-200/80 rounded-xl text-emerald-800 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
-                >
-                  {/* Blinking Dot Indicator in front of name */}
-                  <span className="relative flex h-1.5 w-1.5 shrink-0">
-                    {shopStatus === 'open' ? (
-                      <>
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                      </>
-                    ) : (
-                      <span className="inline-flex rounded-full h-1.5 w-1.5 bg-slate-400"></span>
-                    )}
-                  </span>
-
-                  <span className="text-[10px] sm:text-[11px] font-bold tracking-tight whitespace-nowrap">
-                    {lang === 'bn' ? 'লাইভ চ্যাট' : 'Live Chat'}
-                  </span>
-                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform shrink-0" />
-                </button>
-
-                {/* 2. Online Shop Button */}
-                <button
-                  type="button"
-                  onClick={() => setShowShopModal(true)}
-                  className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2.5 px-1.5 sm:px-2 bg-indigo-50/70 hover:bg-indigo-100/70 border border-indigo-200/80 rounded-xl text-indigo-800 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
-                >
-                  <ShoppingBag className="w-3.5 h-3.5 text-indigo-600 group-hover:scale-110 transition-transform shrink-0" />
-                  <span className="text-[10px] sm:text-[11px] font-bold tracking-tight whitespace-nowrap">
-                    {lang === 'bn' ? 'অনলাইন শপ' : 'Online Shop'}
-                  </span>
-                  {products.filter(p => p.inStock).length > 0 && (
-                    <span className="text-[7.5px] font-black bg-indigo-600 text-white px-1 py-0.2 rounded-full leading-none shrink-0">
-                      {products.filter(p => p.inStock).length}
-                    </span>
-                  )}
-                </button>
-
-                {/* 3. App Install Button (Hidden once installed - "ইনস্টল হয়ে গেলে ইস্টোলেট দেখানো লাগবে না") */}
-                {!isInstalled && (
+              {/* VISITOR SERVICES: LIVE CHAT | APP INSTALL | NEW ACCOUNT (Liquid Glass Buttons) */}
+              <div className="w-full mt-2 mb-1.5">
+                <div className={`grid ${!isInstalled ? 'grid-cols-3' : 'grid-cols-2'} gap-1.5`}>
+                  {/* 1. Live Chat Button */}
                   <button
                     type="button"
-                    onClick={promptInstall}
-                    className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2.5 px-1.5 sm:px-2 bg-purple-50/80 hover:bg-purple-100/80 border border-purple-200/90 rounded-xl text-purple-900 shadow-2xs active:scale-[0.98] transition-all cursor-pointer group"
-                    title={lang === 'bn' ? 'অ্যাপ ইন্সটল করুন' : 'Install App'}
+                    onClick={() => {
+                      setChatInitialMessage('');
+                      setShowLiveChatModal(true);
+                    }}
+                    className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2 px-1.5 sm:px-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-400/35 hover:border-emerald-300 rounded-xl text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.15)] active:scale-[0.98] transition-all cursor-pointer group backdrop-blur-md"
+                    title={lang === 'bn' ? 'লাইভ চ্যাট' : 'Live Chat'}
                   >
-                    <Download className="w-3.5 h-3.5 text-purple-700 group-hover:scale-110 transition-transform shrink-0 animate-bounce" />
-                    <span className="text-[10px] sm:text-[11px] font-black tracking-tight whitespace-nowrap">
-                      {lang === 'bn' ? 'অ্যাপ ইন্সটল' : 'Install App'}
+                    <span className="relative flex h-2 w-2 shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+                    </span>
+
+                    <span className="text-[9.5px] sm:text-[10.5px] font-black tracking-tight whitespace-nowrap">
+                      {lang === 'bn' ? 'লাইভ চ্যাট' : 'Live Chat'}
+                    </span>
+                    <MessageCircle className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />
+                  </button>
+
+                  {/* 2. App Install Button (Hidden once installed) */}
+                  {!isInstalled && (
+                    <button
+                      type="button"
+                      onClick={promptInstall}
+                      className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2 px-1.5 sm:px-2 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-400/35 hover:border-violet-300 rounded-xl text-violet-200 shadow-[0_0_12px_rgba(139,92,246,0.15)] active:scale-[0.98] transition-all cursor-pointer group backdrop-blur-md"
+                      title={lang === 'bn' ? 'অ্যাপ ইন্সটল করুন' : 'Install App'}
+                    >
+                      <Download className="w-3.5 h-3.5 text-violet-300 group-hover:scale-110 transition-transform shrink-0 animate-bounce" />
+                      <span className="text-[9.5px] sm:text-[10.5px] font-black tracking-tight whitespace-nowrap">
+                        {lang === 'bn' ? 'অ্যাপ ইন্সটল' : 'Install App'}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* 3. New Account Button (Right side of App Install with logo) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRegisterModal(true);
+                      setRegisterName('');
+                      setRegisterPhone('');
+                      setRegisterError('');
+                      setRegisterSuccessMsg(null);
+                    }}
+                    className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2 px-1.5 sm:px-2 bg-gradient-to-r from-cyan-500/15 via-purple-500/15 to-indigo-500/15 hover:from-cyan-500/25 hover:via-purple-500/25 hover:to-indigo-500/25 border-2 border-cyan-400/45 hover:border-cyan-300 rounded-xl text-cyan-200 shadow-[0_0_12px_rgba(34,211,238,0.2)] active:scale-[0.98] transition-all cursor-pointer group backdrop-blur-md overflow-hidden"
+                    title={lang === 'bn' ? 'নতুন অ্যাকাউন্ট' : 'New Account'}
+                  >
+                    <UserPlus className="w-3.5 h-3.5 text-cyan-300 group-hover:scale-110 transition-transform shrink-0 drop-shadow" />
+                    <span className="text-[9.5px] sm:text-[10.5px] font-black tracking-tight whitespace-nowrap">
+                      {lang === 'bn' ? 'নতুন অ্যাকাউন্ট' : 'New Account'}
                     </span>
                   </button>
-                )}
-              </div>
-            </div>
-
-            {/* Direct Number & PIN Authentication Card Input */}
-            <form 
-              onSubmit={handleLoginSubmit}
-              className={`w-full bg-slate-50/70 border border-slate-200/90 rounded-2xl p-3.5 shadow-2xs transition-all transform duration-300 ${
-                isShaking ? 'animate-[shake_0.4s_ease-in-out]' : ''
-              }`}
-            >
-              {/* Clean Title with Refined Badge */}
-              <div className="flex flex-col items-center mb-2.5">
-                <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700 text-[9px] font-bold uppercase tracking-wider mb-1 shadow-2xs">
-                  <KeyRound className="w-3 h-3 text-purple-600" />
-                  <span>{lang === 'bn' ? 'লগইন' : 'LOGIN'}</span>
                 </div>
-                <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">
-                  {lang === 'bn' ? 'মোবাইল নম্বর লিখুন' : 'ENTER MOBILE NUMBER'}
-                </h2>
               </div>
 
-              {/* Lockout Countdown Timer */}
-              {lockoutTimeLeft > 0 && (
-                <div className="w-full bg-rose-50 border border-rose-200 p-2 rounded-xl flex flex-col items-center text-center text-rose-700 font-extrabold text-[10.5px] mb-2 select-none shadow-2xs">
-                  <div className="flex items-center gap-1 mb-0.5 text-[9px] uppercase tracking-wider text-rose-800">
-                    <span className="w-1 h-1 rounded-full bg-rose-500 animate-ping" />
-                    <span>🔒 Lockout Active</span>
+              {/* Direct Number & PIN Authentication Card Input (Liquid Glass Panel) */}
+              <form 
+                onSubmit={handleLoginSubmit}
+                className={`w-full bg-slate-950/50 backdrop-blur-xl border border-white/10 rounded-2xl p-3 sm:p-3.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] transition-all transform duration-300 ${
+                  isShaking ? 'animate-[shake_0.4s_ease-in-out]' : ''
+                }`}
+              >
+                {/* Clean Title with Refined Glass Badge */}
+                <div className="flex flex-col items-center mb-2">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 border border-white/15 text-slate-200 text-[9px] font-bold uppercase tracking-wider mb-0.5 shadow-sm backdrop-blur-md">
+                    <KeyRound className="w-3 h-3 text-cyan-300" />
+                    <span>{lang === 'bn' ? 'সরাসরি লগইন' : 'DIRECT LOGIN'}</span>
                   </div>
-                  <span>
-                    Try again in {lockoutTimeLeft}s
-                  </span>
-                </div>
-              )}
-
-              {/* Input for Mobile Number or PIN - Clear high-contrast styling */}
-              <div className="w-full mb-2.5">
-                <input
-                  type="tel"
-                  maxLength={11}
-                  value={pin}
-                  onChange={handleInputChange}
-                  placeholder={lang === 'bn' ? 'মোবাইল বা পিন নম্বর' : 'Mobile / PIN'}
-                  className="w-full bg-white border border-slate-300 hover:border-slate-400 focus:border-purple-600 focus:ring-2 focus:ring-purple-100 rounded-xl px-3.5 py-2.5 text-center text-sm font-bold text-slate-900 placeholder-slate-400 outline-none transition-all font-mono tracking-wider shadow-2xs"
-                  disabled={lockoutTimeLeft > 0}
-                  autoFocus
-                />
-              </div>
-
-              {/* Error alerts inside the layout */}
-              {errorMsg && (
-                <p className="text-[9.5px] font-bold text-rose-700 bg-rose-50 border border-rose-200/80 px-2.5 py-1.5 rounded-lg text-center leading-normal max-w-full mb-2.5 animate-fade-in">
-                  {errorMsg}
-                </p>
-              )}
-
-              {/* Proceed and Reg Options */}
-              <div className="flex flex-col gap-1.5 w-full">
-                <button
-                  type="submit"
-                  disabled={lockoutTimeLeft > 0 || !pin}
-                  className="w-full py-2.5 px-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-[11px] font-bold rounded-xl shadow-sm active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-1.5 tracking-wide disabled:opacity-50"
-                >
-                  <span>{lang === 'bn' ? 'প্রবেশ করুন' : 'PROCEED'}</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowRegisterModal(true);
-                    setRegisterName('');
-                    setRegisterPhone('');
-                    setRegisterError('');
-                    setRegisterSuccessMsg(null);
-                  }}
-                  className="w-full py-1 text-purple-600 hover:text-purple-800 text-[10px] font-bold transition-all cursor-pointer text-center hover:underline underline-offset-2"
-                >
-                  {lang === 'bn' ? 'নতুন অ্যাকাউন্ট অনুরোধ করুন' : 'Request Create Account'}
-                </button>
-              </div>
-            </form>
-
-            {/* Remembered Customer Quick Login Widget (Last 2 accounts saved) - Positioned Below the Login Form */}
-            {rememberedCustomers.length > 0 && (
-              <div className="w-full bg-slate-50/80 border border-slate-200/90 p-3 rounded-2xl flex flex-col mt-2.5 mb-1 transition-all shadow-2xs">
-                <div className="flex items-center justify-between w-full mb-2 pb-1.5 border-b border-slate-200/70">
-                  <p className="text-[9px] font-bold text-slate-600 uppercase tracking-wider leading-none flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5 text-purple-600" />
-                    <span>
-                      {lang === 'bn' ? 'সংরক্ষিত গ্রাহক অ্যাকাউন্ট' : 'Remembered Accounts'}
-                    </span>
-                  </p>
-                  <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                    {toBn(rememberedCustomers.length)}/২
-                  </span>
+                  <h2 className="text-[9.5px] font-bold text-slate-300 uppercase tracking-widest text-center">
+                    {lang === 'bn' ? 'মোবাইল বা পিন নম্বর লিখুন' : 'ENTER MOBILE OR PIN'}
+                  </h2>
                 </div>
 
-                <div className="flex flex-col gap-1.5 w-full">
-                  {rememberedCustomers.map((cust, idx) => (
-                    <div
-                      key={cust.id || cust.phone || idx}
-                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2 shadow-2xs hover:border-purple-300 transition-all group"
-                    >
-                      <div className="flex items-center gap-2 min-w-0 flex-1 text-left">
-                        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs">
-                          {cust.name ? cust.name.charAt(0).toUpperCase() : <User className="w-3.5 h-3.5" />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-slate-900 truncate leading-tight">
-                            {cust.name}
-                          </p>
-                          <p className="text-[10px] font-mono font-medium text-slate-500 truncate leading-tight">
-                            {cust.phone}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            soundEngine.playPinUnlockSound();
-                            addRememberedCustomer(cust);
-                            onUnlock('customer', cust.id);
-                          }}
-                          className="flex items-center gap-1 py-1.5 px-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 active:scale-95 text-white text-[10px] font-bold rounded-lg shadow-2xs transition-all cursor-pointer"
-                        >
-                          <span>{lang === 'bn' ? 'সহজ লগইন' : 'Login'}</span>
-                          <ArrowRight className="w-3 h-3" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSpecific(cust.id)}
-                          className="w-6 h-6 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                          title={lang === 'bn' ? 'মুছে ফেলুন' : 'Remove'}
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                {/* Lockout Countdown Timer */}
+                {lockoutTimeLeft > 0 && (
+                  <div className="w-full bg-rose-950/60 border border-rose-500/40 p-2 rounded-xl flex flex-col items-center text-center text-rose-300 font-extrabold text-[10px] mb-2 select-none shadow-[0_0_15px_rgba(244,63,94,0.2)]">
+                    <div className="flex items-center gap-1.5 mb-0.5 text-[8.5px] uppercase tracking-wider text-rose-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />
+                      <span><Lock className="w-3 h-3 inline mr-1" />{lang === 'bn' ? 'লকআউট সক্রিয়' : 'Lockout Active'}</span>
                     </div>
-                  ))}
+                    <span>
+                      {lang === 'bn' ? `${lockoutTimeLeft} সেকেন্ড পর আবার চেষ্টা করুন` : `Try again in ${lockoutTimeLeft}s`}
+                    </span>
+                  </div>
+                )}
+
+                {/* Input for Mobile Number or PIN - High-contrast Liquid Glass Input */}
+                <div className="w-full mb-2.5">
+                  <input
+                    type="tel"
+                    maxLength={11}
+                    value={pin}
+                    onChange={handleInputChange}
+                    placeholder={lang === 'bn' ? 'মোবাইল অথবা ৪ ডিজিটের পিন' : 'Mobile / 4-Digit PIN'}
+                    className="w-full bg-slate-900/80 border border-white/20 hover:border-cyan-400/50 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/25 rounded-xl px-3 py-2.5 text-center text-base font-bold text-white placeholder-slate-400 outline-none transition-all font-mono tracking-widest shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)]"
+                    disabled={lockoutTimeLeft > 0}
+                    autoFocus
+                  />
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleRemoveOneByOne}
-                  className="text-[9px] font-bold text-slate-400 hover:text-rose-600 mt-2 text-center transition-colors cursor-pointer hover:underline underline-offset-2"
-                  title={lang === 'bn' ? 'ক্লিক করলে সংরক্ষিত অ্যাকাউন্ট একে একে মুছে যাবে' : 'Click to remove saved accounts one by one'}
-                >
-                  {lang === 'bn' ? 'অন্য অ্যাকাউন্ট লগইন (সংরক্ষিত অ্যাকাউন্ট সরান)' : 'Switch Customer / Remove Saved'}
-                </button>
-              </div>
-            )}
+                {/* Error alerts inside the layout */}
+                {errorMsg && (
+                  <p className="text-[9.5px] font-bold text-rose-200 bg-rose-950/70 border border-rose-500/50 px-2.5 py-1.5 rounded-xl text-center leading-normal max-w-full mb-2 animate-fade-in shadow-[0_0_15px_rgba(244,63,94,0.25)]">
+                    {errorMsg}
+                  </p>
+                )}
+
+                {/* Proceed Submit Button */}
+                <div className="flex flex-col gap-1.5 w-full">
+                  <button
+                    type="submit"
+                    disabled={lockoutTimeLeft > 0 || !pin}
+                    className="w-full py-2.5 px-4 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 hover:from-violet-500 hover:via-indigo-500 hover:to-cyan-500 text-white text-xs font-black rounded-xl shadow-[0_4px_20px_rgba(99,102,241,0.4)] hover:shadow-[0_4px_25px_rgba(99,102,241,0.6)] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 tracking-wider uppercase disabled:opacity-40"
+                  >
+                    <span>{lang === 'bn' ? 'প্রবেশ করুন' : 'PROCEED'}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </form>
+
+              {/* =========================================================================
+                  MOBILE COMPACT SAVED ACCOUNTS MICRO-CHIPS (Showing ONLY name, very small!)
+                  ========================================================================= */}
+              {rememberedCustomers.length > 0 && (
+                <div className="md:hidden w-full mt-2 mb-0.5 bg-slate-950/45 backdrop-blur-xl border border-white/10 p-2 rounded-2xl shadow-inner">
+                  <div className="flex items-center justify-between px-1 mb-1.5">
+                    <span className="text-[8.5px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+                      <Users className="w-3 h-3 text-cyan-400" />
+                      <span>{lang === 'bn' ? 'সেভ থাকা অ্যাকাউন্ট:' : 'Saved Accounts:'}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleRemoveOneByOne}
+                      className="text-[8px] font-bold text-slate-400 hover:text-rose-300 transition-colors"
+                    >
+                      {lang === 'bn' ? 'সরান' : 'Clear'}
+                    </button>
+                  </div>
+
+                  <div className={`grid ${rememberedCustomers.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-1.5`}>
+                    {rememberedCustomers.map((cust) => (
+                      <div
+                        key={cust.id || cust.phone}
+                        onClick={() => {
+                          soundEngine.playPinUnlockSound();
+                          addRememberedCustomer(cust);
+                          onUnlock('customer', cust.id);
+                        }}
+                        className="flex items-center justify-between gap-1 px-2 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 hover:border-cyan-400/40 text-left transition-all cursor-pointer active:scale-95 group shadow-2xs"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-purple-500 to-cyan-500 text-white font-black text-[10px] flex items-center justify-center shrink-0">
+                            {cust.name ? cust.name.charAt(0).toUpperCase() : <User className="w-2.5 h-2.5" />}
+                          </div>
+                          {/* ONLY CUSTOMER NAME IS SHOWN FOR SLEEK MINIMAL HEIGHT */}
+                          <span className="text-[10.5px] font-black text-white group-hover:text-cyan-200 truncate leading-tight">
+                            {cust.name}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <ArrowRight className="w-3 h-3 text-cyan-300 group-hover:translate-x-0.5 transition-transform" />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveSpecific(cust.id);
+                            }}
+                            className="p-0.5 rounded text-slate-400 hover:text-rose-400 transition-colors"
+                            title={lang === 'bn' ? 'মুছুন' : 'Remove'}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Compact 3-Column Agent Infobox (Liquid Glass Surface) */}
+          <div className="w-full bg-slate-950/40 backdrop-blur-xl border border-white/10 rounded-2xl p-2 space-y-1 text-left mt-2 shadow-[inset_0_1px_1px_rgba(255,255,255,0.06)]">
+            <h4 className="text-[8.5px] font-bold text-slate-400 uppercase tracking-widest text-center pb-0.5 border-b border-white/10">
+              {lang === 'bn' ? 'টাকা তুলতে ও পাঠাতে যোগাযোগ করুন' : 'GET IN TOUCH & AGENTS'}
+            </h4>
+            <div className="grid grid-cols-3 gap-1 text-center">
+              <div className="bg-white/[0.04] p-1 rounded-xl border border-white/10 flex flex-col items-center">
+                <span className="flex items-center gap-1 text-[8px] font-bold text-[#f43f5e]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#f43f5e] shadow-[0_0_6px_#f43f5e]" />
+                  {lang === 'bn' ? 'বিকাশ' : 'bKash'}
+                </span>
+                <span className="font-mono text-white text-[9.5px] tracking-tight font-bold mt-0.5">01756565454</span>
+              </div>
+              <div className="bg-white/[0.04] p-1 rounded-xl border border-white/10 flex flex-col items-center">
+                <span className="flex items-center gap-1 text-[8px] font-bold text-[#f97316]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#f97316] shadow-[0_0_6px_#f97316]" />
+                  {lang === 'bn' ? 'নগদ' : 'Nagad'}
+                </span>
+                <span className="font-mono text-white text-[9.5px] tracking-tight font-bold mt-0.5">01754543737</span>
+              </div>
+              <div className="bg-white/[0.04] p-1 rounded-xl border border-white/10 flex flex-col items-center">
+                <span className="flex items-center gap-1 text-[8px] font-bold text-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_#34d399]" />
+                  {lang === 'bn' ? 'WhatsApp' : 'WhatsApp'}
+                </span>
+                <span className="font-mono text-white text-[9.5px] tracking-tight font-bold mt-0.5">01783586858</span>
+              </div>
+            </div>
+          </div>
+
         </div>
 
-        {/* Detailed Premium Contact Infobox */}
-        <div className="w-full bg-slate-50/80 border border-slate-200/90 rounded-2xl p-3.5 space-y-1.5 text-left mb-2 shadow-2xs">
-          <h4 className="text-[9.5px] font-bold text-slate-500 uppercase tracking-widest mb-2 text-center pb-1.5 border-b border-slate-200/70">
-            {lang === 'bn' ? 'টাকা তুলতে ও পাঠাতে যোগাযোগ করুন' : 'GET IN TOUCH & AGENTS'}
-          </h4>
-          <div className="space-y-1.5 text-[10.5px]">
-            <div className="flex items-center justify-between font-bold text-slate-700 bg-white px-3 py-1.5 rounded-xl border border-slate-200 gap-2 shadow-2xs">
-              <span className="flex items-center gap-1.5 font-bold text-[#da1c5c] shrink-0 whitespace-nowrap">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#da1c5c]" />
-                {lang === 'bn' ? 'বিকাশ এজেন্ট' : 'bKash Agent'}
+        {/* =========================================================================
+            DESKTOP SIDE PANEL: COMPANION CARD BESIDE THE LOGIN CARD
+            (Placed BESIDE the login card as explicitly requested!)
+            ========================================================================= */}
+        {rememberedCustomers.length > 0 && (
+          <div className="hidden md:flex flex-col w-64 lg:w-72 bg-slate-900/70 backdrop-blur-2xl border border-white/15 rounded-[28px] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_25px_rgba(139,92,246,0.12)] self-center animate-fade-in relative before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent before:rounded-t-[28px]">
+            <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/10">
+              <div className="flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-cyan-400" />
+                <span className="text-xs font-black text-white">
+                  {lang === 'bn' ? 'সংরক্ষিত অ্যাকাউন্ট' : 'Saved Accounts'}
+                </span>
+              </div>
+              <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-white/10 text-cyan-300 border border-white/10">
+                {toBn(rememberedCustomers.length)}/২
               </span>
-              <span className="font-mono text-slate-900 tracking-wide font-bold shrink-0 whitespace-nowrap">01756565454</span>
             </div>
-            <div className="flex items-center justify-between font-bold text-slate-700 bg-white px-3 py-1.5 rounded-xl border border-slate-200 gap-2 shadow-2xs">
-              <span className="flex items-center gap-1.5 font-bold text-[#e67e10] shrink-0 whitespace-nowrap">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#e67e10]" />
-                {lang === 'bn' ? 'নগদ এজেন্ট' : 'Nagad Agent'}
-              </span>
-              <span className="font-mono text-slate-900 tracking-wide font-bold shrink-0 whitespace-nowrap">01754543737</span>
+
+            <p className="text-[10px] font-medium text-slate-300 mb-2.5 leading-tight">
+              {lang === 'bn' ? '১-ক্লিকে সরাসরি কাস্টমার একাউন্টে প্রবেশ করুন:' : '1-click direct customer account login:'}
+            </p>
+
+            <div className="flex flex-col gap-2">
+              {rememberedCustomers.map((cust) => (
+                <div 
+                  key={cust.id || cust.phone}
+                  onClick={() => {
+                    soundEngine.playPinUnlockSound();
+                    addRememberedCustomer(cust);
+                    onUnlock('customer', cust.id);
+                  }}
+                  className="group relative flex items-center justify-between p-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 hover:border-cyan-400/40 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-cyan-500 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(34,211,238,0.3)]">
+                      {cust.name ? cust.name.charAt(0).toUpperCase() : <User className="w-4 h-4" />}
+                    </div>
+                    {/* ONLY CUSTOMER NAME IS DISPLAYED */}
+                    <p className="text-xs font-black text-white group-hover:text-cyan-200 truncate">
+                      {cust.name}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="px-2 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 group-hover:bg-cyan-500 group-hover:text-slate-950 text-[10px] font-bold transition-all flex items-center gap-1">
+                      <span>{lang === 'bn' ? 'প্রবেশ' : 'Login'}</span>
+                      <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveSpecific(cust.id);
+                      }}
+                      className="p-1 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                      title={lang === 'bn' ? 'মুছে ফেলুন' : 'Remove'}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="flex items-center justify-between font-bold text-slate-700 bg-white px-3 py-1.5 rounded-xl border border-slate-200 gap-2 shadow-2xs">
-              <span className="flex items-center gap-1.5 font-bold text-emerald-600 shrink-0 whitespace-nowrap">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                {lang === 'bn' ? 'হোয়াটসঅ্যাপ' : 'WhatsApp'}
-              </span>
-              <span className="font-mono text-slate-900 tracking-wide font-bold shrink-0 whitespace-nowrap">01783586858</span>
-            </div>
+
+            <button
+              type="button"
+              onClick={handleRemoveOneByOne}
+              className="text-[9.5px] font-bold text-slate-400 hover:text-rose-300 mt-3 text-center transition-colors hover:underline underline-offset-2"
+            >
+              {lang === 'bn' ? 'সংরক্ষিত অ্যাকাউন্ট সরান' : 'Remove saved accounts'}
+            </button>
           </div>
-        </div>
+        )}
 
       </div>
       
-      {/* CUSTOMER REGISTRATION FULL PAGE VIEW */}
+      {/* =========================================================================
+          CUSTOMER REGISTRATION FULL PAGE VIEW (Liquid Glass Aesthetic)
+          ========================================================================= */}
       {showRegisterModal && (
-        <div className="fixed inset-0 bg-slate-900 z-[10000] overflow-y-auto animate-fade-in flex flex-col justify-between p-4 sm:p-6 font-sans">
+        <div className="fixed inset-0 bg-[#090d16]/95 backdrop-blur-2xl z-[10000] overflow-y-auto animate-fade-in flex flex-col justify-between p-4 sm:p-6 font-sans">
           <div className="w-full max-w-md mx-auto my-auto py-4">
             {/* Top Navigation Bar */}
             <div className="flex items-center justify-between mb-4">
@@ -750,45 +800,45 @@ export function PinLockScreen({
                   setRegisterPhoto('');
                   setRegisterError('');
                 }}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all text-xs font-bold active:scale-95 cursor-pointer shadow-sm"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 border border-white/15 transition-all text-xs font-bold active:scale-95 cursor-pointer shadow-sm backdrop-blur-md"
               >
-                <ArrowLeft className="w-4 h-4 text-purple-400" />
+                <ArrowLeft className="w-4 h-4 text-cyan-300" />
                 <span>{lang === 'bn' ? 'ফিরে যান' : 'Back to Login'}</span>
               </button>
 
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black uppercase tracking-wider text-purple-300 bg-purple-950/70 border border-purple-800/70 px-3 py-1 rounded-full">
+                <span className="text-[10px] font-black uppercase tracking-wider text-cyan-200 bg-cyan-950/70 border border-cyan-400/40 px-3 py-1 rounded-full shadow-[0_0_12px_rgba(34,211,238,0.2)]">
                   {lang === 'bn' ? 'কাস্টমার রেজিস্ট্রেশন' : 'Customer Signup'}
                 </span>
               </div>
             </div>
 
-            {/* Registration Card */}
-            <div className="bg-white border border-slate-200/90 rounded-[32px] shadow-2xl p-6 sm:p-7 flex flex-col">
+            {/* Registration Card (Liquid Glass Modal) */}
+            <div className="bg-slate-900/80 backdrop-blur-2xl border border-white/15 rounded-[32px] shadow-[0_25px_60px_rgba(0,0,0,0.6),0_0_35px_rgba(139,92,246,0.15)] p-6 sm:p-7 flex flex-col relative before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent before:rounded-t-[32px]">
               {/* Header */}
               <div className="flex flex-col items-center mb-5 text-center">
-                <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-purple-50 text-purple-600 mb-2.5 shadow-sm">
+                <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-500 to-indigo-600 text-white mb-2.5 shadow-[0_0_20px_rgba(34,211,238,0.35)] border border-white/20">
                   <UserPlus className="w-6 h-6" />
                 </div>
-                <h2 className="text-sm sm:text-base font-black text-slate-850 uppercase tracking-wide">
+                <h2 className="text-sm sm:text-base font-black text-white uppercase tracking-wide">
                   {lang === 'bn' ? 'নতুন কাস্টমার একাউন্ট অনুরোধ' : 'CREATE CUSTOMER ACCOUNT'}
                 </h2>
-                <p className="text-[11px] font-semibold text-slate-400 mt-1">
-                  {lang === 'bn' ? 'আপনার তথ্য দিয়ে অনুরোধ সাবমিট করুন' : 'Fill details below to submit request'}
+                <p className="text-[11px] font-semibold text-slate-300/80 mt-1">
+                  {lang === 'bn' ? 'আপনার সঠিক তথ্য দিয়ে অনুরোধ সাবমিট করুন' : 'Fill details below to submit request'}
                 </p>
               </div>
 
               {/* Inputs Form */}
               <div className="space-y-4">
                 {/* Mandatory Photo Selection block */}
-                <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-150 rounded-2xl p-3.5 mb-1">
-                  <p className="text-[10px] font-black text-purple-700 uppercase tracking-widest mb-2 px-0.5 text-center flex items-center gap-1">
+                <div className="flex flex-col items-center justify-center bg-white/[0.04] border border-white/10 rounded-2xl p-4 mb-1">
+                  <p className="text-[10px] font-black text-cyan-300 uppercase tracking-widest mb-2 px-0.5 text-center flex items-center gap-1">
                     <span>{lang === 'bn' ? 'আপনার ছবি যুক্ত করুন' : 'ADD YOUR PHOTO'}</span>
-                    <span className="text-red-500 font-black">({lang === 'bn' ? 'বাধ্যতামূলক *' : 'MANDATORY *'})</span>
+                    <span className="text-rose-400 font-black">({lang === 'bn' ? 'বাধ্যতামূলক *' : 'MANDATORY *'})</span>
                   </p>
                   <div className="relative group shrink-0">
                     <div 
-                      className="w-20 h-20 rounded-full border-2 border-purple-300 overflow-hidden bg-white relative flex items-center justify-center shadow-inner"
+                      className="w-20 h-20 rounded-full border-2 border-cyan-400/50 overflow-hidden bg-slate-800 relative flex items-center justify-center shadow-[0_0_20px_rgba(34,211,238,0.25)]"
                     >
                       {registerPhoto ? (
                         <img 
@@ -798,14 +848,14 @@ export function PinLockScreen({
                           referrerPolicy="no-referrer"
                         />
                       ) : (
-                        <User className="w-10 h-10 text-slate-300" />
+                        <User className="w-10 h-10 text-slate-400" />
                       )}
                     </div>
                     
                     {/* Photo Actions with canvas scaler embedded directly */}
                     <div className="absolute -bottom-1 -right-1 flex gap-1">
                       <label 
-                        className="bg-purple-600 hover:bg-purple-700 text-white p-2 rounded-full border-2 border-white shadow-md transition-all cursor-pointer flex items-center justify-center active:scale-90"
+                        className="bg-gradient-to-r from-violet-600 to-cyan-600 hover:from-violet-500 hover:to-cyan-500 text-white p-2 rounded-full border-2 border-slate-900 shadow-[0_0_12px_rgba(34,211,238,0.4)] transition-all cursor-pointer flex items-center justify-center active:scale-90"
                         title={lang === 'bn' ? 'ছবি নির্বাচন করুন' : 'Choose Photo'}
                       >
                         <Camera className="w-4 h-4" />
@@ -894,7 +944,7 @@ export function PinLockScreen({
                         <button
                           type="button"
                           onClick={() => setRegisterPhoto('')}
-                          className="bg-red-50 hover:bg-red-100 text-red-650 p-2 rounded-full border border-red-200 shadow-sm transition-all cursor-pointer flex items-center justify-center active:scale-95"
+                          className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 p-2 rounded-full border border-rose-500/40 shadow-sm transition-all cursor-pointer flex items-center justify-center active:scale-95"
                           title={lang === 'bn' ? 'ছবি মুছুন' : 'Remove Photo'}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -905,7 +955,7 @@ export function PinLockScreen({
                 </div>
 
                 <div>
-                  <label className="block text-[10.5px] font-black text-slate-500 uppercase tracking-wider mb-1.5 px-0.5">
+                  <label className="block text-[10.5px] font-black text-slate-300 uppercase tracking-wider mb-1.5 px-0.5">
                     {lang === 'bn' ? 'আপনার পুরো নাম' : 'YOUR FULL NAME'}
                   </label>
                   <div className="relative">
@@ -917,13 +967,13 @@ export function PinLockScreen({
                       value={registerName}
                       onChange={(e) => setRegisterName(e.target.value)}
                       placeholder={lang === 'bn' ? 'আপনার পুরো নাম লিখুন' : 'Enter your full name'}
-                      className="w-full bg-slate-50 border border-slate-200/90 rounded-2xl pl-10 pr-4 py-3 text-xs font-bold text-slate-800 placeholder-slate-400 outline-none focus:border-purple-500 focus:bg-white transition-all shadow-inner"
+                      className="w-full bg-slate-800/80 border border-white/15 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 rounded-2xl pl-10 pr-4 py-3 text-xs font-bold text-white placeholder-slate-400 outline-none transition-all shadow-[inset_0_2px_4px_rgba(0,0,0,0.4)]"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[10.5px] font-black text-slate-500 uppercase tracking-wider mb-1.5 px-0.5">
+                  <label className="block text-[10.5px] font-black text-slate-300 uppercase tracking-wider mb-1.5 px-0.5">
                     {lang === 'bn' ? '১১ ডিজিটের মোবাইল নম্বর' : '11-DIGIT MOBILE NUMBER'}
                   </label>
                   <div className="relative">
@@ -936,13 +986,13 @@ export function PinLockScreen({
                       value={registerPhone}
                       onChange={(e) => setRegisterPhone(e.target.value.replace(/\D/g, ''))}
                       placeholder="01XXXXXXXXX"
-                      className="w-full bg-slate-50 border border-slate-200/90 rounded-2xl pl-10 pr-4 py-3 text-xs font-bold text-slate-850 placeholder-slate-400 outline-none focus:border-purple-500 focus:bg-white transition-all shadow-inner font-mono"
+                      className="w-full bg-slate-800/80 border border-white/15 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 rounded-2xl pl-10 pr-4 py-3 text-xs font-bold text-white placeholder-slate-400 outline-none transition-all shadow-[inset_0_2px_4px_rgba(0,0,0,0.4)] font-mono"
                     />
                   </div>
                 </div>
 
                 {registerError && (
-                  <div className="text-[10.5px] font-black text-red-650 bg-red-50 border border-red-150 px-3.5 py-2.5 rounded-xl text-center">
+                  <div className="text-[10.5px] font-black text-rose-200 bg-rose-950/70 border border-rose-500/50 px-3.5 py-2.5 rounded-xl text-center shadow-[0_0_15px_rgba(244,63,94,0.2)]">
                     {registerError}
                   </div>
                 )}
@@ -951,16 +1001,17 @@ export function PinLockScreen({
                   type="button"
                   disabled={isRegisterSubmitting}
                   onClick={handleRegisterSubmit}
-                  className="w-full py-3.5 px-4 bg-gradient-to-r from-purple-600 to-indigo-650 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-black rounded-2xl shadow hover:shadow-md transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 uppercase tracking-wider mt-2 disabled:opacity-50"
+                  className="w-full py-3.5 px-4 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 hover:from-violet-500 hover:via-indigo-500 hover:to-cyan-500 text-white text-xs font-black rounded-2xl shadow-[0_4px_25px_rgba(99,102,241,0.5)] hover:shadow-[0_4px_30px_rgba(99,102,241,0.7)] transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 uppercase tracking-wider mt-2 disabled:opacity-50"
                 >
                   {isRegisterSubmitting ? (
                     <>
-                      <span className="border-2 border-white border-t-transparent rounded-full w-3.5 h-3.5 animate-spin" />
+                      <span className="border-2 border-white border-t-transparent rounded-full w-4 h-4 animate-spin" />
                       <span>{lang === 'bn' ? 'অনুরোধ পাঠানো হচ্ছে...' : 'SUBMITTING...'}</span>
                     </>
                   ) : (
                     <>
                       <span>{lang === 'bn' ? 'অনুরোধ পাঠান' : 'SUBMIT REQUEST'}</span>
+                      <ArrowRight className="w-4 h-4" />
                     </>
                   )}
                 </button>
@@ -973,31 +1024,31 @@ export function PinLockScreen({
           </div>
 
           <div className="text-center py-2 select-none">
-            <p className="text-[8.5px] font-bold text-slate-500 tracking-wider uppercase">
+            <p className="text-[8.5px] font-bold text-slate-400 tracking-wider uppercase">
               Proprietor & App Design: Mahbub Hasan
             </p>
           </div>
         </div>
       )}
 
-      {/* REGISTRATION PENDING ALERT MODAL */}
+      {/* REGISTRATION PENDING ALERT MODAL (Liquid Glass) */}
       {registerSuccessMsg && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[10001] animate-fade-in font-sans">
+        <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 z-[10001] animate-fade-in font-sans">
           <div 
-            className="relative w-full max-w-sm bg-white border border-slate-200/90 rounded-[32px] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.3)] p-6 flex flex-col items-center transition-all transform duration-300"
+            className="relative w-full max-w-sm bg-slate-900/90 backdrop-blur-2xl border border-white/20 rounded-[32px] shadow-[0_25px_60px_rgba(0,0,0,0.6),0_0_30px_rgba(245,158,11,0.25)] p-6 flex flex-col items-center transition-all transform duration-300"
           >
             {/* Pulsing Alert Icon */}
-            <div className="relative flex items-center justify-center w-16 h-16 rounded-full bg-amber-50 text-amber-500 mb-4">
+            <div className="relative flex items-center justify-center w-16 h-16 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-400 mb-4 shadow-[0_0_20px_rgba(245,158,11,0.3)]">
               <Clock className="w-8 h-8 animate-pulse" />
               <div className="absolute inset-0 rounded-full bg-amber-400/20 animate-ping" />
             </div>
 
-            <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider text-center mb-2">
+            <h3 className="text-sm font-black text-white uppercase tracking-wider text-center mb-2">
               {lang === 'bn' ? 'অনুরোধ পেন্ডিং আছে' : 'REQUEST PENDING'}
             </h3>
 
             {/* Precise message matching user intent */}
-            <p className="text-xs font-black text-slate-700 text-center leading-relaxed px-5 bg-amber-50/50 border border-amber-100 rounded-2xl py-3.5 mb-4">
+            <p className="text-xs font-bold text-amber-200 text-center leading-relaxed px-4 bg-amber-950/50 border border-amber-500/30 rounded-2xl py-3.5 mb-4 shadow-inner">
               {registerSuccessMsg}
             </p>
 
@@ -1008,7 +1059,7 @@ export function PinLockScreen({
                 setRegisterName('');
                 setRegisterPhone('');
               }}
-              className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-650 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-black rounded-2xl shadow hover:shadow-md transition-all active:scale-[0.98] cursor-pointer"
+              className="w-full py-3 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 hover:from-violet-500 hover:via-indigo-500 hover:to-cyan-500 text-white text-xs font-black rounded-2xl shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-all active:scale-[0.98] cursor-pointer"
             >
               {lang === 'bn' ? 'আচ্ছা, বুঝতে পেরেছি' : 'Ok, Got It'}
             </button>
@@ -1035,7 +1086,7 @@ export function PinLockScreen({
         onSendMessage={onSendChatMessage || (() => {})}
         onDeleteMessage={onDeleteChatMessage}
         themeColor={themeColor}
-        shopStatus={shopStatus}
+        shopStatus="open"
         initialMessage={chatInitialMessage}
         initialVisitorName={chatInitialName}
         initialVisitorPhone={chatInitialPhone}
@@ -1047,20 +1098,6 @@ export function PinLockScreen({
         }}
       />
 
-      {/* VISITOR ONLINE SHOP MODAL */}
-      <VisitorShopModal 
-        isOpen={showShopModal}
-        onClose={() => setShowShopModal(false)}
-        lang={lang}
-        products={products}
-        currency={currency}
-        themeColor={themeColor}
-        shopOrders={shopOrders}
-        shopCustomers={shopCustomers}
-        onCreateShopOrder={onCreateShopOrder}
-        onSaveShopCustomer={onSaveShopCustomer}
-      />
-
       {/* REGISTRATION SUBMISSION LOADER */}
       <PremiumAppLoader
         isOpen={isRegisterSubmitting}
@@ -1070,37 +1107,38 @@ export function PinLockScreen({
         ringColor="border-purple-500"
         progressColor="from-purple-500 to-indigo-500"
       />
-      {/* PWA INSTALL INSTRUCTIONS MODAL */}
+
+      {/* PWA INSTALL INSTRUCTIONS MODAL (Liquid Glass) */}
       {showGuide && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white dark:bg-[#1c222d] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 max-w-sm w-full shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
+          <div className="bg-slate-900/90 backdrop-blur-2xl border border-white/20 rounded-3xl p-5 max-w-sm w-full shadow-2xl relative">
             <button
               type="button"
               onClick={() => setShowGuide(false)}
-              className="absolute top-4 right-4 p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              className="absolute top-4 right-4 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
 
             <div className="flex items-center gap-2.5 mb-3">
-              <div className="w-10 h-10 rounded-2xl bg-purple-100 dark:bg-purple-950/50 flex items-center justify-center text-purple-700 dark:text-purple-300">
+              <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.25)]">
                 <Download className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                <h3 className="text-sm font-black text-white">
                   {lang === 'bn' ? 'অ্যাপ ইন্সটল করার নিয়ম' : 'How to Install App'}
                 </h3>
-                <p className="text-[11px] text-slate-500 font-bold">HelloPoint Digital Cashbook</p>
+                <p className="text-[11px] text-slate-400 font-bold">HelloPoint Digital Cashbook</p>
               </div>
             </div>
 
-            <div className="space-y-2.5 text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#141a23] p-3 rounded-2xl border border-slate-200/70 dark:border-slate-800">
+            <div className="space-y-2.5 text-xs text-slate-200 bg-white/[0.04] p-3 rounded-2xl border border-white/10">
               <div className="flex items-start gap-2">
-                <span className="px-1.5 py-0.5 rounded bg-purple-600 text-white font-black text-[10px] shrink-0 mt-0.5">১</span>
+                <span className="px-1.5 py-0.5 rounded bg-cyan-500 text-slate-950 font-black text-[10px] shrink-0 mt-0.5">১</span>
                 <span>{lang === 'bn' ? 'Android/Chrome-এ: ব্রাউজারের উপরে ৩-ডট মেনু (⋮) চাপুন এবং "Install app" বা "Add to Home screen" নির্বাচন করুন।' : 'On Android/Chrome: Tap 3 dots (⋮) and select "Install app" or "Add to Home screen".'}</span>
               </div>
               <div className="flex items-start gap-2">
-                <span className="px-1.5 py-0.5 rounded bg-purple-600 text-white font-black text-[10px] shrink-0 mt-0.5">২</span>
+                <span className="px-1.5 py-0.5 rounded bg-cyan-500 text-slate-950 font-black text-[10px] shrink-0 mt-0.5">২</span>
                 <span>{lang === 'bn' ? 'iPhone/Safari-তে: নিচে Share বাটনে ট্যাপ করে "Add to Home Screen" (+) এ চাপুন।' : 'On iPhone/Safari: Tap Share button and select "Add to Home Screen" (+).'}</span>
               </div>
             </div>
@@ -1108,7 +1146,7 @@ export function PinLockScreen({
             <button
               type="button"
               onClick={() => setShowGuide(false)}
-              className="w-full mt-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black shadow-xs cursor-pointer transition-all"
+              className="w-full mt-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-600 hover:from-violet-500 hover:to-cyan-500 text-white text-xs font-black shadow-md cursor-pointer transition-all"
             >
               {lang === 'bn' ? 'ঠিক আছে' : 'Got it'}
             </button>

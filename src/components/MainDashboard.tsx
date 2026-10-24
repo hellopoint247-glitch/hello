@@ -52,7 +52,6 @@ import {
   Lightbulb,
   Sun,
   Moon,
-  ShoppingBag,
   Building2,
   Landmark,
   Tag,
@@ -75,11 +74,9 @@ import {
   sendTestNotification, 
   notifyWithDeduplication 
 } from '../utils/notifications';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount } from '../types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, ChatQuickFAQ, CashInAccount, CashInTransaction } from '../types';
 import { ThemeMode } from '../utils/theme';
 import { ChatBox } from './ChatBox';
-import { ShopManagementModal } from './ShopManagementModal';
-import { downloadParcelLabelImage } from '../utils/parcelLabelGenerator';
 import ChatAutoReplySettingsModal from './ChatAutoReplySettingsModal';
 import { getContactSummary, loadQuickFaqs, saveQuickFaqs, loadSavedPayBillAccounts, addSavedPayBillAccount, findMatchingCashInAccount } from '../utils/storage';
 import BanglaCalendar from './BanglaCalendar';
@@ -124,11 +121,7 @@ interface MainDashboardProps {
   lang?: 'bn' | 'en';
   setLang?: (l: 'bn' | 'en') => void;
   onLogout: () => void;
-  shopStatus?: 'open' | 'closed';
-  onToggleShopStatus?: (status: 'open' | 'closed') => void;
   onPinChange?: (newPin: string) => void;
-  onSaveReminder?: (reminder: any) => void;
-  onDeleteReminder?: (id: string) => void;
   signupRequests?: SignUpRequest[];
   onAcceptSignUpRequest?: (req: SignUpRequest) => void;
   onRejectSignUpRequest?: (req: SignUpRequest) => void;
@@ -147,14 +140,6 @@ interface MainDashboardProps {
   onMarkChatsAsRead?: (contactId: string, role: 'owner' | 'customer') => void;
   themeMode?: ThemeMode;
   onChangeThemeMode?: (mode: ThemeMode) => void;
-  products?: Product[];
-  onSaveProduct?: (product: Product) => void;
-  onDeleteProduct?: (productId: string) => void;
-  shopOrders?: ShopOrder[];
-  onUpdateShopOrderStatus?: (orderId: string, status: ShopOrder['status']) => void;
-  onDeleteShopOrder?: (orderId: string) => void;
-  shopCustomers?: ShopCustomerAccount[];
-  onDeleteShopCustomer?: (customerId: string) => void;
   quickFaqs?: ChatQuickFAQ[];
   onSaveQuickFaqs?: (faqs: ChatQuickFAQ[]) => void;
   cashInAccounts?: CashInAccount[];
@@ -175,14 +160,6 @@ interface MainDashboardProps {
     contactId?: string;
     transactionId?: string;
   }) => Promise<void> | void;
-}
-
-interface Reminder {
-  id: string;
-  text: string;
-  datetime: string; // ISO / Y-M-DThh:mm
-  isCompleted: boolean;
-  isTriggered: boolean;
 }
 
 const safeConfirm = (message: string): boolean => {
@@ -285,11 +262,7 @@ export function MainDashboard({
   lang: propLang,
   setLang: propSetLang,
   onLogout,
-  shopStatus = 'open',
-  onToggleShopStatus,
   onPinChange,
-  onSaveReminder,
-  onDeleteReminder,
   signupRequests = [],
   onAcceptSignUpRequest,
   onRejectSignUpRequest,
@@ -307,15 +280,6 @@ export function MainDashboard({
   onDeleteChatThread,
   onMarkChatsAsRead,
   themeMode = 'dark',
-  onChangeThemeMode,
-  products = [],
-  onSaveProduct,
-  onDeleteProduct,
-  shopOrders = [],
-  onUpdateShopOrderStatus,
-  onDeleteShopOrder,
-  shopCustomers = [],
-  onDeleteShopCustomer,
   quickFaqs,
   onSaveQuickFaqs,
   cashInAccounts = [],
@@ -336,16 +300,6 @@ export function MainDashboard({
     if (propSetLang) propSetLang(l);
     setLocalLang(l);
   };
-
-  // Reminders state management
-  const [reminders, setReminders] = useState<Reminder[]>(() => {
-    try {
-      const saved = localStorage.getItem('hellopoint_reminders');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
 
   const [isDesktopMode, setIsDesktopMode] = useState<boolean>(() => {
     try {
@@ -388,7 +342,6 @@ export function MainDashboard({
   const [selectedChatContactId, setSelectedChatContactId] = useState<string | null>(null);
   const [chatThreadToDelete, setChatThreadToDelete] = useState<{ id: string; name: string } | null>(null);
   const [searchChatQuery, setSearchChatQuery] = useState('');
-  const [showShopManagementModal, setShowShopManagementModal] = useState(false);
 
   const unreadChatsCount = useMemo(() => {
     return (chatMessages || []).filter(m => m.senderRole === 'customer' && !m.readByOwner).length;
@@ -424,19 +377,7 @@ export function MainDashboard({
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showPaybillRequestsModal, setShowPaybillRequestsModal] = useState(false);
   const [selectedRequestToConfirm, setSelectedRequestToConfirm] = useState<PayBillRequest | null>(null);
-  const [showRemindersModal, setShowRemindersModal] = useState(false);
-  const [newReminderText, setNewReminderText] = useState('');
-  const [newReminderDatetime, setNewReminderDatetime] = useState(() => {
-    // Current local time formatted for input defaultValue YYYY-MM-DDTHH:MM
-    const now = new Date();
-    const tzoffset = now.getTimezoneOffset() * 60000; // in ms
-    const localISOTime = (new Date(now.getTime() - tzoffset)).toISOString().slice(0, 16);
-    return localISOTime;
-  });
-  const [isWiggling, setIsWiggling] = useState(false);
-  const [editingReminderId, setEditingReminderId] = useState<string | null>(null);
   const [zoomedImage, setZoomedImage] = useState<{ url: string; name: string } | null>(null);
-  const [nowTicker, setNowTicker] = useState<Date>(new Date());
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const [testNotificationSent, setTestNotificationSent] = useState(false);
 
@@ -458,155 +399,6 @@ export function MainDashboard({
     setTestNotificationSent(true);
     await sendTestNotification(lang);
     setTimeout(() => setTestNotificationSent(false), 4000);
-  };
-
-  // Check reminders periodically for scheduled trigger wiggling & update tick time (Highly optimized functional updates)
-  useEffect(() => {
-    const checkReminders = () => {
-      const now = new Date();
-      if (showRemindersModal) {
-        setNowTicker(now);
-      }
-      
-      setReminders(prev => {
-        let updated = false;
-        const nextReminders = prev.map(r => {
-          if (!r.isCompleted && !r.isTriggered) {
-            const rDate = new Date(r.datetime);
-            if (now >= rDate) {
-              updated = true;
-              notifyWithDeduplication({
-                title: lang === 'bn' ? '⏰ বাকির তাগাদা / রিমাইন্ডার অ্যালার্ট!' : '⏰ Reminder Alarm Alert!',
-                body: `${r.text} ${r.customerName ? `(${r.customerName})` : ''}`,
-                tag: `reminder-${r.id}`,
-                dedupeKey: `reminder-${r.id}`,
-                playSound: true
-              });
-              return { ...r, isTriggered: true };
-            }
-          }
-          return r;
-        });
-
-        if (updated) {
-          localStorage.setItem('hellopoint_reminders', JSON.stringify(nextReminders));
-          const hasActiveTrigger = nextReminders.some(r => r.isTriggered && !r.isCompleted);
-          setIsWiggling(hasActiveTrigger);
-          return nextReminders;
-        }
-
-        const hasActiveTrigger = prev.some(r => r.isTriggered && !r.isCompleted);
-        setIsWiggling(hasActiveTrigger);
-        return prev;
-      });
-    };
-
-    checkReminders();
-    const timer = setInterval(checkReminders, 15000);
-    return () => clearInterval(timer);
-  }, [showRemindersModal, lang]);
-
-  // Synchronize reminders with localStorage updates (e.g. from customer logins or sync)
-  useEffect(() => {
-    const handleStorageChange = () => {
-      try {
-        const saved = localStorage.getItem('hellopoint_reminders');
-        if (saved) {
-          setReminders(JSON.parse(saved));
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
-
-  const handleAddReminder = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newReminderText.trim() || !newReminderDatetime) return;
-
-    let nextReminders;
-    const now = new Date();
-    const target = new Date(newReminderDatetime);
-    const isTriggered = now >= target;
-
-    if (editingReminderId) {
-      let updatedRem: Reminder | null = null;
-      nextReminders = reminders.map(r => {
-        if (r.id === editingReminderId) {
-          const updated = {
-            ...r,
-            text: newReminderText.trim(),
-            datetime: newReminderDatetime,
-            isTriggered,
-            isCompleted: false // reset completion status when edited/re-scheduled
-          };
-          updatedRem = updated;
-          return updated;
-        }
-        return r;
-      });
-      setEditingReminderId(null);
-      if (updatedRem && onSaveReminder) {
-        onSaveReminder(updatedRem);
-      }
-    } else {
-      const newRem: Reminder = {
-        id: 'rem_' + Date.now(),
-        text: newReminderText.trim(),
-        datetime: newReminderDatetime,
-        isCompleted: false,
-        isTriggered
-      };
-      nextReminders = [newRem, ...reminders];
-      if (onSaveReminder) {
-        onSaveReminder(newRem);
-      }
-    }
-
-    setReminders(nextReminders);
-    localStorage.setItem('hellopoint_reminders', JSON.stringify(nextReminders));
-    setNewReminderText('');
-    
-    // reset date to now
-    const resetNow = new Date();
-    const tzoffset = resetNow.getTimezoneOffset() * 60000;
-    const localISOTime = (new Date(resetNow.getTime() - tzoffset)).toISOString().slice(0, 16);
-    setNewReminderDatetime(localISOTime);
-  };
-
-  const handleStartEditReminder = (r: Reminder) => {
-    setEditingReminderId(r.id);
-    setNewReminderText(r.text);
-    setNewReminderDatetime(r.datetime);
-  };
-
-  const handleCancelEditReminder = () => {
-    setEditingReminderId(null);
-    setNewReminderText('');
-    const resetNow = new Date();
-    const tzoffset = resetNow.getTimezoneOffset() * 60000;
-    const localISOTime = (new Date(resetNow.getTime() - tzoffset)).toISOString().slice(0, 16);
-    setNewReminderDatetime(localISOTime);
-  };
-
-  const handleCompleteReminder = (id: string) => {
-    handleDeleteReminder(id);
-  };
-
-  const handleDeleteReminder = (id: string) => {
-    const nextReminders = reminders.filter(r => r.id !== id);
-    setReminders(nextReminders);
-    localStorage.setItem('hellopoint_reminders', JSON.stringify(nextReminders));
-    
-    if (onDeleteReminder) {
-      onDeleteReminder(id);
-    }
-
-    if (editingReminderId === id) {
-      handleCancelEditReminder();
-    }
   };
 
   // Suppliers is removed, tabs are Customer, Pay Bill, or Cashbook
@@ -804,15 +596,7 @@ export function MainDashboard({
     () => !localStorage.getItem('hellopoint_backup_alert_dismissed')
   );
 
-  const toggleShopStatus = () => {
-    const newStatus = shopStatus === 'open' ? 'closed' : 'open';
-    if (onToggleShopStatus) {
-      onToggleShopStatus(newStatus);
-    } else {
-      localStorage.setItem('hellopoint_shop_status', newStatus);
-      window.dispatchEvent(new Event('storage'));
-    }
-  };
+
 
   // Backup & Restore State variables
   const [showBackupModal, setShowBackupModal] = useState(false);
@@ -1823,8 +1607,7 @@ export function MainDashboard({
   const pendingRechargesCount = useMemo(() => rechargeRequests.filter(r => r.status === 'pending').length, [rechargeRequests]);
   const pendingPaybillsCount = useMemo(() => paybillRequests.filter(r => r.status === 'pending').length, [paybillRequests]);
   const pendingSignupsCount = useMemo(() => signupRequests ? signupRequests.filter(req => req.status === 'pending').length : 0, [signupRequests]);
-  const overdueRemindersCount = useMemo(() => reminders.filter(r => r.isTriggered && !r.isCompleted).length, [reminders]);
-  const totalNotificationsCount = overdueRemindersCount + pendingSignupsCount + pendingRechargesCount;
+  const totalNotificationsCount = pendingSignupsCount + pendingRechargesCount;
 
   return (
     <div id="main-dashboard" className={`flex flex-col h-screen ${isDesktopMode ? 'max-w-7xl' : 'max-w-sm'} mx-auto bg-[#f1f3f9] relative shadow-xl overflow-hidden font-sans select-none text-slate-800 transition-all duration-300`}>
@@ -1866,20 +1649,20 @@ export function MainDashboard({
               )}
             </motion.button>
 
-            {/* The Bell Button for Notifications (Triggered/Active Reminders & SignUp Requests) */}
+            {/* The Bell Button for Notifications (SignUp & Recharge Requests) */}
             <motion.button 
               id="header-bell-trigger"
               onClick={() => setShowNotificationsModal(true)}
               whileHover={{ scale: 1.15 }}
               whileTap={{ scale: 0.90 }}
               className={`p-1.5 rounded-full transition-all focus:outline-none relative cursor-pointer ${
-                isWiggling || totalNotificationsCount > 0
+                totalNotificationsCount > 0
                   ? 'animate-bell-glow scale-110 shadow-lg text-white ring-2 ring-yellow-400/50' 
                   : 'bg-white/10 hover:bg-white/20 text-yellow-300'
               }`}
               title={lang === 'bn' ? 'নোটিফিকেশন সেন্টার' : 'Notification Center'}
             >
-              <Bell className={`w-5 h-5 ${(isWiggling || totalNotificationsCount > 0) ? 'animate-wiggle text-white fill-amber-300' : 'text-yellow-300'}`} />
+              <Bell className={`w-5 h-5 ${totalNotificationsCount > 0 ? 'text-white fill-amber-300 animate-pulse' : 'text-yellow-300'}`} />
               {totalNotificationsCount > 0 && (
                 <span className="absolute -top-1 -right-1 min-w-4.5 h-4.5 bg-red-650 text-white rounded-full text-[8.5px] font-black flex items-center justify-center px-1 border border-brand-primary shadow-md animate-bounce">
                   {totalNotificationsCount}
@@ -1907,29 +1690,6 @@ export function MainDashboard({
                 </span>
               )}
             </motion.button>
-
-            {/* Online Shop Orders & Catalog Quick Button */}
-            {onSaveProduct && onDeleteProduct && (
-              <motion.button 
-                id="header-shop-trigger"
-                onClick={() => setShowShopManagementModal(true)}
-                whileHover={{ scale: 1.15 }}
-                whileTap={{ scale: 0.90 }}
-                className={`p-1.5 rounded-full transition-all focus:outline-none relative cursor-pointer ${
-                  shopOrders.filter(o => o.status === 'pending').length > 0
-                    ? 'animate-bell-glow scale-110 shadow-lg text-white ring-2 ring-emerald-400/50' 
-                    : 'bg-white/10 hover:bg-white/20 text-yellow-300'
-                }`}
-                title={lang === 'bn' ? 'অনলাইন শপ ও অর্ডার ম্যানেজমেন্ট' : 'Online Shop & Order Management'}
-              >
-                <ShoppingBag className={`w-5 h-5 ${shopOrders.filter(o => o.status === 'pending').length > 0 ? 'text-emerald-300 animate-pulse' : 'text-yellow-300'}`} />
-                {shopOrders.filter(o => o.status === 'pending').length > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-4.5 h-4.5 bg-red-650 text-white rounded-full text-[8.5px] font-black flex items-center justify-center px-1 border border-brand-primary shadow-md animate-bounce">
-                    {shopOrders.filter(o => o.status === 'pending').length}
-                  </span>
-                )}
-              </motion.button>
-            )}
 
             {/* The Vertical Three-Dot Menu Button requested by user */}
             <motion.button 
@@ -2091,28 +1851,7 @@ export function MainDashboard({
 
 
 
-              {/* iPhone Calculator Trigger inside Three-Dot Dashboard */}
               <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
-                <button 
-                  type="button"
-                  onClick={() => {
-                    toggleShopStatus();
-                  }}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl border transition-all cursor-pointer uppercase select-none shadow-tiny text-[10px] font-black ${
-                    shopStatus === 'open' 
-                      ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200/60 text-emerald-700' 
-                      : 'bg-red-50 hover:bg-red-100 border-red-200/60 text-red-700'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full ${shopStatus === 'open' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
-                    {lang === 'bn' ? 'শপ স্ট্যাটাস' : 'Shop Status'}
-                  </span>
-                  <span className="font-extrabold tracking-wide text-[10px]">
-                    {shopStatus === 'open' ? 'Open' : 'Close'}
-                  </span>
-                </button>
-
                 {/* Desktop Mode Toggle inside Three-Dot Dashboard */}
                 <button 
                   type="button"
@@ -2135,25 +1874,6 @@ export function MainDashboard({
                   </span>
                 </button>
 
-
-                {/* Set Reminder Button inside Three-Dot Menu requested by user */}
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setShowRemindersModal(true);
-                    setShowSettingsMenu(false);
-                  }}
-                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-[10px] font-black text-amber-800 transition-all cursor-pointer uppercase select-none shadow-tiny"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
-                    {lang === 'bn' ? 'রিমাইন্ডার সেট করুন' : 'Set Reminder'}
-                  </span>
-                  <span className="bg-amber-600 text-white font-mono px-1.5 py-0.5 rounded-lg text-[8px] tracking-wide font-black">
-                    SET
-                  </span>
-                </button>
-
                 <button 
                   type="button"
                   onClick={() => {
@@ -2170,33 +1890,6 @@ export function MainDashboard({
                     NEW
                   </span>
                 </button>
-
-                {/* Owner Shop Products Catalog Management */}
-                {onSaveProduct && onDeleteProduct && (
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setShowShopManagementModal(true);
-                      setShowSettingsMenu(false);
-                    }}
-                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[10px] font-black text-emerald-850 transition-all cursor-pointer uppercase select-none shadow-tiny"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <ShoppingBag className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
-                      {lang === 'bn' ? 'অনলাইন শপ ও অর্ডার ম্যানেজ' : 'Manage Shop & Orders'}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      {shopOrders.filter(o => o.status === 'pending').length > 0 && (
-                        <span className="bg-red-600 text-white font-mono px-1.5 py-0.5 rounded-lg text-[8px] tracking-wide font-black animate-pulse">
-                          {shopOrders.filter(o => o.status === 'pending').length} NEW
-                        </span>
-                      )}
-                      <span className="bg-emerald-600 text-white font-mono px-1.5 py-0.5 rounded-lg text-[8px] tracking-wide font-black">
-                        {products.length}
-                      </span>
-                    </div>
-                  </button>
-                )}
 
                 <button 
                   type="button"
@@ -2296,105 +1989,6 @@ export function MainDashboard({
 
       {/* Main Content Scroll View (Styled optimally compact) */}
       <main id="main-content" className={`flex-1 px-3 py-2 ${isDesktopMode ? 'max-w-7xl' : 'max-w-sm'} mx-auto w-full pb-20 overflow-y-auto`}>
-
-        {/* NEW SHOP ORDERS LIVE DETAILS & PARCEL REPORT DOWNLOAD BANNER */}
-        {shopOrders.filter(o => o.status === 'pending').length > 0 && (
-          <div className="mb-2.5 bg-amber-50 dark:bg-slate-900 border-2 border-amber-400 rounded-2xl p-3 shadow-sm space-y-2.5 animate-fade-in">
-            <div className="flex items-center justify-between gap-2 border-b border-amber-200/80 dark:border-slate-800 pb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0 animate-pulse">
-                  <ShoppingBag className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <span className="text-xs font-black text-slate-900 dark:text-white block leading-tight">
-                    {lang === 'bn'
-                      ? `নতুন ${shopOrders.filter(o => o.status === 'pending').length}টি শপ অর্ডার এসেছে!`
-                      : `${shopOrders.filter(o => o.status === 'pending').length} New Shop Order(s)!`}
-                  </span>
-                  <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300">
-                    {lang === 'bn' ? '১৫০৳ সেন্ড মানি TrxID যাচাই করে কনফার্ম ও পার্সেল রিপোর্ট ডাউনলোড করুন' : 'Verify TrxID, confirm & download parcel slip'}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowShopManagementModal(true)}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 text-[10.5px] font-black cursor-pointer shrink-0"
-              >
-                {lang === 'bn' ? 'সব অর্ডার দেখুন' : 'All Orders'}
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              {shopOrders
-                .filter(o => o.status === 'pending')
-                .slice(0, 3)
-                .map(order => (
-                  <div
-                    key={order.id}
-                    className="bg-white dark:bg-slate-800 rounded-xl p-2.5 border border-amber-300/90 dark:border-slate-700 text-left space-y-1.5 text-xs"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-1.5">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-mono font-black text-[11px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
-                          #{order.orderNumber}
-                        </span>
-                        <span className="font-black text-slate-900 dark:text-white">{order.customerName}</span>
-                        <span className="font-mono font-black text-emerald-700 select-all">({order.customerPhone})</span>
-                      </div>
-                      {order.transactionId && (
-                        <span className="font-mono font-black text-[10.5px] bg-emerald-50 text-emerald-900 border border-emerald-300 px-2 py-0.5 rounded select-all">
-                          ১৫০৳ TrxID: {order.transactionId}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                      📍 {order.division ? `বিভাগ: ${order.division} | জেলা: ${order.district} | থানা: ${order.thana} — ` : ''}
-                      {order.customerAddress}
-                    </div>
-
-                    <div className="text-[11px] font-black text-slate-800 dark:text-slate-200">
-                      📦 {order.items.map(i => `${i.name} (${i.quantity} পিস)`).join(', ')} —{' '}
-                      <span className="text-purple-700 dark:text-amber-300 font-mono">
-                        COD প্রদেয়: {currency}{(order.dueOnDeliveryAmount ?? order.subtotal).toLocaleString()}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-700">
-                      <button
-                        type="button"
-                        onClick={() => downloadParcelLabelImage(order, currency)}
-                        className="px-2.5 py-1 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-[10.5px] font-black flex items-center gap-1 cursor-pointer"
-                      >
-                        <Download className="w-3 h-3 text-yellow-300" />
-                        <span>{lang === 'bn' ? 'পার্সেল রিপোর্ট ডাউনলোড' : 'Download Parcel Report'}</span>
-                      </button>
-
-                      {onUpdateShopOrderStatus && (
-                        <button
-                          type="button"
-                          onClick={() => onUpdateShopOrderStatus(order.id, 'confirmed')}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-black flex items-center gap-1 cursor-pointer"
-                        >
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>{lang === 'bn' ? 'কনফার্ম করুন' : 'Confirm'}</span>
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => setShowShopManagementModal(true)}
-                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[10.5px] font-black cursor-pointer"
-                      >
-                        {lang === 'bn' ? 'বিস্তারিত' : 'Details'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </div>
-        )}
 
         {/* TAB 1: CUSTOMERS */}
         {activeTab === 'customers' && (
@@ -3980,104 +3574,6 @@ export function MainDashboard({
                       </div>
                     </div>
                   )}
-
-                  {/* Active Overdue Alarm Reminders */}
-                  {reminders.filter(r => r.isTriggered && !r.isCompleted).length > 0 && (
-                    <div className="bg-rose-50/20 border border-slate-100 rounded-2.5xl p-3 space-y-2">
-                      <div className="flex justify-between items-center px-1 mb-1 border-b border-red-100 pb-1.5">
-                        <span className="text-[9.2px] font-black text-rose-750 uppercase tracking-widest flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
-                          {lang === 'bn' ? 'রিমাইন্ডার সমূহের সময় অতিক্রম হয়েছে' : 'DUE ALARMS & REMINDERS'}
-                        </span>
-                        <span className="text-[8.5px] font-black px-1.5 py-0.2 bg-red-100 text-red-700 rounded-full">
-                          {reminders.filter(r => r.isTriggered && !r.isCompleted).length}
-                        </span>
-                      </div>
-                  
-                      <div className="space-y-1.5">
-                        {reminders.filter(r => r.isTriggered && !r.isCompleted).map((r) => {
-                          const rDate = new Date(r.datetime);
-                          const formattedDateStr = rDate.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          });
-
-                          // Live Relative Duration Text string
-                          const diffMs = rDate.getTime() - nowTicker.getTime();
-                          const absoluteDiffMins = Math.floor(Math.abs(diffMs) / 60000);
-                          const hours = Math.floor(absoluteDiffMins / 60);
-                          const mins = absoluteDiffMins % 60;
-                          const days = Math.floor(hours / 24);
-
-                          let durationStr = '';
-                          if (lang === 'bn') {
-                            if (days > 0) {
-                              durationStr += `${days} দিন ` + (hours % 24 > 0 ? `${hours % 24} ঘণ্টা` : '');
-                            } else if (hours > 0) {
-                              durationStr += `${hours} ঘণ্টা ${mins > 0 ? `${mins} মিনিট` : ''}`;
-                            } else {
-                              durationStr += `${mins} মিনিট`;
-                            }
-                            durationStr += ' আগে';
-                          } else {
-                            if (days > 0) {
-                              durationStr += `${days}d ` + (hours % 24 > 0 ? `${hours % 24}h` : '');
-                            } else if (hours > 0) {
-                              durationStr += `${hours}h ${mins > 0 ? `${mins}m` : ''}`;
-                            } else {
-                              durationStr += `${mins}m`;
-                            }
-                            durationStr += ' ago';
-                          }
-
-                          return (
-                            <div 
-                              key={r.id}
-                              className="p-2.5 bg-white border border-red-100 rounded-xl flex justify-between items-center gap-3 shadow-tiny transition-all"
-                            >
-                              <div className="flex-1 min-w-0 space-y-0.5 text-left">
-                                <span className="bg-red-650 text-white text-[6.5px] px-1.5 py-0.2 rounded-md font-black uppercase tracking-wider shrink-0 select-none leading-none inline-block font-sans">
-                                  {lang === 'bn' ? 'বিজ্ঞপ্তি সময়' : 'ALARM'}
-                                </span>
-                                
-                                {/* Rich Black text for title */}
-                                <p className="text-[10px] font-black leading-tight text-slate-900 break-words pt-0.5">
-                                  {r.text}
-                                </p>
-
-                                {/* Time Details with Live dynamic updates */}
-                                <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[8px] font-bold text-slate-500 leading-none">
-                                  <div className="flex items-center gap-0.5 font-mono">
-                                    <Clock className="w-2.5 h-2.5 text-purple-750" />
-                                    <span className="text-purple-900">{formattedDateStr}</span>
-                                  </div>
-                                  <span className="text-red-655 font-extrabold flex items-center gap-0.5 font-mono">
-                                    <span>({durationStr})</span>
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* Action buttons inside the notification card */}
-                              <div className="flex shrink-0">
-                                <button 
-                                  type="button"
-                                  onClick={() => {
-                                    handleCompleteReminder(r.id);
-                                  }}
-                                  className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white p-1 rounded-lg border border-emerald-700 shadow-tiny transition-all cursor-pointer flex items-center justify-center font-bold"
-                                  title={lang === 'bn' ? 'সম্পন্ন বা বন্ধ করুন' : 'Dismiss / Mark Done'}
-                                >
-                                  <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -4089,14 +3585,10 @@ export function MainDashboard({
               </span>
               <button
                 type="button"
-                onClick={() => {
-                  setShowNotificationsModal(false);
-                  setShowRemindersModal(true);
-                }}
-                className="text-[9px] font-black text-purple-700 bg-purple-50 hover:bg-purple-100 px-3 py-1.5 rounded-xl border border-purple-155 uppercase transition-all flex items-center gap-1 cursor-pointer"
+                onClick={() => setShowNotificationsModal(false)}
+                className="text-[9px] font-black text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl uppercase transition-all cursor-pointer"
               >
-                <SlidersHorizontal className="w-3 h-3 text-purple-700" />
-                <span>{lang === 'bn' ? 'রিমাইন্ডার খাতা' : 'Reminders'}</span>
+                {lang === 'bn' ? 'বন্ধ করুন' : 'Close'}
               </button>
             </div>
 
@@ -4344,235 +3836,7 @@ export function MainDashboard({
         </div>
       )}
 
-      {/* Dynamic Reminders Modal Manager requested by user */}
-      {showRemindersModal && (
-        <div id="reminders-modal" className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 backdrop-blur-xs animate-fade-in print:hidden select-none font-sans">
-          <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl border border-slate-100 transform transition-all p-4 flex flex-col max-h-[85vh]">
-            
-            {/* Header */}
-            <div className="flex justify-between items-center mb-3 pb-2 border-b border-slate-100 shrink-0">
-              <h3 className="font-black text-slate-800 text-xs flex items-center gap-1.5 uppercase tracking-wide">
-                <Bell className={`w-4 h-4 text-purple-700 ${isWiggling ? 'animate-wiggle' : ''}`} />
-                <span>{lang === 'bn' ? 'আমার রিমাইন্ডার খাতা' : 'My Reminder Book'}</span>
-              </h3>
-              <button 
-                onClick={() => {
-                  setShowRemindersModal(false);
-                  handleCancelEditReminder();
-                }}
-                className="text-slate-400 hover:text-slate-650 p-1 rounded-full hover:bg-slate-50 cursor-pointer transition-all"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            {/* Quick reminder scheduler Form */}
-            <form onSubmit={handleAddReminder} className="bg-purple-50 p-2.5 rounded-2xl border-2 border-purple-100 space-y-2 mb-3 shrink-0">
-              <h4 className="text-[10px] font-black tracking-wider text-brand-primary uppercase flex items-center justify-between">
-                <span className="flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  {editingReminderId 
-                    ? (lang === 'bn' ? 'রিমাইন্ডার এডিট করুন' : 'Edit Active Reminder') 
-                    : (lang === 'bn' ? 'নতুন রিমাইন্ডার শিডিউল করুন' : 'Schedule New Reminder')
-                  }
-                </span>
-                {editingReminderId && (
-                  <button 
-                    type="button" 
-                    onClick={handleCancelEditReminder}
-                    className="text-[8px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded uppercase font-bold hover:bg-red-200"
-                  >
-                    {lang === 'bn' ? 'বাতিল' : 'Cancel'}
-                  </button>
-                )}
-              </h4>
-              <div className="space-y-2">
-                <input 
-                  type="text"
-                  value={newReminderText}
-                  onChange={(e) => setNewReminderText(e.target.value)}
-                  placeholder={lang === 'bn' ? 'কী মনে করিয়ে দিতে হবে? (যেমন: করিম বকেয়া দিবে)' : 'What to remind? (e.g., Karim payment due)'}
-                  required
-                  className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold outline-none focus:border-brand-primary transition-all text-black"
-                />
-                
-                <div className="grid grid-cols-5 gap-1.5 items-center">
-                  <div className="col-span-3">
-                    <input 
-                      type="datetime-local"
-                      value={newReminderDatetime}
-                      onChange={(e) => setNewReminderDatetime(e.target.value)}
-                      required
-                      className="w-full bg-white border border-slate-200 rounded-xl px-2 py-1 text-[10.5px] font-black outline-none focus:border-brand-primary transition-all font-mono text-black"
-                    />
-                  </div>
-                  <button 
-                    type="submit"
-                    className="col-span-2 py-1.5 bg-brand-primary hover:bg-brand-hover active:scale-95 text-white rounded-xl text-[10px] font-black transition-all cursor-pointer shadow-sm tracking-wider uppercase text-center"
-                  >
-                    {editingReminderId 
-                      ? (lang === 'bn' ? 'আপডেট' : 'UPDATE') 
-                      : (lang === 'bn' ? 'সেভ করুন' : 'SAVE NOW')
-                    }
-                  </button>
-                </div>
-              </div>
-            </form>
-
-            {/* Reminders List wrapper */}
-            <div className="flex-1 overflow-y-auto space-y-2 min-h-0 pr-1 select-none">
-              <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-1 flex justify-between items-center">
-                <span>{lang === 'bn' ? 'রিমাইন্ডার তালিকা' : 'REMINDERS LIST'} ({reminders.length})</span>
-                <span className="text-[7.5px] lowercase italic text-purple-600 animate-pulse font-normal">
-                  {lang === 'bn' ? 'লাইভ টাইমার সক্রিয়' : 'Live timer active'}
-                </span>
-              </h4>
-
-              {reminders.length === 0 ? (
-                <div className="text-center py-8 px-4 border border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400">
-                  <Bell className="w-8 h-8 opacity-25 mb-1.5 animate-pulse" />
-                  <p className="text-[10.5px] font-bold">{lang === 'bn' ? 'কোন রিমাইন্ডার সেট করা নেই!' : 'No scheduled reminders!'}</p>
-                  <p className="text-[9px] mt-0.5">{lang === 'bn' ? 'সহজে বকেয়া তাগাদা ও কাজের অ্যালার্ট সেট করুন।' : 'Easily set due alarms & credit reminders.'}</p>
-                </div>
-              ) : (
-                reminders.map((r) => {
-                  const rDate = new Date(r.datetime);
-                  const formattedDateStr = rDate.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  });
-
-                  const getLiveStatus = () => {
-                    const diffMs = rDate.getTime() - nowTicker.getTime();
-                    const isPast = diffMs < 0;
-                    const absoluteDiffMins = Math.floor(Math.abs(diffMs) / 60000);
-                    
-                    if (r.isCompleted) {
-                      return lang === 'bn' ? 'সম্পন্ন হয়েছে' : 'Completed';
-                    }
-
-                    if (absoluteDiffMins === 0) {
-                      return lang === 'bn' ? 'এইমাত্র' : 'just now';
-                    }
-
-                    if (isPast) {
-                      const hrs = Math.floor(absoluteDiffMins / 60);
-                      const mins = absoluteDiffMins % 60;
-                      if (hrs > 0) {
-                        return lang === 'bn' ? `${hrs} ঘণ্টা ${mins} মিনিট আগে` : `${hrs}h ${mins}m ago`;
-                      }
-                      return lang === 'bn' ? `${mins} মিনিট আগে` : `${mins}m ago`;
-                    } else {
-                      const hrs = Math.floor(absoluteDiffMins / 60);
-                      const mins = absoluteDiffMins % 60;
-                      if (hrs > 0) {
-                        return lang === 'bn' ? `${hrs} ঘণ্টা ${mins} মিনিট পর` : `in ${hrs}h ${mins}m`;
-                      }
-                      return lang === 'bn' ? `${mins} মিনিট পর` : `in ${mins}m`;
-                    }
-                  };
-
-                  const liveStatusString = getLiveStatus();
-
-                  let cardBorderClasses = '';
-                  let cardBgClasses = '';
-                  if (r.isCompleted) {
-                    cardBorderClasses = 'border border-slate-200 opacity-75';
-                    cardBgClasses = 'bg-slate-50/50';
-                  } else if (r.isTriggered) {
-                    cardBorderClasses = 'border border-red-300 border-l-4 border-l-red-500 shadow-sm';
-                    cardBgClasses = 'bg-red-50/45 animate-pulse-slow';
-                  } else {
-                    cardBorderClasses = 'border border-amber-300 border-l-4 border-l-amber-500 shadow-tiny';
-                    cardBgClasses = 'bg-amber-50/10';
-                  }
-
-                  const isBeingEdited = editingReminderId === r.id;
-
-                  return (
-                    <div 
-                      key={r.id}
-                      className={`p-1.5 rounded-xl transition-all flex justify-between items-start gap-1.5 ${cardBorderClasses} ${cardBgClasses} ${
-                        isBeingEdited ? 'ring-2 ring-purple-600 scale-[0.98]' : ''
-                      }`}
-                    >
-                      <div className="space-y-0.5 min-w-0 flex-1">
-                        <div className="flex items-center gap-1 flex-wrap mb-0.5">
-                          {r.isTriggered && !r.isCompleted && (
-                            <span className="bg-red-600 text-white text-[7px] px-1 py-0.2 rounded font-black tracking-wider shrink-0 uppercase">
-                              {lang === 'bn' ? 'সময় হয়েছে!' : 'TIME OVER!'}
-                            </span>
-                          )}
-                          {r.isCompleted && (
-                            <span className="bg-emerald-100 text-emerald-800 text-[7px] px-1 py-0.2 rounded font-bold tracking-wider shrink-0 uppercase">
-                              {lang === 'bn' ? 'সম্পন্ন' : 'COMPLETED'}
-                            </span>
-                          )}
-                        </div>
-
-                        <p className={`text-[10.5px] font-black break-words leading-tight text-black ${
-                          r.isCompleted ? 'line-through text-slate-500 font-bold opacity-60' : ''
-                        }`}>
-                          {r.text}
-                        </p>
-
-                        <div className="flex flex-col gap-0.2 text-[8.5px] text-slate-700 font-extrabold pt-0.5">
-                          <div className="flex items-center gap-1">
-                            <Clock className="w-2 h-2 text-purple-700" />
-                            <span className="font-mono text-purple-950">{formattedDateStr}</span>
-                          </div>
-                          {!r.isCompleted && (
-                            <span className={`text-[8px] font-bold ${r.isTriggered ? 'text-red-600' : 'text-emerald-700'}`}>
-                              ({liveStatusString})
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 shrink-0 mt-0.5">
-                        {!r.isCompleted && (
-                          <button 
-                            type="button"
-                            onClick={() => handleCompleteReminder(r.id)}
-                            className="bg-emerald-50 hover:bg-emerald-150 text-emerald-700 p-1 rounded border border-emerald-200 transition-all cursor-pointer"
-                            title={lang === 'bn' ? 'সম্পন্ন চিহ্নিত করুন' : 'Mark completed'}
-                          >
-                            <Check className="w-3 h-3 font-bold" />
-                          </button>
-                        )}
-                        {!r.isCompleted && (
-                          <button 
-                            type="button"
-                            onClick={() => handleStartEditReminder(r)}
-                            className={`p-1 rounded border transition-all cursor-pointer ${
-                              isBeingEdited 
-                                ? 'bg-brand-primary text-white border-brand-hover' 
-                                : 'bg-brand-light hover:bg-brand-light/90 text-brand-primary border-brand-primary/20'
-                            }`}
-                            title={lang === 'bn' ? 'সম্পাদন করুন' : 'Edit Reminder'}
-                          >
-                            <Edit className="w-3 h-3" />
-                          </button>
-                        )}
-                        <button 
-                          type="button"
-                          onClick={() => handleDeleteReminder(r.id)}
-                          className="bg-red-50 hover:bg-red-150 text-red-600 p-1 rounded border border-red-200 transition-all cursor-pointer"
-                          title={lang === 'bn' ? 'রিমুভ করুন' : 'Delete Reminder'}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Adding/Editing a Pay Bill Dialogue / Modal Dialog */}
       {showPayBillModal && (
@@ -5804,24 +5068,7 @@ export function MainDashboard({
         )}
       </AnimatePresence>
 
-      {/* OWNER SHOP MANAGEMENT MODAL */}
-      {onSaveProduct && onDeleteProduct && (
-        <ShopManagementModal 
-          isOpen={showShopManagementModal}
-          onClose={() => setShowShopManagementModal(false)}
-          lang={lang}
-          products={products}
-          onSaveProduct={onSaveProduct}
-          onDeleteProduct={onDeleteProduct}
-          shopOrders={shopOrders}
-          onUpdateShopOrderStatus={onUpdateShopOrderStatus}
-          onDeleteShopOrder={onDeleteShopOrder}
-          shopCustomers={shopCustomers}
-          onDeleteShopCustomer={onDeleteShopCustomer}
-          currency={currency}
-          themeColor={themeColor}
-        />
-      )}
+
 
       {/* CHAT AUTO-REPLY & CANNED FAQS SETTINGS MODAL */}
       <ChatAutoReplySettingsModal 
