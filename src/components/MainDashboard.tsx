@@ -74,7 +74,7 @@ import {
   sendTestNotification, 
   notifyWithDeduplication 
 } from '../utils/notifications';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, ChatQuickFAQ, CashInAccount, CashInTransaction } from '../types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ActiveTab, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, ChatQuickFAQ, CashInAccount, CashInTransaction, CustomerLoginNotification } from '../types';
 import { ThemeMode } from '../utils/theme';
 import { ChatBox } from './ChatBox';
 import ChatAutoReplySettingsModal from './ChatAutoReplySettingsModal';
@@ -82,6 +82,7 @@ import { getContactSummary, loadQuickFaqs, saveQuickFaqs, loadSavedPayBillAccoun
 import BanglaCalendar from './BanglaCalendar';
 import { CashInView } from './CashInView';
 import { motion, AnimatePresence } from 'motion/react';
+import { normalizeBdPhoneNumber } from '../utils/phoneUtils';
 
 const normalizeString = (str: string): string => {
   const banglaDigits = [/০/g, /১/g, /২/g, /৩/g, /৪/g, /৫/g, /৬/g, /৭/g, /৮/g, /৯/g];
@@ -160,6 +161,11 @@ interface MainDashboardProps {
     contactId?: string;
     transactionId?: string;
   }) => Promise<void> | void;
+  customerLogins?: CustomerLoginNotification[];
+  onMarkCustomerLoginAsRead?: (id: string) => void;
+  onMarkAllCustomerLoginsAsRead?: () => void;
+  onClearCustomerLogins?: () => void;
+  onClearAllNotifications?: () => void;
 }
 
 const safeConfirm = (message: string): boolean => {
@@ -289,7 +295,12 @@ export function MainDashboard({
   onSaveCashInTransaction,
   onDeleteCashInTransaction,
   onClearCashInAccountHistory,
-  onSaveCustomerTransaction
+  onSaveCustomerTransaction,
+  customerLogins = [],
+  onMarkCustomerLoginAsRead,
+  onMarkAllCustomerLoginsAsRead,
+  onClearCustomerLogins,
+  onClearAllNotifications
 }: MainDashboardProps) {
   // Bilingual localization state
   const [localLang, setLocalLang] = useState<'bn' | 'en'>(() => (localStorage.getItem('hellopoint_lang') as 'bn' | 'en') || 'bn');
@@ -1040,7 +1051,8 @@ export function MainDashboard({
   const handleAddNewContact = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
-    onAddContact(newName.trim(), newPhone.trim());
+    const cleanPhone = normalizeBdPhoneNumber(newPhone.trim()) || newPhone.trim();
+    onAddContact(newName.trim(), cleanPhone);
     setShowAddModal(false);
     setNewName('');
     setNewPhone('');
@@ -1607,7 +1619,8 @@ export function MainDashboard({
   const pendingRechargesCount = useMemo(() => rechargeRequests.filter(r => r.status === 'pending').length, [rechargeRequests]);
   const pendingPaybillsCount = useMemo(() => paybillRequests.filter(r => r.status === 'pending').length, [paybillRequests]);
   const pendingSignupsCount = useMemo(() => signupRequests ? signupRequests.filter(req => req.status === 'pending').length : 0, [signupRequests]);
-  const totalNotificationsCount = pendingSignupsCount + pendingRechargesCount;
+  const unreadCustomerLoginsCount = useMemo(() => customerLogins ? customerLogins.filter(l => !l.read).length : 0, [customerLogins]);
+  const totalNotificationsCount = pendingSignupsCount + pendingRechargesCount + unreadCustomerLoginsCount;
 
   return (
     <div id="main-dashboard" className={`flex flex-col h-screen ${isDesktopMode ? 'max-w-7xl' : 'max-w-sm'} mx-auto bg-[#f1f3f9] relative shadow-xl overflow-hidden font-sans select-none text-slate-800 transition-all duration-300`}>
@@ -3049,10 +3062,15 @@ export function MainDashboard({
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 mb-1">{text.phoneLabel}</label>
                 <input 
-                  type="tel" 
+                  type="text" 
                   value={newPhone}
-                  onChange={(e) => setNewPhone(e.target.value)}
-                  placeholder=""
+                  onChange={(e) => setNewPhone(normalizeBdPhoneNumber(e.target.value))}
+                  onPaste={(e) => {
+                    e.preventDefault();
+                    const pasted = e.clipboardData.getData('text');
+                    setNewPhone(normalizeBdPhoneNumber(pasted));
+                  }}
+                  placeholder="01xxxxxxxxx"
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-purple-500 focus:bg-white transition-all font-mono"
                 />
               </div>
@@ -3353,10 +3371,10 @@ export function MainDashboard({
 
       {showNotificationsModal && (
         <div id="notifications-modal" className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fade-in print:hidden select-none font-sans">
-          <div className="bg-white rounded-[32px] w-full max-w-[640px] overflow-hidden shadow-[0_25px_60px_-15px_rgba(15,23,42,0.3)] border border-slate-200/90 transform transition-all p-6 flex flex-col max-h-[85vh]">
+          <div className="bg-white rounded-[28px] w-full max-w-[640px] overflow-hidden shadow-[0_25px_60px_-15px_rgba(15,23,42,0.3)] border border-slate-200/90 transform transition-all p-4 sm:p-5 flex flex-col max-h-[85vh]">
             
             {/* Header */}
-            <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100 shrink-0">
+            <div className="flex justify-between items-center mb-3 pb-2.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-500 shadow-sm">
                   <Bell className="w-4.5 h-4.5 animate-wiggle" />
@@ -3372,113 +3390,214 @@ export function MainDashboard({
                   </p>
                 </div>
               </div>
-              <button 
-                onClick={() => setShowNotificationsModal(false)}
-                className="text-slate-400 hover:text-slate-600 hover:bg-slate-50 p-1.5 rounded-full cursor-pointer transition-all active:scale-90"
-              >
-                <X className="w-4 h-4 text-slate-500" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                {((customerLogins && customerLogins.length > 0) || totalNotificationsCount > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onClearAllNotifications) {
+                        onClearAllNotifications();
+                      } else if (onClearCustomerLogins) {
+                        onClearCustomerLogins();
+                      }
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 border border-rose-200/80 rounded-xl text-[9px] font-black transition-all cursor-pointer active:scale-95 shadow-2xs"
+                    title={lang === 'bn' ? 'সব নোটিফিকেশন ক্লিয়ার করুন' : 'Clear All Notifications'}
+                  >
+                    <Trash2 className="w-3 h-3 text-rose-500" />
+                    <span>{lang === 'bn' ? 'অল ক্লিয়ার' : 'Clear All'}</span>
+                  </button>
+                )}
+                <button 
+                  onClick={() => setShowNotificationsModal(false)}
+                  className="text-slate-400 hover:text-slate-600 hover:bg-slate-50 p-1.5 rounded-full cursor-pointer transition-all active:scale-90"
+                >
+                  <X className="w-4 h-4 text-slate-500" />
+                </button>
+              </div>
             </div>
 
             {/* List of active (triggered / due) notifications */}
-            <div className="flex-1 overflow-y-auto space-y-3.5 min-h-0 pr-1 select-none">
-              {totalNotificationsCount === 0 ? (
-                <div className="text-center py-14 px-4 border border-dashed border-slate-200 rounded-2.5xl flex flex-col items-center justify-center text-slate-400">
-                  <div className="bg-slate-50 p-4 rounded-full mb-3.5 border border-slate-100">
-                    <BellOff className="w-7 h-7 text-slate-350" />
+            <div className="flex-1 overflow-y-auto space-y-2.5 min-h-0 pr-1 select-none">
+              {totalNotificationsCount === 0 && (customerLogins || []).length === 0 ? (
+                <div className="text-center py-12 px-4 border border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400">
+                  <div className="bg-slate-50 p-3.5 rounded-full mb-3 border border-slate-100">
+                    <BellOff className="w-6 h-6 text-slate-350" />
                   </div>
                   <p className="text-xs font-black text-slate-700">{lang === 'bn' ? 'কোন নতুন নোটিফিকেশন নেই!' : 'No active notifications!'}</p>
-                  <p className="text-[9.5px] mt-2 text-center text-slate-500 max-w-[260px] leading-relaxed">
+                  <p className="text-[9px] mt-1.5 text-center text-slate-500 max-w-[260px] leading-relaxed">
                     {lang === 'bn' 
-                      ? "নতুন রিমাইন্ডার শিডিউল করতে থ্রি-ডট মেনু থেকে 'রিমাইন্ডার সেট করুন' অপশনটি ক্লিক করুন।" 
-                      : "To schedule a new alarm / reminder, click 'Set Reminder' in the three-dot menu."}
+                      ? "কাস্টমার ভিজিট বা লগইন করলে অথবা নতুন অনুরোধ আসলে এখানে দেখতে পাবেন।" 
+                      : "When customers visit or submit requests, they will appear here."}
                   </p>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {/* Signup requests */}
+                <div className="space-y-3">
+                  {/* Customer Login / Visit Notifications */}
+                  {customerLogins && customerLogins.length > 0 && (
+                    <div className="bg-emerald-50/25 border border-emerald-100 rounded-2xl p-2.5 space-y-1.5">
+                      <div className="flex justify-between items-center px-1 border-b border-emerald-100 pb-1">
+                        <span className="text-[9px] font-black text-emerald-800 uppercase tracking-widest flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 -ml-2.5" />
+                          {lang === 'bn' ? 'কাস্টমার ভিজিট নোটিফিকেশন' : 'CUSTOMER VISIT ALERTS'}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {unreadCustomerLoginsCount > 0 && (
+                            <span className="text-[8px] font-black px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded-full font-mono">
+                              {unreadCustomerLoginsCount} {lang === 'bn' ? 'নতুন' : 'new'}
+                            </span>
+                          )}
+                          {unreadCustomerLoginsCount > 0 && onMarkAllCustomerLoginsAsRead && (
+                            <button
+                              type="button"
+                              onClick={onMarkAllCustomerLoginsAsRead}
+                              className="text-[8px] font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-100/70 hover:bg-emerald-100 px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
+                            >
+                              {lang === 'bn' ? 'সব পড়া হয়েছে' : 'Mark all read'}
+                            </button>
+                          )}
+                          {onClearCustomerLogins && (
+                            <button
+                              type="button"
+                              onClick={onClearCustomerLogins}
+                              className="text-[8px] font-bold text-slate-400 hover:text-rose-500 p-1 rounded transition-colors cursor-pointer"
+                              title={lang === 'bn' ? 'মুছে ফেলুন' : 'Clear all'}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Ultra-compact Customer Visit List: Name and Time only */}
+                      <div className="space-y-1 max-h-56 overflow-y-auto pr-0.5">
+                        {customerLogins.map((login) => {
+                          const loginTimeFormatted = (() => {
+                            try {
+                              const d = new Date(login.loginTime || login.createdAt);
+                              const now = new Date();
+                              const isToday = d.toDateString() === now.toDateString();
+                              const timeStr = d.toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', {
+                                hour: '2-digit', minute: '2-digit', hour12: true
+                              });
+                              if (isToday) {
+                                return lang === 'bn' ? `আজ ${timeStr}` : `Today, ${timeStr}`;
+                              }
+                              const dateStr = d.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', {
+                                month: 'short', day: 'numeric'
+                              });
+                              return `${dateStr}, ${timeStr}`;
+                            } catch {
+                              return '';
+                            }
+                          })();
+
+                          return (
+                            <div 
+                              key={login.id}
+                              className={`px-2 py-1.5 rounded-xl border flex items-center justify-between gap-2 transition-all ${
+                                !login.read 
+                                  ? 'bg-white border-emerald-300 shadow-2xs ring-1 ring-emerald-300/40' 
+                                  : 'bg-white/70 border-slate-100 opacity-90 hover:opacity-100'
+                              }`}
+                            >
+                              {/* Customer Name and tag */}
+                              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${!login.read ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+                                <span className="text-[10.5px] font-black text-slate-850 truncate leading-none">
+                                  {login.customerName || (lang === 'bn' ? 'কাস্টমার' : 'Customer')}
+                                </span>
+                                <span className="text-[7.5px] font-bold px-1.2 py-0.2 rounded bg-emerald-100 text-emerald-800 shrink-0 leading-none">
+                                  {lang === 'bn' ? 'ভিজিট' : 'Visit'}
+                                </span>
+                              </div>
+
+                              {/* Time and minimal action buttons */}
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-[8.5px] font-bold font-mono text-slate-500 leading-none">
+                                  {loginTimeFormatted}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (onMarkCustomerLoginAsRead && !login.read) {
+                                      onMarkCustomerLoginAsRead(login.id);
+                                    }
+                                    onSelectContact(login.contactId);
+                                    setShowNotificationsModal(false);
+                                  }}
+                                  className="p-1 hover:bg-emerald-50 text-emerald-650 rounded cursor-pointer transition-colors"
+                                  title={lang === 'bn' ? 'খতিয়ান' : 'Ledger'}
+                                >
+                                  <BookOpen className="w-3 h-3" />
+                                </button>
+                                {!login.read && onMarkCustomerLoginAsRead && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onMarkCustomerLoginAsRead(login.id)}
+                                    className="p-1 hover:bg-slate-100 text-slate-400 hover:text-emerald-600 rounded cursor-pointer transition-colors"
+                                    title={lang === 'bn' ? 'পড়া হয়েছে' : 'Mark as read'}
+                                  >
+                                    <Check className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Signup requests - Compact Name + Time */}
                   {signupRequests && signupRequests.filter(req => req.status === 'pending').length > 0 && (
-                    <div className="bg-purple-50/20 border border-purple-100 rounded-2.5xl p-3 space-y-2">
-                      <div className="flex justify-between items-center px-1 mb-1 border-b border-purple-100 pb-1.5">
-                        <span className="text-[9.2px] font-black text-purple-750 uppercase tracking-widest flex items-center gap-1">
+                    <div className="bg-purple-50/20 border border-purple-100 rounded-2xl p-2.5 space-y-1.5">
+                      <div className="flex justify-between items-center px-1 border-b border-purple-100 pb-1">
+                        <span className="text-[9px] font-black text-purple-750 uppercase tracking-widest flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse" />
                           {lang === 'bn' ? 'কাস্টমার অ্যাকাউন্ট অনুরোধ' : 'PENDING SIGNUP REQUESTS'}
                         </span>
-                        <span className="text-[8.5px] font-black px-1.5 py-0.2 bg-purple-100 text-purple-705 rounded-full">
+                        <span className="text-[8px] font-black px-1.5 py-0.2 bg-purple-100 text-purple-705 rounded-full">
                           {signupRequests.filter(req => req.status === 'pending').length}
                         </span>
                       </div>
                       
-                      <div className="space-y-1.5">
+                      <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
                         {signupRequests.filter(req => req.status === 'pending').map((req) => (
                           <div 
                             key={req.id}
-                            className="p-2 bg-white border border-purple-100 rounded-xl flex justify-between items-center gap-2 shadow-tiny hover:shadow-xs transition-all"
+                            className="px-2 py-1.5 bg-white border border-purple-100 rounded-xl flex items-center justify-between gap-2 shadow-2xs hover:shadow-xs transition-all"
                           >
-                            {/* Image/Avatar (Optional) */}
-                            {req.photoUrl ? (
-                              <button
-                                type="button"
-                                onClick={() => setZoomedImage({ url: req.photoUrl!, name: req.name })}
-                                className="relative w-7 h-7 rounded-lg overflow-hidden border border-purple-100 bg-purple-50 hover:opacity-90 active:scale-95 transition-all cursor-pointer flex-shrink-0"
-                              >
-                                <img 
-                                  src={req.photoUrl} 
-                                  alt={req.name} 
-                                  className="w-full h-full object-cover"
-                                  referrerPolicy="no-referrer"
-                                />
-                              </button>
-                            ) : (
-                              <div className="w-7 h-7 rounded-lg bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-700 font-bold flex-shrink-0">
-                                <User className="w-3.5 h-3.5 text-purple-600" />
-                              </div>
-                            )}
-
-                            {/* Customer info */}
-                            <div className="flex-1 min-w-0 space-y-0.5 text-left">
-                              <p className="text-[10px] font-black leading-tight text-slate-900 break-words">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" />
+                              <span className="text-[10.5px] font-black text-slate-850 truncate leading-none">
                                 {req.name}
-                              </p>
-                              <div className="flex items-center gap-1 font-mono text-[8.5px] font-bold text-slate-850 leading-none">
-                                <span>📱 {req.phone}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopyText(req.phone, req.id)}
-                                  className="p-0.5 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-650 active:scale-95 transition-all cursor-pointer flex items-center justify-center shrink-0 gap-0.5 text-[7px]"
-                                  title={lang === 'bn' ? 'কপি করুন' : 'Copy Number'}
-                                >
-                                  <Copy className="w-2 h-2" />
-                                  {copiedId === req.id && (
-                                    <span className="text-[6px] text-emerald-650 font-extrabold animate-fade-in">
-                                      {lang === 'bn' ? 'কপি হয়েছে' : 'Copied'}
-                                    </span>
-                                  )}
-                                </button>
-                              </div>
+                              </span>
+                              <span className="text-[7.5px] font-bold px-1.2 py-0.2 rounded bg-purple-100 text-purple-800 shrink-0 leading-none">
+                                {lang === 'bn' ? 'অনুরোধ' : 'Request'}
+                              </span>
                             </div>
 
-                            {/* Accept / Reject actions */}
-                            <div className="flex items-center gap-1 shrink-0">
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[8.5px] font-bold font-mono text-slate-500 leading-none">
+                                {req.createdAt ? new Date(req.createdAt).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : req.phone}
+                              </span>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (onAcceptSignUpRequest) onAcceptSignUpRequest(req);
-                                }}
-                                className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white p-1 rounded-lg border border-emerald-700 shadow-tiny transition-all cursor-pointer flex items-center justify-center"
-                                title={lang === 'bn' ? 'অনুমোদন করুন' : 'Accept Request'}
+                                onClick={() => onAcceptSignUpRequest?.(req)}
+                                className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white p-1 rounded-md shadow-2xs transition-all cursor-pointer"
+                                title={lang === 'bn' ? 'অনুমোদন' : 'Accept'}
                               >
-                                <Check className="w-3 h-3 font-black stroke-[3px]" />
+                                <Check className="w-2.5 h-2.5 stroke-[3px]" />
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (onRejectSignUpRequest) onRejectSignUpRequest(req);
-                                }}
-                                className="bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 p-1 rounded-lg border border-rose-200 shadow-tiny transition-all cursor-pointer flex items-center justify-center"
-                                title={lang === 'bn' ? 'বাতিল করুন' : 'Reject Request'}
+                                onClick={() => onRejectSignUpRequest?.(req)}
+                                className="bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 p-1 rounded-md transition-all cursor-pointer"
+                                title={lang === 'bn' ? 'বাতিল' : 'Reject'}
                               >
-                                <X className="w-3 h-3 font-black stroke-[3px]" />
+                                <X className="w-2.5 h-2.5 stroke-[3px]" />
                               </button>
                             </div>
                           </div>
@@ -3487,86 +3606,54 @@ export function MainDashboard({
                     </div>
                   )}
 
-                  {/* Recharge Requests */}
+                  {/* Recharge Requests - Compact Name + Time */}
                   {rechargeRequests && rechargeRequests.filter(req => req.status === 'pending').length > 0 && (
-                    <div className="bg-blue-50/20 border border-blue-100 rounded-2.5xl p-3 space-y-2">
-                      <div className="flex justify-between items-center px-1 mb-1 border-b border-blue-100 pb-1.5">
-                        <span className="text-[9.2px] font-black text-blue-750 uppercase tracking-widest flex items-center gap-1">
+                    <div className="bg-blue-50/20 border border-blue-100 rounded-2xl p-2.5 space-y-1.5">
+                      <div className="flex justify-between items-center px-1 border-b border-blue-100 pb-1">
+                        <span className="text-[9px] font-black text-blue-750 uppercase tracking-widest flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
                           {lang === 'bn' ? 'রিচার্জের অনুরোধ সমূহ' : 'PENDING RECHARGES'}
                         </span>
-                        <span className="text-[8.5px] font-black px-1.5 py-0.2 bg-blue-100 text-blue-700 rounded-full">
+                        <span className="text-[8px] font-black px-1.5 py-0.2 bg-blue-100 text-blue-700 rounded-full">
                           {rechargeRequests.filter(req => req.status === 'pending').length}
                         </span>
                       </div>
 
-                      <div className="space-y-1.5">
+                      <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
                         {rechargeRequests.filter(req => req.status === 'pending').map((req) => (
                           <div 
                             key={req.id}
-                            className="p-2 bg-white border border-blue-100 rounded-xl flex flex-col gap-1 shadow-tiny hover:shadow-xs transition-all"
+                            className="px-2 py-1.5 bg-white border border-blue-100 rounded-xl flex items-center justify-between gap-2 shadow-2xs hover:shadow-xs transition-all"
                           >
-                            <div className="flex justify-between items-start gap-2">
-                              <div className="flex-1 min-w-0 space-y-0.5 text-left">
-                                <span className="bg-blue-600 text-white text-[6.5px] px-1.5 py-0.2 rounded-md font-black uppercase tracking-wider shrink-0 select-none inline-block leading-none">
-                                  {req.method === 'bkash' ? (lang === 'bn' ? 'বিকাশ' : 'bKash') : req.method === 'nagad' ? (lang === 'bn' ? 'নগদ' : 'Nagad') : (lang === 'bn' ? 'ফ্লেক্সিলোড' : 'Flexiload')}
-                                </span>
-                                
-                                <p className="text-[10px] font-black leading-tight text-slate-900 break-words pt-0.5">
-                                  {req.customerName}
-                                </p>
-
-                                <div className="space-y-1 text-[9px] font-bold text-slate-800">
-                                  <div className="flex items-center gap-1 font-mono leading-none">
-                                    <span>📱 {req.rechargePhone}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCopyText(req.rechargePhone, req.id)}
-                                      className="p-0.5 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-655 active:scale-95 transition-all cursor-pointer flex items-center justify-center shrink-0 gap-0.5 text-[7px]"
-                                      title={lang === 'bn' ? 'কপি করুন' : 'Copy Number'}
-                                    >
-                                      <Copy className="w-2 h-2" />
-                                      {copiedId === req.id && (
-                                        <span className="text-[6px] text-emerald-650 font-extrabold animate-fade-in">
-                                          {lang === 'bn' ? 'কপি হয়েছে' : 'Copied'}
-                                        </span>
-                                      )}
-                                    </button>
-                                  </div>
-                                  <div className="font-mono text-[10px] font-black text-blue-800 leading-none">
-                                    💵 {currency}{req.amount.toFixed(2)}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="text-[7.5px] font-black text-slate-400 shrink-0 select-none font-mono">
-                                {req.createdAt ? new Date(req.createdAt).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', {
-                                  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                                }) : ''}
-                              </div>
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                              <span className="text-[10.5px] font-black text-slate-850 truncate leading-none">
+                                {req.customerName}
+                              </span>
+                              <span className="text-[7.5px] font-bold px-1.2 py-0.2 rounded bg-blue-100 text-blue-800 shrink-0 leading-none">
+                                {req.method === 'bkash' ? (lang === 'bn' ? 'বিকাশ' : 'bKash') : req.method === 'nagad' ? (lang === 'bn' ? 'নগদ' : 'Nagad') : (lang === 'bn' ? 'ফ্লেক্সি' : 'Flexi')} ৳{req.amount}
+                              </span>
                             </div>
 
-                            {/* Action Buttons */}
-                            <div className="grid grid-cols-2 gap-2 mt-0.5">
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[8.5px] font-bold font-mono text-slate-500 leading-none">
+                                {req.createdAt ? new Date(req.createdAt).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
+                              </span>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  onCompleteRechargeRequest?.(req);
-                                }}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-[8px] font-black py-1 px-1.5 rounded-lg border border-emerald-700 shadow-tiny active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1"
+                                onClick={() => onCompleteRechargeRequest?.(req)}
+                                className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white p-1 rounded-md shadow-2xs transition-all cursor-pointer"
+                                title={lang === 'bn' ? 'সম্পূর্ণ' : 'Complete'}
                               >
-                                <Check className="w-2.5 h-2.5 text-white" />
-                                <span>{lang === 'bn' ? 'সম্পূর্ণ করুন' : 'Complete'}</span>
+                                <Check className="w-2.5 h-2.5 stroke-[3px]" />
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setRechargeToCancel(req);
-                                }}
-                                className="bg-rose-50 hover:bg-rose-100 text-rose-600 text-[8px] font-black py-1 px-1.5 rounded-lg border border-rose-200 shadow-tiny active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1"
+                                onClick={() => setRechargeToCancel(req)}
+                                className="bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 p-1 rounded-md transition-all cursor-pointer"
+                                title={lang === 'bn' ? 'বাতিল' : 'Cancel'}
                               >
-                                <X className="w-2.5 h-2.5 text-rose-600" />
-                                <span>{lang === 'bn' ? 'বাতিল করুন' : 'Cancel'}</span>
+                                <X className="w-2.5 h-2.5 stroke-[3px]" />
                               </button>
                             </div>
                           </div>
@@ -3579,10 +3666,27 @@ export function MainDashboard({
             </div>
 
             {/* Quick Navigation Footer */}
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between shrink-0 font-sans">
-              <span className="text-[8.2px] font-black text-slate-400 uppercase tracking-widest">
-                Hello Point Smart Center
-              </span>
+            <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between shrink-0 font-sans">
+              {((customerLogins && customerLogins.length > 0) || totalNotificationsCount > 0) ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onClearAllNotifications) {
+                      onClearAllNotifications();
+                    } else if (onClearCustomerLogins) {
+                      onClearCustomerLogins();
+                    }
+                  }}
+                  className="text-[9px] font-black text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 px-3 py-1.5 rounded-xl uppercase transition-all cursor-pointer flex items-center gap-1 active:scale-95 shadow-2xs"
+                >
+                  <Trash2 className="w-3 h-3 text-rose-500" />
+                  <span>{lang === 'bn' ? 'সব নোটিফিকেশন ক্লিয়ার করুন' : 'Clear All Notifications'}</span>
+                </button>
+              ) : (
+                <span className="text-[8.2px] font-black text-slate-400 uppercase tracking-widest">
+                  Hello Point Smart Center
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => setShowNotificationsModal(false)}
@@ -3952,7 +4056,8 @@ export function MainDashboard({
                   type="text" 
                   value={pbMemo}
                   onChange={(e) => {
-                    const val = e.target.value;
+                    const rawVal = e.target.value;
+                    const val = normalizeBdPhoneNumber(rawVal) || rawVal;
                     setPbMemo(val);
                     if (val.trim()) {
                       // Only auto-fill Mobile Number if the entered value is phone/numeric-like
@@ -3973,8 +4078,28 @@ export function MainDashboard({
                       }
                     }
                   }}
+                  onPaste={(e) => {
+                    e.preventDefault();
+                    const pasted = e.clipboardData.getData('text');
+                    const val = normalizeBdPhoneNumber(pasted) || pasted;
+                    setPbMemo(val);
+                    if (val.trim() && isPhoneLike(val) && val.trim().replace(/\D/g, '').length >= 11) {
+                      const searchVal = normalizeString(val);
+                      const matched = paybills.find(
+                        (pb) => pb.note && normalizeString(pb.note) === searchVal
+                      );
+                      if (matched) {
+                        if (!pbBillerNumber.trim()) {
+                          setPbBillerNumber(matched.billerNumber);
+                        }
+                        if (!pbBillerDetails.trim()) {
+                          setPbBillerDetails(matched.billerDetails);
+                        }
+                      }
+                    }
+                  }}
                   placeholder=""
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-purple-500 focus:bg-white transition-all font-semibold"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-purple-500 focus:bg-white transition-all font-semibold font-mono"
                 />
               </div>
 

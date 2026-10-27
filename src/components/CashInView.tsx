@@ -45,63 +45,38 @@ import { isTxOwnNumberTransfer, isPhoneOwnAccount, findOwnAccountByPhone, getTra
 import { soundEngine } from '../utils/audio';
 import { DailyReportFullView } from './DailyReportFullView';
 import { MonthlyReportFullView } from './MonthlyReportFullView';
+import { normalizeBdPhoneNumber } from '../utils/phoneUtils';
 
 /**
  * Cleans any pasted or typed phone number into a pure 11-digit Bangladeshi mobile number:
  * - Converts Bengali numerals (০-৯) to 0-9
- * - Strips all non-numeric characters (+88, spaces, hyphens, commas, parentheses, etc.)
- * - Removes +88, 88, 0088 country codes
+ * - Strips all non-numeric characters (+088, +88, spaces, hyphens, commas, parentheses, etc.)
+ * - Removes +088, +88, 88, 0088 country codes
  * - Fixes missing leading zero if 10 digits starting with 1
  * - Extracts 11-digit mobile number starting with 01[3-9]
  */
 export const cleanBangladeshiPhoneNumber = (raw: string): string => {
-  if (!raw) return '';
-
-  // 1. Convert Bengali numerals ০-৯ to 0-9
-  const bnDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
-  const text = String(raw).replace(/[০-৯]/g, (d) => String(bnDigits.indexOf(d)));
-
-  // 2. Extract only digits
-  let digits = text.replace(/\D/g, '');
-  if (!digits) return '';
-
-  // 3. If someone pasted a 10-digit number missing leading '0' (e.g. 17xxxxxxxx)
-  if (digits.length === 10 && digits.startsWith('1')) {
-    digits = '0' + digits;
-  }
-
-  // 4. Look for an 11-digit Bangladeshi mobile number anywhere in the string:
-  // Starts with 01 followed by 3-9 and 8 more digits (013, 014, 015, 016, 017, 018, 019)
-  const bdMatch = digits.match(/01[3-9]\d{8}/);
-  if (bdMatch) {
-    return bdMatch[0];
-  }
-
-  // 5. If international prefixes exist without the regex catching (e.g. typing or partial):
-  if (digits.startsWith('0088') && digits.length > 4) {
-    digits = digits.slice(4);
-  } else if (digits.startsWith('880') && digits.length > 3) {
-    digits = digits.slice(2);
-  } else if (digits.startsWith('88') && digits.length > 2) {
-    digits = digits.slice(2);
-  }
-
-  // 6. Return at most 11 digits
-  return digits.slice(0, 11);
+  return normalizeBdPhoneNumber(raw);
 };
 
 /**
  * Allows mobile number along with Name or Transaction ID in the same field:
- * - Converts Bengali numerals ০-৯ to 0-9
- * - Cleans +88/88 prefixes and hyphens on phone numbers if present
+ * - Automatically normalizes +088, spaces, Bengali font digits (০-৯), symbols into 11-digit mobile number
  * - Preserves names, letters, spaces, and Transaction IDs intact
  */
 export const normalizePhoneNameOrTrxInput = (raw: string): string => {
   if (!raw) return '';
+  // Check if it's purely a phone number (without Bengali or English alphabetic letters)
+  const hasLetters = /[a-zA-Z\u0985-\u09B9\u09CE-\u09DC]/.test(raw);
+  if (!hasLetters) {
+    const normalized = normalizeBdPhoneNumber(raw);
+    if (normalized) return normalized;
+  }
+
   const bnDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
   let text = String(raw).replace(/[০-৯]/g, (d) => String(bnDigits.indexOf(d)));
-  // Strip +88 or 0088 right before 01[3-9]
-  text = text.replace(/(?:\+?88|0088)(01[3-9]\d{8})/g, '$1');
+  // Strip +088, 088, +88 or 0088 right before 01[3-9]
+  text = text.replace(/(?:\+?0?88|0088)(01[3-9]\d{8})/g, '$1');
   // Strip hyphen inside 01712-345678 format
   text = text.replace(/\b(01[3-9]\d{2})-(\d{6})\b/g, '$1$2');
   return text;
@@ -3188,7 +3163,12 @@ export function CashInView({
                   <input
                     type="text"
                     value={newAccNumber}
-                    onChange={(e) => setNewAccNumber(e.target.value)}
+                    onChange={(e) => setNewAccNumber(normalizeBdPhoneNumber(e.target.value))}
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      const pasted = e.clipboardData.getData('text');
+                      setNewAccNumber(normalizeBdPhoneNumber(pasted));
+                    }}
                     placeholder="01xxxxxxxxx"
                     className="w-full bg-slate-50 dark:bg-[#151b22] border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-mono font-black text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
                     required

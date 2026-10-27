@@ -160,31 +160,19 @@ export function PinLockScreen({
 
   // Saved logins (up to last 2 accounts)
   const [rememberedCustomers, setRememberedCustomers] = useState<RememberedCustomer[]>(() => getStoredRememberedCustomers());
-  const [_rememberedCustId, setRememberedCustId] = useState<string | null>(() => getStoredRememberedCustomers()[0]?.id || null);
-  const [_rememberedCustName, setRememberedCustName] = useState<string | null>(() => getStoredRememberedCustomers()[0]?.name || null);
-  const [_rememberedCustNum, setRememberedCustNum] = useState<string | null>(() => getStoredRememberedCustomers()[0]?.phone || null);
 
   // Brute force protection lockout states
   const [failedAttempts, setFailedAttempts] = useState<number>(0);
   const [lockoutTimeLeft, setLockoutTimeLeft] = useState<number>(0);
 
   useEffect(() => {
-    // Dynamic storage sync helper
+    // Dynamic storage sync helper - deferred via setTimeout(0) to avoid updating during parent render
     const syncStatus = () => {
-      const list = getStoredRememberedCustomers();
-      setRememberedCustomers(list);
-      if (list.length > 0) {
-        setRememberedCustId(list[0].id);
-        setRememberedCustName(list[0].name);
-        setRememberedCustNum(list[0].phone);
-      } else {
-        setRememberedCustId(null);
-        setRememberedCustName(null);
-        setRememberedCustNum(null);
-      }
+      setTimeout(() => {
+        setRememberedCustomers(getStoredRememberedCustomers());
+      }, 0);
     };
 
-    syncStatus();
     // Watch other context storage updates dynamically
     window.addEventListener('storage', syncStatus);
     return () => window.removeEventListener('storage', syncStatus);
@@ -203,9 +191,6 @@ export function PinLockScreen({
     const updated = [newCust, ...filtered].slice(0, 2);
     saveRememberedList(updated);
     setRememberedCustomers(updated);
-    setRememberedCustId(updated[0]?.id || null);
-    setRememberedCustName(updated[0]?.name || null);
-    setRememberedCustNum(updated[0]?.phone || null);
   };
 
   const handleRemoveOneByOne = () => {
@@ -213,23 +198,11 @@ export function PinLockScreen({
     if (!existing || existing.length === 0) {
       saveRememberedList([]);
       setRememberedCustomers([]);
-      setRememberedCustId(null);
-      setRememberedCustName(null);
-      setRememberedCustNum(null);
       return;
     }
     const updated = existing.slice(1);
     saveRememberedList(updated);
     setRememberedCustomers(updated);
-    if (updated.length > 0) {
-      setRememberedCustId(updated[0].id);
-      setRememberedCustName(updated[0].name);
-      setRememberedCustNum(updated[0].phone);
-    } else {
-      setRememberedCustId(null);
-      setRememberedCustName(null);
-      setRememberedCustNum(null);
-    }
   };
 
   const handleRemoveSpecific = (id: string) => {
@@ -237,15 +210,6 @@ export function PinLockScreen({
     const updated = existing.filter((c) => c.id !== id && c.phone !== id);
     saveRememberedList(updated);
     setRememberedCustomers(updated);
-    if (updated.length > 0) {
-      setRememberedCustId(updated[0].id);
-      setRememberedCustName(updated[0].name);
-      setRememberedCustNum(updated[0].phone);
-    } else {
-      setRememberedCustId(null);
-      setRememberedCustName(null);
-      setRememberedCustNum(null);
-    }
   };
 
   // Timer cooldown helper for Lockout security
@@ -411,37 +375,43 @@ export function PinLockScreen({
   return (
     <div 
       id="unified-auth-viewport" 
-      className="fixed inset-0 flex items-center justify-center p-3 sm:p-4 pt-14 pb-8 z-[9999] font-sans overflow-y-auto select-none bg-[#090d16] text-slate-100"
+      className="fixed inset-0 flex items-center justify-center p-3 sm:p-4 pt-14 pb-8 z-[9999] font-sans overflow-y-auto select-none bg-[#060505] text-slate-100"
     >
       {/* =========================================================================
-          LIQUID GLASS BACKGROUND: Ambient Floating Fluid Orbs & Light Reflections
+          WALLPAPER PALETTE BACKGROUND: Obsidian (#060505), Charcoal (#494545), 
+          Slate (#545454), Silver (#9d9b9b), Light Platinum (#adaaab)
           ========================================================================= */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden select-none">
-        {/* Soft violet floating liquid orb */}
-        <div className="absolute -top-32 -left-32 w-[420px] h-[420px] rounded-full bg-gradient-to-tr from-purple-600/35 via-violet-500/25 to-pink-500/20 blur-3xl animate-float-slow opacity-75" />
-        {/* Soft cyan & teal floating liquid orb */}
-        <div className="absolute -bottom-32 -right-32 w-[440px] h-[440px] rounded-full bg-gradient-to-bl from-cyan-500/30 via-sky-500/25 to-indigo-600/25 blur-3xl animate-float-reverse opacity-70" />
-        {/* Deep ambient indigo center pulse */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] rounded-full bg-indigo-600/15 blur-3xl animate-pulse pointer-events-none opacity-60" />
-        {/* Micro glass grid pattern */}
-        <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none opacity-60" />
+        {/* Subtle Textured Wallpaper Image Backdrop */}
+        <div 
+          className="absolute inset-0 bg-cover bg-center opacity-15 filter blur-xs"
+          style={{ backgroundImage: "url('/assets/aistudio/143181_wallpaper_a7315b30.png')" }}
+        />
+        {/* Deep Slate floating liquid glow */}
+        <div className="absolute -top-32 -left-32 w-[420px] h-[420px] rounded-full bg-gradient-to-tr from-[#494545]/50 via-[#545454]/30 to-[#9d9b9b]/20 blur-3xl animate-float-slow opacity-60" />
+        {/* Soft Silver & Platinum floating glow */}
+        <div className="absolute -bottom-32 -right-32 w-[440px] h-[440px] rounded-full bg-gradient-to-bl from-[#9d9b9b]/30 via-[#545454]/25 to-[#494545]/40 blur-3xl animate-float-reverse opacity-60" />
+        {/* Deep ambient charcoal center pulse */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] rounded-full bg-[#545454]/15 blur-3xl animate-pulse pointer-events-none opacity-50" />
+        {/* Micro titanium grid pattern */}
+        <div className="absolute inset-0 bg-[radial-gradient(rgba(173,170,171,0.08)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none opacity-60" />
       </div>
 
       {/* =========================================================================
-          TOP BAR: Frosted Liquid Glass Header with Language Switch & Security Dot
+          TOP BAR: Frosted Obsidian Header with Language Switch & Security Dot
           ========================================================================= */}
-      <div className="absolute top-0 inset-x-0 bg-slate-950/70 backdrop-blur-xl border-b border-white/10 py-2.5 px-4 flex justify-between items-center z-[10000] shadow-[0_4px_30px_rgba(0,0,0,0.3)] select-none">
+      <div className="absolute top-0 inset-x-0 bg-[#060505]/90 backdrop-blur-xl border-b border-[#494545]/80 py-2.5 px-4 flex justify-between items-center z-[10000] shadow-[0_4px_30px_rgba(0,0,0,0.5)] select-none">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="flex items-center gap-1.5 px-2.5 py-0.8 rounded-full bg-cyan-500/10 border border-cyan-400/30 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.2)] shrink-0">
+          <div className="flex items-center gap-1.5 px-2.5 py-0.8 rounded-full bg-[#494545]/60 border border-[#545454] text-[#adaaab] shadow-[0_0_12px_rgba(173,170,171,0.15)] shrink-0">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ffffff] opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#adaaab]" />
             </span>
-            <span className="text-[9px] font-black uppercase tracking-wider">
+            <span className="text-[9px] font-black uppercase tracking-wider text-[#adaaab]">
               {lang === 'bn' ? 'নিরাপদ খাতা' : 'SECURE'}
             </span>
           </div>
-          <span className="text-[11px] sm:text-xs font-black text-slate-200 uppercase tracking-wide truncate">
+          <span className="text-[11px] sm:text-xs font-black text-white uppercase tracking-wide truncate">
             {lang === 'bn' ? 'নিরাপদ ডিজিটাল খাতা' : 'SECURE DIGITAL STATEMENT'}
           </span>
         </div>
@@ -451,9 +421,9 @@ export function PinLockScreen({
           <button 
             type="button"
             onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')}
-            className="relative px-3 py-1 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-200 border border-purple-400/35 hover:border-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.2)] active:scale-95 transition-all text-[9.5px] font-black tracking-wide shrink-0 cursor-pointer flex items-center gap-1.5 backdrop-blur-md"
+            className="relative px-3 py-1 rounded-xl bg-[#494545]/60 hover:bg-[#545454] text-[#adaaab] hover:text-white border border-[#545454] hover:border-[#adaaab] shadow-[0_0_15px_rgba(157,155,155,0.15)] active:scale-95 transition-all text-[9.5px] font-black tracking-wide shrink-0 cursor-pointer flex items-center gap-1.5 backdrop-blur-md"
           >
-            <Sparkles className="w-3 h-3 text-purple-300" />
+            <Sparkles className="w-3 h-3 text-[#adaaab]" />
             <span>{lang === 'bn' ? 'ENGLISH / ভাষা' : 'বাংলা / LANG'}</span>
           </button>
         )}
@@ -465,26 +435,26 @@ export function PinLockScreen({
       <div className="relative flex flex-col md:flex-row items-center justify-center gap-3.5 w-full max-w-3xl my-auto py-2 z-10">
         
         {/* Main Landing / Locked Screen Card */}
-        <div className="relative w-full max-w-sm rounded-[28px] p-4 sm:p-5 flex flex-col justify-between h-auto transition-all duration-300 bg-slate-900/70 backdrop-blur-2xl border border-white/15 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_35px_rgba(139,92,246,0.12)] before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-white/50 before:to-transparent before:rounded-t-[28px]">
+        <div className="relative w-full max-w-sm rounded-[28px] p-4 sm:p-5 flex flex-col justify-between h-auto transition-all duration-300 bg-[#060505]/90 backdrop-blur-2xl border border-[#494545] shadow-[0_20px_50px_rgba(0,0,0,0.8),0_0_35px_rgba(173,170,171,0.08)] before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-[#adaaab]/40 before:to-transparent before:rounded-t-[28px]">
           
           {/* Brand logo & Visual Header */}
           <div className="mb-2 flex flex-col items-center w-full">
             {/* Luminous Liquid Glass Shield Icon */}
-            <div className="relative flex items-center justify-center w-10 h-10 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow-[0_0_20px_rgba(124,58,237,0.45)] border border-white/25 mb-1.5 group">
-              <ShieldCheck className="w-5 h-5 drop-shadow-[0_2px_8px_rgba(0,0,0,0.3)]" />
-              {/* Ambient neon pulse ring */}
-              <div className="absolute inset-0 rounded-2xl border border-cyan-400/40 animate-ping opacity-25 pointer-events-none" />
+            <div className="relative flex items-center justify-center w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#494545] via-[#545454] to-[#9d9b9b] text-white shadow-[0_0_20px_rgba(173,170,171,0.25)] border border-[#adaaab]/35 mb-1.5 group">
+              <ShieldCheck className="w-5 h-5 drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]" />
+              {/* Ambient silver pulse ring */}
+              <div className="absolute inset-0 rounded-2xl border border-[#adaaab]/40 animate-ping opacity-25 pointer-events-none" />
             </div>
 
             {/* HelloPoint Brand Title */}
             <div className="flex flex-col items-center gap-0.5 justify-center w-full">
               <h1 className="text-3xl sm:text-[38px] font-black tracking-tight leading-none select-none flex items-center justify-center">
                 <span className="text-white drop-shadow-[0_2px_10px_rgba(255,255,255,0.2)]">Hello</span>
-                <span className="bg-gradient-to-r from-violet-400 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent drop-shadow-[0_2px_15px_rgba(168,85,247,0.4)]">
+                <span className="bg-gradient-to-r from-white via-[#adaaab] to-[#9d9b9b] bg-clip-text text-transparent drop-shadow-[0_2px_15px_rgba(255,255,255,0.35)]">
                   Point
                 </span>
               </h1>
-              <p className="text-[9.5px] font-bold text-slate-300/80 uppercase tracking-widest text-center">
+              <p className="text-[9.5px] font-bold text-[#adaaab]/90 uppercase tracking-widest text-center">
                 {lang === 'bn' ? 'ডিজিটাল হিসাব খাতা ও কাস্টমার লেজার' : 'DIGITAL CASHBOOK & CUSTOMER LEDGER'}
               </p>
 
@@ -498,18 +468,18 @@ export function PinLockScreen({
                       setChatInitialMessage('');
                       setShowLiveChatModal(true);
                     }}
-                    className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2 px-1.5 sm:px-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-400/35 hover:border-emerald-300 rounded-xl text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.15)] active:scale-[0.98] transition-all cursor-pointer group backdrop-blur-md"
+                    className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2 px-1.5 sm:px-2 bg-[#494545]/40 hover:bg-[#545454]/60 border border-[#545454] hover:border-[#adaaab] rounded-xl text-white shadow-[0_4px_12px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all cursor-pointer group backdrop-blur-md"
                     title={lang === 'bn' ? 'লাইভ চ্যাট' : 'Live Chat'}
                   >
                     <span className="relative flex h-2 w-2 shrink-0">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[#adaaab]" />
                     </span>
 
-                    <span className="text-[9.5px] sm:text-[10.5px] font-black tracking-tight whitespace-nowrap">
+                    <span className="text-[9.5px] sm:text-[10.5px] font-black tracking-tight whitespace-nowrap text-white">
                       {lang === 'bn' ? 'লাইভ চ্যাট' : 'Live Chat'}
                     </span>
-                    <MessageCircle className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />
+                    <MessageCircle className="w-3.5 h-3.5 text-[#adaaab] group-hover:scale-110 group-hover:text-white transition-all shrink-0" />
                   </button>
 
                   {/* 2. App Install Button (Hidden once installed) */}
@@ -517,17 +487,17 @@ export function PinLockScreen({
                     <button
                       type="button"
                       onClick={promptInstall}
-                      className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2 px-1.5 sm:px-2 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-400/35 hover:border-violet-300 rounded-xl text-violet-200 shadow-[0_0_12px_rgba(139,92,246,0.15)] active:scale-[0.98] transition-all cursor-pointer group backdrop-blur-md"
+                      className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2 px-1.5 sm:px-2 bg-[#494545]/40 hover:bg-[#545454]/60 border border-[#545454] hover:border-[#adaaab] rounded-xl text-white shadow-[0_4px_12px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all cursor-pointer group backdrop-blur-md"
                       title={lang === 'bn' ? 'অ্যাপ ইন্সটল করুন' : 'Install App'}
                     >
-                      <Download className="w-3.5 h-3.5 text-violet-300 group-hover:scale-110 transition-transform shrink-0 animate-bounce" />
-                      <span className="text-[9.5px] sm:text-[10.5px] font-black tracking-tight whitespace-nowrap">
+                      <Download className="w-3.5 h-3.5 text-[#adaaab] group-hover:scale-110 group-hover:text-white transition-all shrink-0 animate-bounce" />
+                      <span className="text-[9.5px] sm:text-[10.5px] font-black tracking-tight whitespace-nowrap text-white">
                         {lang === 'bn' ? 'অ্যাপ ইন্সটল' : 'Install App'}
                       </span>
                     </button>
                   )}
 
-                  {/* 3. New Account Button (Right side of App Install with logo) */}
+                  {/* 3. New Account Button */}
                   <button
                     type="button"
                     onClick={() => {
@@ -537,31 +507,31 @@ export function PinLockScreen({
                       setRegisterError('');
                       setRegisterSuccessMsg(null);
                     }}
-                    className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2 px-1.5 sm:px-2 bg-gradient-to-r from-cyan-500/15 via-purple-500/15 to-indigo-500/15 hover:from-cyan-500/25 hover:via-purple-500/25 hover:to-indigo-500/25 border-2 border-cyan-400/45 hover:border-cyan-300 rounded-xl text-cyan-200 shadow-[0_0_12px_rgba(34,211,238,0.2)] active:scale-[0.98] transition-all cursor-pointer group backdrop-blur-md overflow-hidden"
+                    className="relative flex items-center justify-center gap-1 sm:gap-1.5 py-2 px-1.5 sm:px-2 bg-gradient-to-r from-[#494545]/80 via-[#545454]/80 to-[#494545]/80 hover:from-[#545454] hover:to-[#545454] border-2 border-[#9d9b9b]/60 hover:border-[#adaaab] rounded-xl text-white shadow-[0_4px_14px_rgba(0,0,0,0.5)] active:scale-[0.98] transition-all cursor-pointer group backdrop-blur-md overflow-hidden"
                     title={lang === 'bn' ? 'নতুন অ্যাকাউন্ট' : 'New Account'}
                   >
-                    <UserPlus className="w-3.5 h-3.5 text-cyan-300 group-hover:scale-110 transition-transform shrink-0 drop-shadow" />
-                    <span className="text-[9.5px] sm:text-[10.5px] font-black tracking-tight whitespace-nowrap">
+                    <UserPlus className="w-3.5 h-3.5 text-[#adaaab] group-hover:scale-110 group-hover:text-white transition-all shrink-0 drop-shadow" />
+                    <span className="text-[9.5px] sm:text-[10.5px] font-black tracking-tight whitespace-nowrap text-white">
                       {lang === 'bn' ? 'নতুন অ্যাকাউন্ট' : 'New Account'}
                     </span>
                   </button>
                 </div>
               </div>
 
-              {/* Direct Number & PIN Authentication Card Input (Liquid Glass Panel) */}
+              {/* Direct Number & PIN Authentication Card Input (Obsidian & Platinum Panel) */}
               <form 
                 onSubmit={handleLoginSubmit}
-                className={`w-full bg-slate-950/50 backdrop-blur-xl border border-white/10 rounded-2xl p-3 sm:p-3.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] transition-all transform duration-300 ${
+                className={`w-full bg-[#060505]/85 backdrop-blur-xl border border-[#494545] rounded-2xl p-3 sm:p-3.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08),0_10px_25px_rgba(0,0,0,0.5)] transition-all transform duration-300 ${
                   isShaking ? 'animate-[shake_0.4s_ease-in-out]' : ''
                 }`}
               >
                 {/* Clean Title with Refined Glass Badge */}
                 <div className="flex flex-col items-center mb-2">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 border border-white/15 text-slate-200 text-[9px] font-bold uppercase tracking-wider mb-0.5 shadow-sm backdrop-blur-md">
-                    <KeyRound className="w-3 h-3 text-cyan-300" />
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#494545]/60 border border-[#545454] text-[#adaaab] text-[9px] font-bold uppercase tracking-wider mb-0.5 shadow-sm backdrop-blur-md">
+                    <KeyRound className="w-3 h-3 text-[#adaaab]" />
                     <span>{lang === 'bn' ? 'সরাসরি লগইন' : 'DIRECT LOGIN'}</span>
                   </div>
-                  <h2 className="text-[9.5px] font-bold text-slate-300 uppercase tracking-widest text-center">
+                  <h2 className="text-[9.5px] font-bold text-[#adaaab]/90 uppercase tracking-widest text-center">
                     {lang === 'bn' ? 'মোবাইল বা পিন নম্বর লিখুন' : 'ENTER MOBILE OR PIN'}
                   </h2>
                 </div>
@@ -579,7 +549,7 @@ export function PinLockScreen({
                   </div>
                 )}
 
-                {/* Input for Mobile Number or PIN - High-contrast Liquid Glass Input */}
+                {/* Input for Mobile Number or PIN - High-contrast Obsidian & Platinum Input */}
                 <div className="w-full mb-2.5">
                   <input
                     type="tel"
@@ -587,7 +557,7 @@ export function PinLockScreen({
                     value={pin}
                     onChange={handleInputChange}
                     placeholder={lang === 'bn' ? 'মোবাইল অথবা ৪ ডিজিটের পিন' : 'Mobile / 4-Digit PIN'}
-                    className="w-full bg-slate-900/80 border border-white/20 hover:border-cyan-400/50 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/25 rounded-xl px-3 py-2.5 text-center text-base font-bold text-white placeholder-slate-400 outline-none transition-all font-mono tracking-widest shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)]"
+                    className="w-full bg-[#060505]/90 border border-[#545454] hover:border-[#9d9b9b] focus:border-[#adaaab] focus:ring-2 focus:ring-[#adaaab]/25 rounded-xl px-3 py-2.5 text-center text-base font-bold text-white placeholder-[#9d9b9b]/50 outline-none transition-all font-mono tracking-widest shadow-[inset_0_2px_6px_rgba(0,0,0,0.8)]"
                     disabled={lockoutTimeLeft > 0}
                     autoFocus
                   />
@@ -605,30 +575,37 @@ export function PinLockScreen({
                   <button
                     type="submit"
                     disabled={lockoutTimeLeft > 0 || !pin}
-                    className="w-full py-2.5 px-4 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 hover:from-violet-500 hover:via-indigo-500 hover:to-cyan-500 text-white text-xs font-black rounded-xl shadow-[0_4px_20px_rgba(99,102,241,0.4)] hover:shadow-[0_4px_25px_rgba(99,102,241,0.6)] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 tracking-wider uppercase disabled:opacity-40"
+                    className="w-full py-2.5 px-4 bg-gradient-to-r from-[#adaaab] via-[#ffffff] to-[#adaaab] hover:from-white hover:via-white hover:to-[#adaaab] text-[#060505] text-xs font-black rounded-xl shadow-[0_4px_20px_rgba(255,255,255,0.18)] hover:shadow-[0_4px_25px_rgba(255,255,255,0.3)] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 tracking-wider uppercase disabled:opacity-40"
                   >
                     <span>{lang === 'bn' ? 'প্রবেশ করুন' : 'PROCEED'}</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
                   </button>
                 </div>
               </form>
 
               {/* =========================================================================
-                  MOBILE COMPACT SAVED ACCOUNTS MICRO-CHIPS (Showing ONLY name, very small!)
+                  MOBILE COMPACT SAVED ACCOUNTS MICRO-CHIPS (Obsidian & Platinum Aesthetic)
                   ========================================================================= */}
               {rememberedCustomers.length > 0 && (
-                <div className="md:hidden w-full mt-2 mb-0.5 bg-slate-950/45 backdrop-blur-xl border border-white/10 p-2 rounded-2xl shadow-inner">
-                  <div className="flex items-center justify-between px-1 mb-1.5">
-                    <span className="text-[8.5px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
-                      <Users className="w-3 h-3 text-cyan-400" />
-                      <span>{lang === 'bn' ? 'সেভ থাকা অ্যাকাউন্ট:' : 'Saved Accounts:'}</span>
-                    </span>
+                <div className="md:hidden w-full mt-2.5 mb-0.5 bg-[#060505]/95 backdrop-blur-xl border border-[#494545] p-2.5 rounded-2xl shadow-[0_10px_25px_rgba(0,0,0,0.6)] ring-1 ring-white/5">
+                  <div className="flex items-center justify-between px-1 mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-4 h-4 rounded-md bg-[#494545]/60 border border-[#545454] flex items-center justify-center">
+                        <Users className="w-2.5 h-2.5 text-[#adaaab]" />
+                      </div>
+                      <span className="text-[9.5px] font-black text-white tracking-wide">
+                        {lang === 'bn' ? 'সেভ থাকা অ্যাকাউন্ট:' : 'Saved Accounts:'}
+                      </span>
+                      <span className="text-[8px] font-mono font-black px-1.5 py-0.2 rounded-md bg-[#494545] text-[#adaaab] border border-[#545454]">
+                        {toBn(rememberedCustomers.length)}
+                      </span>
+                    </div>
                     <button
                       type="button"
                       onClick={handleRemoveOneByOne}
-                      className="text-[8px] font-bold text-slate-400 hover:text-rose-300 transition-colors"
+                      className="text-[8.5px] font-bold text-[#adaaab] hover:text-white px-2 py-0.5 rounded-md hover:bg-[#494545] border border-[#545454]/60 transition-all cursor-pointer"
                     >
-                      {lang === 'bn' ? 'সরান' : 'Clear'}
+                      {lang === 'bn' ? 'মুছুন' : 'Clear'}
                     </button>
                   </div>
 
@@ -641,27 +618,27 @@ export function PinLockScreen({
                           addRememberedCustomer(cust);
                           onUnlock('customer', cust.id);
                         }}
-                        className="flex items-center justify-between gap-1 px-2 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 hover:border-cyan-400/40 text-left transition-all cursor-pointer active:scale-95 group shadow-2xs"
+                        className="flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-xl bg-gradient-to-r from-[#112940]/95 via-[#183b5e]/95 to-[#112940]/95 hover:from-[#183b5e] hover:to-[#183b5e] border-2 border-sky-400/65 hover:border-sky-300 text-left transition-all cursor-pointer active:scale-95 group shadow-[0_4px_16px_rgba(56,189,248,0.25)] ring-1 ring-sky-400/30"
                       >
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                          <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-purple-500 to-cyan-500 text-white font-black text-[10px] flex items-center justify-center shrink-0">
-                            {cust.name ? cust.name.charAt(0).toUpperCase() : <User className="w-2.5 h-2.5" />}
+                          <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-sky-600 via-sky-500 to-sky-400 text-white font-black text-[10.5px] flex items-center justify-center shrink-0 border border-sky-200/60 shadow-[0_0_8px_rgba(56,189,248,0.4)]">
+                            {cust.name ? cust.name.charAt(0).toUpperCase() : <User className="w-3 h-3 text-sky-100" />}
                           </div>
-                          {/* ONLY CUSTOMER NAME IS SHOWN FOR SLEEK MINIMAL HEIGHT */}
-                          <span className="text-[10.5px] font-black text-white group-hover:text-cyan-200 truncate leading-tight">
+                          {/* ONLY CUSTOMER NAME IS SHOWN - SOFT LIGHT BLUE HIGHLIGHT FOR INSTANT RECOGNITION */}
+                          <span className="text-[11.5px] font-black text-sky-100 group-hover:text-white truncate leading-tight tracking-tight drop-shadow-xs">
                             {cust.name}
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-0.5 shrink-0">
-                          <ArrowRight className="w-3 h-3 text-cyan-300 group-hover:translate-x-0.5 transition-transform" />
+                        <div className="flex items-center gap-1 shrink-0">
+                          <ArrowRight className="w-3.5 h-3.5 text-sky-300 group-hover:text-white group-hover:translate-x-0.5 transition-transform stroke-[2.5]" />
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleRemoveSpecific(cust.id);
                             }}
-                            className="p-0.5 rounded text-slate-400 hover:text-rose-400 transition-colors"
+                            className="p-1 rounded-md text-sky-300/70 hover:text-white hover:bg-sky-900/60 transition-colors"
                             title={lang === 'bn' ? 'মুছুন' : 'Remove'}
                           >
                             <X className="w-3 h-3" />
@@ -675,32 +652,32 @@ export function PinLockScreen({
             </div>
           </div>
 
-          {/* Compact 3-Column Agent Infobox (Liquid Glass Surface) */}
-          <div className="w-full bg-slate-950/40 backdrop-blur-xl border border-white/10 rounded-2xl p-2 space-y-1 text-left mt-2 shadow-[inset_0_1px_1px_rgba(255,255,255,0.06)]">
-            <h4 className="text-[8.5px] font-bold text-slate-400 uppercase tracking-widest text-center pb-0.5 border-b border-white/10">
+          {/* Compact 3-Column Agent Infobox (Obsidian & Slate Theme, High Legibility) */}
+          <div className="w-full bg-[#060505]/95 backdrop-blur-xl border border-[#494545] rounded-2xl p-2.5 space-y-1.5 text-left mt-2.5 shadow-[0_10px_25px_rgba(0,0,0,0.6)] ring-1 ring-white/5">
+            <h4 className="text-[9px] font-extrabold text-[#adaaab] uppercase tracking-widest text-center pb-1 border-b border-[#494545]">
               {lang === 'bn' ? 'টাকা তুলতে ও পাঠাতে যোগাযোগ করুন' : 'GET IN TOUCH & AGENTS'}
             </h4>
-            <div className="grid grid-cols-3 gap-1 text-center">
-              <div className="bg-white/[0.04] p-1 rounded-xl border border-white/10 flex flex-col items-center">
-                <span className="flex items-center gap-1 text-[8px] font-bold text-[#f43f5e]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#f43f5e] shadow-[0_0_6px_#f43f5e]" />
+            <div className="grid grid-cols-3 gap-1.5 text-center">
+              <div className="bg-[#494545]/35 p-1.5 rounded-xl border border-[#545454] hover:border-[#adaaab]/60 transition-all flex flex-col items-center shadow-xs">
+                <span className="flex items-center gap-1 text-[8.5px] font-black text-rose-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_6px_#f43f5e]" />
                   {lang === 'bn' ? 'বিকাশ' : 'bKash'}
                 </span>
-                <span className="font-mono text-white text-[9.5px] tracking-tight font-bold mt-0.5">01756565454</span>
+                <span className="font-mono text-white text-[10px] tracking-tight font-black mt-0.5 select-all">01756565454</span>
               </div>
-              <div className="bg-white/[0.04] p-1 rounded-xl border border-white/10 flex flex-col items-center">
-                <span className="flex items-center gap-1 text-[8px] font-bold text-[#f97316]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#f97316] shadow-[0_0_6px_#f97316]" />
+              <div className="bg-[#494545]/35 p-1.5 rounded-xl border border-[#545454] hover:border-[#adaaab]/60 transition-all flex flex-col items-center shadow-xs">
+                <span className="flex items-center gap-1 text-[8.5px] font-black text-amber-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_6px_#f59e0b]" />
                   {lang === 'bn' ? 'নগদ' : 'Nagad'}
                 </span>
-                <span className="font-mono text-white text-[9.5px] tracking-tight font-bold mt-0.5">01754543737</span>
+                <span className="font-mono text-white text-[10px] tracking-tight font-black mt-0.5 select-all">01754543737</span>
               </div>
-              <div className="bg-white/[0.04] p-1 rounded-xl border border-white/10 flex flex-col items-center">
-                <span className="flex items-center gap-1 text-[8px] font-bold text-emerald-400">
+              <div className="bg-[#494545]/35 p-1.5 rounded-xl border border-[#545454] hover:border-[#adaaab]/60 transition-all flex flex-col items-center shadow-xs">
+                <span className="flex items-center gap-1 text-[8.5px] font-black text-emerald-400">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_#34d399]" />
                   {lang === 'bn' ? 'WhatsApp' : 'WhatsApp'}
                 </span>
-                <span className="font-mono text-white text-[9.5px] tracking-tight font-bold mt-0.5">01783586858</span>
+                <span className="font-mono text-white text-[10px] tracking-tight font-black mt-0.5 select-all">01783586858</span>
               </div>
             </div>
           </div>
@@ -709,23 +686,25 @@ export function PinLockScreen({
 
         {/* =========================================================================
             DESKTOP SIDE PANEL: COMPANION CARD BESIDE THE LOGIN CARD
-            (Placed BESIDE the login card as explicitly requested!)
+            (Obsidian & Platinum Theme, Crystal-Clear Contrast, Eye-Friendly)
             ========================================================================= */}
         {rememberedCustomers.length > 0 && (
-          <div className="hidden md:flex flex-col w-64 lg:w-72 bg-slate-900/70 backdrop-blur-2xl border border-white/15 rounded-[28px] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_25px_rgba(139,92,246,0.12)] self-center animate-fade-in relative before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent before:rounded-t-[28px]">
-            <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/10">
-              <div className="flex items-center gap-1.5">
-                <Users className="w-4 h-4 text-cyan-400" />
-                <span className="text-xs font-black text-white">
+          <div className="hidden md:flex flex-col w-64 lg:w-72 bg-[#060505]/95 backdrop-blur-2xl border border-[#494545] rounded-[28px] p-4.5 shadow-[0_20px_50px_rgba(0,0,0,0.7),0_0_30px_rgba(173,170,171,0.08)] self-center animate-fade-in relative ring-1 ring-white/5 before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-[#adaaab]/40 before:to-transparent before:rounded-t-[28px]">
+            <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-[#494545]">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-[#494545]/60 border border-[#545454] flex items-center justify-center">
+                  <Users className="w-3.5 h-3.5 text-[#adaaab]" />
+                </div>
+                <span className="text-xs font-black text-white tracking-wide">
                   {lang === 'bn' ? 'সংরক্ষিত অ্যাকাউন্ট' : 'Saved Accounts'}
                 </span>
               </div>
-              <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-white/10 text-cyan-300 border border-white/10">
+              <span className="text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full bg-[#494545] text-[#adaaab] border border-[#545454] shadow-xs">
                 {toBn(rememberedCustomers.length)}/২
               </span>
             </div>
 
-            <p className="text-[10px] font-medium text-slate-300 mb-2.5 leading-tight">
+            <p className="text-[10.5px] font-medium text-[#adaaab] mb-3 leading-relaxed">
               {lang === 'bn' ? '১-ক্লিকে সরাসরি কাস্টমার একাউন্টে প্রবেশ করুন:' : '1-click direct customer account login:'}
             </p>
 
@@ -738,22 +717,22 @@ export function PinLockScreen({
                     addRememberedCustomer(cust);
                     onUnlock('customer', cust.id);
                   }}
-                  className="group relative flex items-center justify-between p-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 hover:border-cyan-400/40 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                  className="group relative flex items-center justify-between p-3 rounded-2xl bg-gradient-to-r from-[#112940]/95 via-[#183b5e]/95 to-[#112940]/95 hover:from-[#183b5e] hover:to-[#183b5e] border-2 border-sky-400/65 hover:border-sky-300 transition-all cursor-pointer shadow-[0_6px_20px_rgba(56,189,248,0.25)] hover:shadow-[0_8px_25px_rgba(56,189,248,0.35)] active:scale-[0.98] ring-1 ring-sky-400/30"
                 >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-cyan-500 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(34,211,238,0.3)]">
-                      {cust.name ? cust.name.charAt(0).toUpperCase() : <User className="w-4 h-4" />}
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="w-8.5 h-8.5 rounded-xl bg-gradient-to-br from-sky-600 via-sky-500 to-sky-400 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(56,189,248,0.4)] border border-sky-200/60">
+                      {cust.name ? cust.name.charAt(0).toUpperCase() : <User className="w-4 h-4 text-sky-100" />}
                     </div>
-                    {/* ONLY CUSTOMER NAME IS DISPLAYED */}
-                    <p className="text-xs font-black text-white group-hover:text-cyan-200 truncate">
+                    {/* ONLY CUSTOMER NAME IS DISPLAYED - SOFT LIGHT BLUE HIGHLIGHT FOR INSTANT RECOGNITION */}
+                    <p className="text-xs font-black text-sky-100 group-hover:text-white truncate tracking-tight drop-shadow-xs">
                       {cust.name}
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className="px-2 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 group-hover:bg-cyan-500 group-hover:text-slate-950 text-[10px] font-bold transition-all flex items-center gap-1">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-sky-400 via-sky-200 to-sky-400 hover:from-sky-300 hover:to-sky-200 text-[#061727] border border-sky-100 text-[10.5px] font-black transition-all flex items-center gap-1 shadow-[0_0_10px_rgba(56,189,248,0.35)] group-hover:scale-105">
                       <span>{lang === 'bn' ? 'প্রবেশ' : 'Login'}</span>
-                      <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                      <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform stroke-[2.5] text-[#061727]" />
                     </span>
                     <button
                       type="button"
@@ -761,7 +740,7 @@ export function PinLockScreen({
                         e.stopPropagation();
                         handleRemoveSpecific(cust.id);
                       }}
-                      className="p-1 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                      className="p-1.5 rounded-lg text-sky-300/70 hover:text-white hover:bg-sky-900/60 transition-colors"
                       title={lang === 'bn' ? 'মুছে ফেলুন' : 'Remove'}
                     >
                       <X className="w-3.5 h-3.5" />
@@ -774,7 +753,7 @@ export function PinLockScreen({
             <button
               type="button"
               onClick={handleRemoveOneByOne}
-              className="text-[9.5px] font-bold text-slate-400 hover:text-rose-300 mt-3 text-center transition-colors hover:underline underline-offset-2"
+              className="text-[10px] font-bold text-[#9d9b9b] hover:text-white hover:bg-[#494545]/40 py-1.5 px-3 rounded-xl border border-transparent hover:border-[#545454] mt-3 text-center transition-all cursor-pointer"
             >
               {lang === 'bn' ? 'সংরক্ষিত অ্যাকাউন্ট সরান' : 'Remove saved accounts'}
             </button>
@@ -784,10 +763,10 @@ export function PinLockScreen({
       </div>
       
       {/* =========================================================================
-          CUSTOMER REGISTRATION FULL PAGE VIEW (Liquid Glass Aesthetic)
+          CUSTOMER REGISTRATION FULL PAGE VIEW (Obsidian & Platinum Aesthetic)
           ========================================================================= */}
       {showRegisterModal && (
-        <div className="fixed inset-0 bg-[#090d16]/95 backdrop-blur-2xl z-[10000] overflow-y-auto animate-fade-in flex flex-col justify-between p-4 sm:p-6 font-sans">
+        <div className="fixed inset-0 bg-[#060505]/95 backdrop-blur-2xl z-[10000] overflow-y-auto animate-fade-in flex flex-col justify-between p-4 sm:p-6 font-sans">
           <div className="w-full max-w-md mx-auto my-auto py-4">
             {/* Top Navigation Bar */}
             <div className="flex items-center justify-between mb-4">
@@ -800,30 +779,30 @@ export function PinLockScreen({
                   setRegisterPhoto('');
                   setRegisterError('');
                 }}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 border border-white/15 transition-all text-xs font-bold active:scale-95 cursor-pointer shadow-sm backdrop-blur-md"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#494545]/60 hover:bg-[#545454]/80 text-[#adaaab] hover:text-white border border-[#545454] transition-all text-xs font-bold active:scale-95 cursor-pointer shadow-sm backdrop-blur-md"
               >
-                <ArrowLeft className="w-4 h-4 text-cyan-300" />
+                <ArrowLeft className="w-4 h-4 text-[#adaaab]" />
                 <span>{lang === 'bn' ? 'ফিরে যান' : 'Back to Login'}</span>
               </button>
 
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black uppercase tracking-wider text-cyan-200 bg-cyan-950/70 border border-cyan-400/40 px-3 py-1 rounded-full shadow-[0_0_12px_rgba(34,211,238,0.2)]">
+                <span className="text-[10px] font-black uppercase tracking-wider text-white bg-[#494545]/80 border border-[#545454] px-3 py-1 rounded-full shadow-[0_0_12px_rgba(0,0,0,0.5)]">
                   {lang === 'bn' ? 'কাস্টমার রেজিস্ট্রেশন' : 'Customer Signup'}
                 </span>
               </div>
             </div>
 
-            {/* Registration Card (Liquid Glass Modal) */}
-            <div className="bg-slate-900/80 backdrop-blur-2xl border border-white/15 rounded-[32px] shadow-[0_25px_60px_rgba(0,0,0,0.6),0_0_35px_rgba(139,92,246,0.15)] p-6 sm:p-7 flex flex-col relative before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-white/40 before:to-transparent before:rounded-t-[32px]">
+            {/* Registration Card (Obsidian & Platinum Modal) */}
+            <div className="bg-[#060505]/95 backdrop-blur-2xl border border-[#494545] rounded-[32px] shadow-[0_25px_60px_rgba(0,0,0,0.8),0_0_35px_rgba(173,170,171,0.1)] p-6 sm:p-7 flex flex-col relative before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-[#adaaab]/40 before:to-transparent before:rounded-t-[32px]">
               {/* Header */}
               <div className="flex flex-col items-center mb-5 text-center">
-                <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-500 to-indigo-600 text-white mb-2.5 shadow-[0_0_20px_rgba(34,211,238,0.35)] border border-white/20">
+                <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#494545] via-[#545454] to-[#9d9b9b] text-white mb-2.5 shadow-[0_0_20px_rgba(173,170,171,0.25)] border border-[#adaaab]/30">
                   <UserPlus className="w-6 h-6" />
                 </div>
                 <h2 className="text-sm sm:text-base font-black text-white uppercase tracking-wide">
                   {lang === 'bn' ? 'নতুন কাস্টমার একাউন্ট অনুরোধ' : 'CREATE CUSTOMER ACCOUNT'}
                 </h2>
-                <p className="text-[11px] font-semibold text-slate-300/80 mt-1">
+                <p className="text-[11px] font-semibold text-[#adaaab]/90 mt-1">
                   {lang === 'bn' ? 'আপনার সঠিক তথ্য দিয়ে অনুরোধ সাবমিট করুন' : 'Fill details below to submit request'}
                 </p>
               </div>
@@ -831,14 +810,14 @@ export function PinLockScreen({
               {/* Inputs Form */}
               <div className="space-y-4">
                 {/* Mandatory Photo Selection block */}
-                <div className="flex flex-col items-center justify-center bg-white/[0.04] border border-white/10 rounded-2xl p-4 mb-1">
-                  <p className="text-[10px] font-black text-cyan-300 uppercase tracking-widest mb-2 px-0.5 text-center flex items-center gap-1">
+                <div className="flex flex-col items-center justify-center bg-[#494545]/20 border border-[#545454] rounded-2xl p-4 mb-1">
+                  <p className="text-[10px] font-black text-[#adaaab] uppercase tracking-widest mb-2 px-0.5 text-center flex items-center gap-1">
                     <span>{lang === 'bn' ? 'আপনার ছবি যুক্ত করুন' : 'ADD YOUR PHOTO'}</span>
                     <span className="text-rose-400 font-black">({lang === 'bn' ? 'বাধ্যতামূলক *' : 'MANDATORY *'})</span>
                   </p>
                   <div className="relative group shrink-0">
                     <div 
-                      className="w-20 h-20 rounded-full border-2 border-cyan-400/50 overflow-hidden bg-slate-800 relative flex items-center justify-center shadow-[0_0_20px_rgba(34,211,238,0.25)]"
+                      className="w-20 h-20 rounded-full border-2 border-[#adaaab]/50 overflow-hidden bg-[#060505] relative flex items-center justify-center shadow-[0_0_20px_rgba(173,170,171,0.2)]"
                     >
                       {registerPhoto ? (
                         <img 
@@ -848,14 +827,14 @@ export function PinLockScreen({
                           referrerPolicy="no-referrer"
                         />
                       ) : (
-                        <User className="w-10 h-10 text-slate-400" />
+                        <User className="w-10 h-10 text-[#adaaab]" />
                       )}
                     </div>
                     
                     {/* Photo Actions with canvas scaler embedded directly */}
                     <div className="absolute -bottom-1 -right-1 flex gap-1">
                       <label 
-                        className="bg-gradient-to-r from-violet-600 to-cyan-600 hover:from-violet-500 hover:to-cyan-500 text-white p-2 rounded-full border-2 border-slate-900 shadow-[0_0_12px_rgba(34,211,238,0.4)] transition-all cursor-pointer flex items-center justify-center active:scale-90"
+                        className="bg-gradient-to-r from-[#494545] to-[#545454] hover:from-[#545454] hover:to-[#545454] text-white p-2 rounded-full border-2 border-[#060505] shadow-[0_0_12px_rgba(173,170,171,0.3)] transition-all cursor-pointer flex items-center justify-center active:scale-90"
                         title={lang === 'bn' ? 'ছবি নির্বাচন করুন' : 'Choose Photo'}
                       >
                         <Camera className="w-4 h-4" />
@@ -955,11 +934,11 @@ export function PinLockScreen({
                 </div>
 
                 <div>
-                  <label className="block text-[10.5px] font-black text-slate-300 uppercase tracking-wider mb-1.5 px-0.5">
+                  <label className="block text-[10.5px] font-black text-[#adaaab] uppercase tracking-wider mb-1.5 px-0.5">
                     {lang === 'bn' ? 'আপনার পুরো নাম' : 'YOUR FULL NAME'}
                   </label>
                   <div className="relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-[#adaaab]">
                       <User className="w-4 h-4" />
                     </span>
                     <input
@@ -967,17 +946,17 @@ export function PinLockScreen({
                       value={registerName}
                       onChange={(e) => setRegisterName(e.target.value)}
                       placeholder={lang === 'bn' ? 'আপনার পুরো নাম লিখুন' : 'Enter your full name'}
-                      className="w-full bg-slate-800/80 border border-white/15 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 rounded-2xl pl-10 pr-4 py-3 text-xs font-bold text-white placeholder-slate-400 outline-none transition-all shadow-[inset_0_2px_4px_rgba(0,0,0,0.4)]"
+                      className="w-full bg-[#060505]/90 border border-[#545454] focus:border-[#adaaab] focus:ring-2 focus:ring-[#adaaab]/20 rounded-2xl pl-10 pr-4 py-3 text-xs font-bold text-white placeholder-[#9d9b9b]/50 outline-none transition-all shadow-[inset_0_2px_4px_rgba(0,0,0,0.6)]"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[10.5px] font-black text-slate-300 uppercase tracking-wider mb-1.5 px-0.5">
+                  <label className="block text-[10.5px] font-black text-[#adaaab] uppercase tracking-wider mb-1.5 px-0.5">
                     {lang === 'bn' ? '১১ ডিজিটের মোবাইল নম্বর' : '11-DIGIT MOBILE NUMBER'}
                   </label>
                   <div className="relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-[#adaaab]">
                       <Phone className="w-4 h-4" />
                     </span>
                     <input
@@ -986,7 +965,7 @@ export function PinLockScreen({
                       value={registerPhone}
                       onChange={(e) => setRegisterPhone(e.target.value.replace(/\D/g, ''))}
                       placeholder="01XXXXXXXXX"
-                      className="w-full bg-slate-800/80 border border-white/15 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 rounded-2xl pl-10 pr-4 py-3 text-xs font-bold text-white placeholder-slate-400 outline-none transition-all shadow-[inset_0_2px_4px_rgba(0,0,0,0.4)] font-mono"
+                      className="w-full bg-[#060505]/90 border border-[#545454] focus:border-[#adaaab] focus:ring-2 focus:ring-[#adaaab]/20 rounded-2xl pl-10 pr-4 py-3 text-xs font-bold text-white placeholder-[#9d9b9b]/50 outline-none transition-all shadow-[inset_0_2px_4px_rgba(0,0,0,0.6)] font-mono"
                     />
                   </div>
                 </div>
@@ -1001,46 +980,46 @@ export function PinLockScreen({
                   type="button"
                   disabled={isRegisterSubmitting}
                   onClick={handleRegisterSubmit}
-                  className="w-full py-3.5 px-4 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 hover:from-violet-500 hover:via-indigo-500 hover:to-cyan-500 text-white text-xs font-black rounded-2xl shadow-[0_4px_25px_rgba(99,102,241,0.5)] hover:shadow-[0_4px_30px_rgba(99,102,241,0.7)] transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 uppercase tracking-wider mt-2 disabled:opacity-50"
+                  className="w-full py-3.5 px-4 bg-gradient-to-r from-[#adaaab] via-[#ffffff] to-[#adaaab] hover:from-white hover:to-white text-[#060505] text-xs font-black rounded-2xl shadow-[0_4px_25px_rgba(255,255,255,0.2)] hover:shadow-[0_4px_30px_rgba(255,255,255,0.3)] transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 uppercase tracking-wider mt-2 disabled:opacity-50"
                 >
                   {isRegisterSubmitting ? (
                     <>
-                      <span className="border-2 border-white border-t-transparent rounded-full w-4 h-4 animate-spin" />
+                      <span className="border-2 border-[#060505] border-t-transparent rounded-full w-4 h-4 animate-spin" />
                       <span>{lang === 'bn' ? 'অনুরোধ পাঠানো হচ্ছে...' : 'SUBMITTING...'}</span>
                     </>
                   ) : (
                     <>
                       <span>{lang === 'bn' ? 'অনুরোধ পাঠান' : 'SUBMIT REQUEST'}</span>
-                      <ArrowRight className="w-4 h-4" />
+                      <ArrowRight className="w-4 h-4 stroke-[2.5]" />
                     </>
                   )}
                 </button>
               </div>
 
-              <p className="text-[10px] font-bold text-slate-400 select-none mt-4 text-center leading-normal">
+              <p className="text-[10px] font-bold text-[#9d9b9b] select-none mt-4 text-center leading-normal">
                 {lang === 'bn' ? 'অনুরোধ পাঠানোর পর দোকান মালিকের অনুমোদনের জন্য অপেক্ষা করুন।' : 'After submitting, wait for shop owner approval.'}
               </p>
             </div>
           </div>
 
           <div className="text-center py-2 select-none">
-            <p className="text-[8.5px] font-bold text-slate-400 tracking-wider uppercase">
+            <p className="text-[8.5px] font-bold text-[#9d9b9b]/80 tracking-wider uppercase">
               Proprietor & App Design: Mahbub Hasan
             </p>
           </div>
         </div>
       )}
 
-      {/* REGISTRATION PENDING ALERT MODAL (Liquid Glass) */}
+      {/* REGISTRATION PENDING ALERT MODAL (Obsidian & Amber) */}
       {registerSuccessMsg && (
-        <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 z-[10001] animate-fade-in font-sans">
+        <div className="fixed inset-0 bg-[#060505]/85 backdrop-blur-md flex items-center justify-center p-4 z-[10001] animate-fade-in font-sans">
           <div 
-            className="relative w-full max-w-sm bg-slate-900/90 backdrop-blur-2xl border border-white/20 rounded-[32px] shadow-[0_25px_60px_rgba(0,0,0,0.6),0_0_30px_rgba(245,158,11,0.25)] p-6 flex flex-col items-center transition-all transform duration-300"
+            className="relative w-full max-w-sm bg-[#060505]/95 backdrop-blur-2xl border border-[#494545] rounded-[32px] shadow-[0_25px_60px_rgba(0,0,0,0.8),0_0_30px_rgba(173,170,171,0.15)] p-6 flex flex-col items-center transition-all transform duration-300"
           >
             {/* Pulsing Alert Icon */}
-            <div className="relative flex items-center justify-center w-16 h-16 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-400 mb-4 shadow-[0_0_20px_rgba(245,158,11,0.3)]">
+            <div className="relative flex items-center justify-center w-16 h-16 rounded-full bg-[#494545]/60 border border-amber-400/40 text-amber-400 mb-4 shadow-[0_0_20px_rgba(245,158,11,0.25)]">
               <Clock className="w-8 h-8 animate-pulse" />
-              <div className="absolute inset-0 rounded-full bg-amber-400/20 animate-ping" />
+              <div className="absolute inset-0 rounded-full bg-amber-400/15 animate-ping" />
             </div>
 
             <h3 className="text-sm font-black text-white uppercase tracking-wider text-center mb-2">
@@ -1048,7 +1027,7 @@ export function PinLockScreen({
             </h3>
 
             {/* Precise message matching user intent */}
-            <p className="text-xs font-bold text-amber-200 text-center leading-relaxed px-4 bg-amber-950/50 border border-amber-500/30 rounded-2xl py-3.5 mb-4 shadow-inner">
+            <p className="text-xs font-bold text-amber-200 text-center leading-relaxed px-4 bg-[#494545]/40 border border-amber-500/30 rounded-2xl py-3.5 mb-4 shadow-inner">
               {registerSuccessMsg}
             </p>
 
@@ -1059,7 +1038,7 @@ export function PinLockScreen({
                 setRegisterName('');
                 setRegisterPhone('');
               }}
-              className="w-full py-3 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 hover:from-violet-500 hover:via-indigo-500 hover:to-cyan-500 text-white text-xs font-black rounded-2xl shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-all active:scale-[0.98] cursor-pointer"
+              className="w-full py-3 bg-gradient-to-r from-[#adaaab] via-white to-[#adaaab] hover:from-white hover:to-white text-[#060505] text-xs font-black rounded-2xl shadow-[0_4px_20px_rgba(255,255,255,0.2)] transition-all active:scale-[0.98] cursor-pointer"
             >
               {lang === 'bn' ? 'আচ্ছা, বুঝতে পেরেছি' : 'Ok, Got It'}
             </button>
@@ -1075,70 +1054,72 @@ export function PinLockScreen({
       </div>
 
       {/* VISITOR LIVE CHAT MODAL */}
-      <VisitorLiveChatModal 
-        isOpen={showLiveChatModal}
-        onClose={() => {
-          setShowLiveChatModal(false);
-          setChatInitialMessage('');
-        }}
-        lang={lang}
-        chatMessages={chatMessages}
-        onSendMessage={onSendChatMessage || (() => {})}
-        onDeleteMessage={onDeleteChatMessage}
-        themeColor={themeColor}
-        shopStatus="open"
-        initialMessage={chatInitialMessage}
-        initialVisitorName={chatInitialName}
-        initialVisitorPhone={chatInitialPhone}
-        quickFaqs={quickFaqs}
-        onMarkChatsAsRead={onMarkChatsAsRead}
-        onRequestOpenRegisterModal={() => {
-          setShowLiveChatModal(false);
-          setShowRegisterModal(true);
-        }}
-      />
+      {showLiveChatModal && (
+        <VisitorLiveChatModal 
+          isOpen={showLiveChatModal}
+          onClose={() => {
+            setShowLiveChatModal(false);
+            setChatInitialMessage('');
+          }}
+          lang={lang}
+          chatMessages={chatMessages}
+          onSendMessage={onSendChatMessage || (() => {})}
+          onDeleteMessage={onDeleteChatMessage}
+          themeColor={themeColor}
+          shopStatus="open"
+          initialMessage={chatInitialMessage}
+          initialVisitorName={chatInitialName}
+          initialVisitorPhone={chatInitialPhone}
+          quickFaqs={quickFaqs}
+          onMarkChatsAsRead={onMarkChatsAsRead}
+          onRequestOpenRegisterModal={() => {
+            setShowLiveChatModal(false);
+            setShowRegisterModal(true);
+          }}
+        />
+      )}
 
       {/* REGISTRATION SUBMISSION LOADER */}
       <PremiumAppLoader
         isOpen={isRegisterSubmitting}
         title={lang === 'bn' ? 'অনুরোধ পাঠানো হচ্ছে...' : 'Submitting Request...'}
         icon={UserPlus}
-        iconGradient="from-purple-600 to-indigo-650"
-        ringColor="border-purple-500"
-        progressColor="from-purple-500 to-indigo-500"
+        iconGradient="from-[#494545] to-[#545454]"
+        ringColor="border-[#adaaab]"
+        progressColor="from-[#545454] to-[#adaaab]"
       />
 
-      {/* PWA INSTALL INSTRUCTIONS MODAL (Liquid Glass) */}
+      {/* PWA INSTALL INSTRUCTIONS MODAL (Obsidian & Platinum) */}
       {showGuide && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
-          <div className="bg-slate-900/90 backdrop-blur-2xl border border-white/20 rounded-3xl p-5 max-w-sm w-full shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060505]/85 backdrop-blur-md animate-in fade-in">
+          <div className="bg-[#060505]/95 backdrop-blur-2xl border border-[#494545] rounded-3xl p-5 max-w-sm w-full shadow-2xl relative">
             <button
               type="button"
               onClick={() => setShowGuide(false)}
-              className="absolute top-4 right-4 p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer transition-colors"
+              className="absolute top-4 right-4 p-1.5 rounded-full text-[#adaaab] hover:text-white hover:bg-[#494545] cursor-pointer transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
 
             <div className="flex items-center gap-2.5 mb-3">
-              <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.25)]">
+              <div className="w-10 h-10 rounded-2xl bg-[#494545]/60 border border-[#545454] flex items-center justify-center text-[#adaaab] shadow-[0_0_12px_rgba(173,170,171,0.25)]">
                 <Download className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-sm font-black text-white">
                   {lang === 'bn' ? 'অ্যাপ ইন্সটল করার নিয়ম' : 'How to Install App'}
                 </h3>
-                <p className="text-[11px] text-slate-400 font-bold">HelloPoint Digital Cashbook</p>
+                <p className="text-[11px] text-[#adaaab] font-bold">HelloPoint Digital Cashbook</p>
               </div>
             </div>
 
-            <div className="space-y-2.5 text-xs text-slate-200 bg-white/[0.04] p-3 rounded-2xl border border-white/10">
+            <div className="space-y-2.5 text-xs text-white bg-[#494545]/20 p-3 rounded-2xl border border-[#545454]">
               <div className="flex items-start gap-2">
-                <span className="px-1.5 py-0.5 rounded bg-cyan-500 text-slate-950 font-black text-[10px] shrink-0 mt-0.5">১</span>
+                <span className="px-1.5 py-0.5 rounded bg-[#adaaab] text-[#060505] font-black text-[10px] shrink-0 mt-0.5">১</span>
                 <span>{lang === 'bn' ? 'Android/Chrome-এ: ব্রাউজারের উপরে ৩-ডট মেনু (⋮) চাপুন এবং "Install app" বা "Add to Home screen" নির্বাচন করুন।' : 'On Android/Chrome: Tap 3 dots (⋮) and select "Install app" or "Add to Home screen".'}</span>
               </div>
               <div className="flex items-start gap-2">
-                <span className="px-1.5 py-0.5 rounded bg-cyan-500 text-slate-950 font-black text-[10px] shrink-0 mt-0.5">২</span>
+                <span className="px-1.5 py-0.5 rounded bg-[#adaaab] text-[#060505] font-black text-[10px] shrink-0 mt-0.5">২</span>
                 <span>{lang === 'bn' ? 'iPhone/Safari-তে: নিচে Share বাটনে ট্যাপ করে "Add to Home Screen" (+) এ চাপুন।' : 'On iPhone/Safari: Tap Share button and select "Add to Home Screen" (+).'}</span>
               </div>
             </div>
@@ -1146,7 +1127,7 @@ export function PinLockScreen({
             <button
               type="button"
               onClick={() => setShowGuide(false)}
-              className="w-full mt-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-600 hover:from-violet-500 hover:to-cyan-500 text-white text-xs font-black shadow-md cursor-pointer transition-all"
+              className="w-full mt-4 py-2.5 rounded-xl bg-gradient-to-r from-[#adaaab] via-white to-[#adaaab] hover:from-white hover:to-white text-[#060505] text-xs font-black shadow-md cursor-pointer transition-all"
             >
               {lang === 'bn' ? 'ঠিক আছে' : 'Got it'}
             </button>

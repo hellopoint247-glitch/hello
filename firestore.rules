@@ -96,6 +96,11 @@ service cloud.firestore {
     match /signup_requests/{requestId} {
       allow read, write: if true;
     }
+
+    // Customer Login Notifications
+    match /users/{userId}/customer_logins/{loginId} {
+      allow read, write: if true;
+    }
   }
 }
 

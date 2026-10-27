@@ -400,43 +400,27 @@ select:focus {
 }
 
 
-/* Strict Light Mode Preservation for Login & Customer Portal */
-#unified-auth-viewport,
+/* Customer Portal Theme - Explicit Soft Dark Plum Slate Palette (#4A4459) */
 #customer-portal-root {
-  background-color: #f8fafc !important;
-  color: #0f172a !important;
-  z-index: 99999 !important;
+  background-color: #4A4459 !important;
+  color: #f1f5f9 !important;
 }
-#unified-auth-viewport .bg-white,
 #customer-portal-root .bg-white {
-  background-color: #ffffff !important;
+  background-color: #363042 !important;
 }
-#unified-auth-viewport .bg-slate-50,
-#customer-portal-root .bg-slate-50 {
-  background-color: #f8fafc !important;
-}
-#unified-auth-viewport .bg-slate-100,
+#customer-portal-root .bg-slate-50,
 #customer-portal-root .bg-slate-100 {
-  background-color: #f1f5f9 !important;
+  background-color: #2b2635 !important;
 }
-#unified-auth-viewport .text-slate-800,
-#unified-auth-viewport .text-slate-805,
-#unified-auth-viewport .text-slate-900,
-#customer-portal-root .text-slate-800,
-#customer-portal-root .text-slate-900 {
-  color: #0f172a !important;
+#customer-portal-root input.bg-transparent,
+#customer-portal-root input[type="text"] {
+  background-color: transparent !important;
+  color: #ffffff !important;
 }
-#unified-auth-viewport .text-slate-600,
-#customer-portal-root .text-slate-600,
-#unified-auth-viewport .text-slate-700,
-#customer-portal-root .text-slate-700 {
-  color: #334155 !important;
-}
-#unified-auth-viewport input,
-#customer-portal-root input {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
-  border-color: #cbd5e1 !important;
+#customer-portal-root input:not(.bg-transparent):not([type="text"]) {
+  background-color: #2b2635 !important;
+  color: #ffffff !important;
+  border-color: #5e5571 !important;
 }
 
 /* Ensure monospace tabular numeric layout */

@@ -24,13 +24,15 @@ import {
   CheckCheck,
   Eye,
   EyeOff,
-  Sparkles
+  Sparkles,
+  ClipboardPaste
 } from 'lucide-react';
 import { Contact, Transaction, RechargeRequest, ChatMessage, PayBillEntry, PayBillRequest } from '../types';
 import { getContactSummary } from '../utils/storage';
 import { soundEngine } from '../utils/audio';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatBox } from './ChatBox';
+import { normalizeBdPhoneNumber } from '../utils/phoneUtils';
 
 interface CustomerPortalProps {
   customer: Contact;
@@ -51,6 +53,7 @@ interface CustomerPortalProps {
   onSavePayBill?: (paybill: PayBillEntry) => void;
   onCreatePayBillRequest?: (billerNumber: string, amount: number, billerDetails: string, secondDate: string, phone: string) => void;
   paybillRequests?: PayBillRequest[];
+  onCustomerVisit?: () => void;
 }
 
 export function CustomerPortal({ 
@@ -71,8 +74,13 @@ export function CustomerPortal({
   paybills = [],
   onSavePayBill,
   onCreatePayBillRequest,
-  paybillRequests = []
+  paybillRequests = [],
+  onCustomerVisit
 }: CustomerPortalProps) {
+  useEffect(() => {
+    onCustomerVisit?.();
+  }, [onCustomerVisit]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [hideRunningBalance, setHideRunningBalance] = useState<boolean>(
     () => localStorage.getItem('hellopoint_hide_running_balance') === 'true'
@@ -222,15 +230,20 @@ export function CustomerPortal({
     e.preventDefault();
     setRechargeError('');
 
-    const cleanNum = rechargePhoneInput.trim().replace(/\D/g, '');
-    if (cleanNum.length < 10 || cleanNum.length > 11) {
-      setRechargeError(lang === 'bn' ? 'সঠিক ১০ বা ১১ ডিজিটের ফোন নম্বর লিখুন।' : 'Please enter a valid 10 or 11 digit phone number.');
+    const cleanNum = normalizeBdPhoneNumber(rechargePhoneInput);
+    if (!cleanNum || cleanNum.length !== 11 || !cleanNum.startsWith('01')) {
+      setRechargeError(lang === 'bn' ? 'অনুগ্রহ করে ১১ ডিজিটের সঠিক মোবাইল নম্বর লিখুন (যেমন: 017XXXXXXXX)।' : 'Please enter a valid 11-digit mobile number.');
       return;
     }
 
     const amt = parseFloat(rechargeAmountInput);
     if (isNaN(amt) || amt <= 0) {
       setRechargeError(lang === 'bn' ? 'টাকার সঠিক পরিমাণ লিখুন।' : 'Please enter a valid positive amount.');
+      return;
+    }
+
+    if (/^01\d{9}$/.test(rechargeAmountInput.trim()) || amt > 1000000) {
+      setRechargeError(lang === 'bn' ? '⚠️ টাকার পরিমাণের জায়গায় মোবাইল নম্বর বসানো হয়েছে বলে মনে হচ্ছে! সঠিক টাকার পরিমাণ লিখুন।' : '⚠️ Mobile number placed in Amount field!');
       return;
     }
 
@@ -357,13 +370,9 @@ export function CustomerPortal({
       setPaybillError(lang === 'bn' ? 'দয়া করে মোবাইল নম্বর লিখুন (সব তথ্য বাধ্যতামূলক)।' : 'Mobile phone number is required.');
       return;
     }
-    if (/[a-zA-Z\u0980-\u09FF]/.test(phoneRaw)) {
-      setPaybillError(lang === 'bn' ? '⚠️ মোবাইল নম্বরের জায়গায় নাম বা অন্য লেখা বসানো হয়েছে! অনুগ্রহ করে ডিজিট লিখুন।' : '⚠️ Name or text placed in Mobile Number field!');
-      return;
-    }
-    const cleanPhone = phoneRaw.replace(/\D/g, '');
+    const cleanPhone = normalizeBdPhoneNumber(phoneRaw);
     if (cleanPhone.length !== 11 || !cleanPhone.startsWith('01')) {
-      setPaybillError(lang === 'bn' ? '⚠️ মোবাইল নম্বরের জায়গায় বিলার আইডি বা ভুল সংখ্যা বসানো হয়েছে! অনুগ্রহ করে ১১ ডিজিটের সঠিক মোবাইল নম্বর লিখুন (যেমন: 01712345678)।' : '⚠️ Biller ID or invalid number placed in Mobile Number field! Enter valid 11-digit mobile number.');
+      setPaybillError(lang === 'bn' ? '⚠️ অনুগ্রহ করে ১১ ডিজিটের সঠিক মোবাইল নম্বর লিখুন (যেমন: 01712345678)।' : '⚠️ Enter valid 11-digit mobile number.');
       return;
     }
 
@@ -568,26 +577,26 @@ export function CustomerPortal({
   };
 
   return (
-    <div id="customer-portal-root" className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800 select-none pb-8 print:bg-white print:pb-0">
+    <div id="customer-portal-root" className="min-h-screen bg-[#4A4459] flex flex-col font-sans text-slate-100 select-none pb-8 print:bg-white print:text-slate-900 print:pb-0">
       
-      {/* HIGH-RES TOP COMPACT GRADIENT BANNER */}
-      <header className="bg-gradient-to-r from-purple-700 to-indigo-850 text-white shadow-sm sticky top-0 z-50 print:hidden select-none">
-        <div className="max-w-4xl mx-auto px-3 py-1.5 flex justify-between items-center">
+      {/* PROFESSIONAL COMPACT SOFT PURPLE-SLATE HEADER */}
+      <header className="bg-[#3c3649]/95 backdrop-blur-md border-b border-[#5e5571] text-white shadow-sm sticky top-0 z-50 print:hidden select-none">
+        <div className="max-w-3xl mx-auto px-3 py-1.5 sm:py-2 flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <div className="w-7.5 h-7.5 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center font-black text-amber-300 shadow-inner text-xs">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-purple-500/25 border border-purple-400/50 flex items-center justify-center font-bold text-purple-200 shadow-inner text-xs sm:text-sm">
               
             </div>
             <div>
-              <h1 className="text-[10.5px] font-black tracking-wider uppercase text-purple-100">
+              <h1 className="text-[11px] sm:text-xs font-extrabold tracking-wider uppercase text-white">
                 {lang === 'bn' ? 'হ্যালো পয়েন্ট গ্রাহক খাতা' : 'HELLO POINT CUST PORTAL'}
               </h1>
-              <p className="text-[8.5px] font-bold text-slate-200 uppercase tracking-wider leading-none mt-0.5">
+              <p className="text-[8px] sm:text-[9px] font-semibold text-purple-200/80 uppercase tracking-wider leading-none mt-0.5">
                 {lang === 'bn' ? 'নিরাপদ ডিজিটাল খাতা' : 'SECURE DIGITAL STATEMENT'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {/* Language Toggle switch */}
             <button 
               onClick={() => {
@@ -595,7 +604,7 @@ export function CustomerPortal({
                 setLang(nl);
                 localStorage.setItem('hellopoint_lang', nl);
               }}
-              className="text-[8px] font-black border border-white/25 hover:bg-white/10 px-1.5 py-0.5 rounded transition-all uppercase cursor-pointer"
+              className="text-[9px] font-bold border border-[#5e5571] bg-[#2e2938] hover:bg-[#433b52] text-slate-100 hover:text-white px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md transition-colors uppercase cursor-pointer"
             >
               {lang === 'bn' ? 'ENGLISH' : 'বাংলা'}
             </button>
@@ -603,7 +612,7 @@ export function CustomerPortal({
             {/* Logout Trigger button */}
             <button 
               onClick={onLogout}
-              className="bg-rose-650 hover:bg-rose-500 text-white text-[8.5px] font-black px-2 py-1 rounded-lg transition-all uppercase flex items-center gap-1 cursor-pointer shadow-tiny"
+              className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-400/40 text-[9px] font-bold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md transition-colors uppercase flex items-center gap-1 cursor-pointer"
             >
               <LogOut className="w-3 h-3" />
               <span>{lang === 'bn' ? 'লগআউট' : 'LOGOUT'}</span>
@@ -612,13 +621,13 @@ export function CustomerPortal({
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-2 py-2 w-full flex-1 space-y-2 print:p-0">
+      <main className="max-w-2xl mx-auto px-2 py-1.5 sm:px-3 sm:py-2.5 w-full flex-1 space-y-1.5 sm:space-y-2.5 print:p-0">
         
-        {/* CUSTOMER GREETING & INFO BAR */}
-        <div id="portal-usercard" className="bg-white rounded-xl border border-purple-200/80 p-2.5 shadow-tiny flex flex-row justify-between items-center gap-2.5">
-          <div className="flex items-center gap-3 min-w-0">
+        {/* CUSTOMER PROFILE CARD (#363042 ON #4A4459 BACKGROUND) */}
+        <div id="portal-usercard" className="bg-[#363042] rounded-xl border border-[#5e5571] px-2.5 py-1.5 sm:p-2.5 shadow-sm flex flex-row justify-between items-center gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
             
-            {/* Interactive Larger Profile Image containing Camera Action for File input selection */}
+            {/* Profile Avatar with Camera Button */}
             <div className="relative group shrink-0">
               <div 
                 onClick={() => {
@@ -626,7 +635,7 @@ export function CustomerPortal({
                     setZoomedImage({ url: customer.photoUrl, name: customer.name });
                   }
                 }}
-                className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full border-2 border-white overflow-hidden bg-gradient-to-br from-purple-600 to-indigo-600 relative flex items-center justify-center shadow-md ring-2 ring-purple-500/30 select-none ${customer.photoUrl ? 'cursor-pointer hover:scale-105 active:scale-95 transition-all' : ''}`}
+                className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-[#5e5571] overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-800 relative flex items-center justify-center shadow-xs select-none ${customer.photoUrl ? 'cursor-pointer hover:scale-105 active:scale-95 transition-transform' : ''}`}
               >
                 {customer.photoUrl ? (
                   <img 
@@ -636,26 +645,24 @@ export function CustomerPortal({
                     className="w-full h-full object-cover" 
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-white font-black text-lg relative uppercase tracking-wider select-none">
-                    <span className="drop-shadow-xs">{customer.name.trim().charAt(0).toUpperCase()}</span>
-                    <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/25 to-transparent pointer-events-none" />
+                  <div className="w-full h-full flex items-center justify-center text-purple-100 font-bold text-sm sm:text-base select-none">
+                    <span>{customer.name.trim().charAt(0).toUpperCase()}</span>
                   </div>
                 )}
                 
-                {/* Visual semi-transparent overlay on hover to invite interaction */}
                 {customer.photoUrl && (
-                  <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[8px] font-black uppercase text-center p-0.5">
-                    {lang === 'bn' ? 'বড় করুন' : 'Zoom'}
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[7px] font-bold uppercase text-center p-0.5">
+                    {lang === 'bn' ? 'বড়' : 'Zoom'}
                   </div>
                 )}
               </div>
               
-              {/* Overlay Camera trigger button */}
+              {/* Camera Trigger */}
               <label 
-                className="absolute -bottom-0.5 -right-0.5 bg-brand-primary text-white p-1 rounded-full shadow cursor-pointer hover:scale-110 active:scale-95 transition-all border border-white flex items-center justify-center"
+                className="absolute -bottom-0.5 -right-0.5 bg-purple-600 hover:bg-purple-500 text-white p-0.5 rounded-full shadow-xs cursor-pointer hover:scale-110 active:scale-95 transition-all border border-[#363042] flex items-center justify-center"
                 title={lang === 'bn' ? 'প্রোফাইল ছবি পরিবর্তন করুন' : 'Change Profile Picture'}
               >
-                <Camera className="w-2.5 h-2.5" />
+                <Camera className="w-2 h-2" />
                 <input 
                   type="file" 
                   accept="image/*" 
@@ -666,116 +673,114 @@ export function CustomerPortal({
             </div>
 
             <div className="min-w-0">
-              <h2 className="text-sm font-black text-slate-900 select-text leading-tight flex items-center gap-1.5 flex-wrap">
-                <span className="truncate">{customer.name}</span>
-                {customer.photoUrl && (
-                  <span className="text-[8px] bg-emerald-50 text-emerald-600 px-1 py-0.2 rounded-full font-black border border-emerald-100 uppercase tracking-wider shrink-0">{lang === 'bn' ? 'প্রোফাইল ছবিযুক্ত' : 'Verified'}</span>
-                )}
+              <h2 className="text-xs sm:text-sm font-bold text-white select-text leading-tight truncate">
+                {customer.name}
               </h2>
-              <p className="text-[10.5px] font-bold text-slate-500 flex items-center gap-1 mt-1 leading-none select-text">
-                <Phone className="w-2.5 h-2.5 text-purple-600 shrink-0" />
-                <span className="bg-brand-light text-brand-hover px-1.5 py-0.2 rounded font-mono font-black">{toBn(customer.phone)}</span>
-              </p>
+              <div className="text-[11px] font-semibold text-purple-200 flex items-center gap-1 mt-0.5 select-text">
+                <Phone className="w-2.5 h-2.5 text-purple-300 shrink-0" />
+                <span className="font-mono text-purple-200">{toBn(customer.phone)}</span>
+              </div>
             </div>
           </div>
 
-          {/* Improved Inbox trigger button with ✉️ icon and eye-catching movement when new message arrives */}
+          {/* Inbox Button */}
           <button 
             id="portal-inbox-trigger"
             onClick={() => setShowChatModal(true)}
             title={lang === 'bn' ? 'মেসেজ ইনবক্স' : 'Message Inbox'}
-            className={`bg-amber-400 hover:bg-amber-300 text-purple-950 p-2.5 rounded-2xl transition-all flex items-center justify-center cursor-pointer shadow-md relative shrink-0 ${
+            className={`bg-[#2b2635] hover:bg-[#433b52] text-amber-300 p-2 rounded-lg border border-[#5e5571] transition-all flex items-center justify-center cursor-pointer shadow-xs relative shrink-0 ${
               unreadChatsCount > 0 
-                ? 'animate-wiggle ring-4 ring-rose-500/50 bg-amber-300 scale-110' 
-                : 'hover:scale-105'
+                ? 'ring-2 ring-amber-400/50 bg-amber-400/15' 
+                : 'hover:scale-105 active:scale-95'
             }`}
           >
-            <span className={`text-xl leading-none select-none inline-block ${unreadChatsCount > 0 ? 'animate-bounce' : ''}`}>✉️</span>
+            <Mail className="w-4 h-4 text-amber-300" />
             {unreadChatsCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 bg-rose-600 text-white rounded-full text-[9px] font-black flex items-center justify-center px-1 border-2 border-white shadow-md animate-pulse">
+              <span className="absolute -top-1 -right-1 min-w-3.5 h-3.5 bg-rose-600 text-white rounded-full text-[8px] font-black flex items-center justify-center px-0.5 border border-[#363042] shadow-sm">
                 {toBn(unreadChatsCount)}
               </span>
             )}
           </button>
         </div>
 
-        {/* COMPACT EXQUISITE ACCOUNT BALANCE HEADER CARD */}
-        <div className="bg-gradient-to-br from-brand-primary to-brand-hover rounded-xl p-3 text-white shadow-tiny flex items-center justify-between relative overflow-hidden select-none border border-brand-primary/10">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-white/5 rounded-full -mr-6 -mt-6 blur-lg pointer-events-none" />
-          
-          <div className="relative z-10 flex flex-col justify-center">
-            <p className="text-[8.5px] uppercase tracking-wider text-purple-150 font-black">
+        {/* ACCOUNT BALANCE SUMMARY CARD */}
+        <div className={`rounded-xl px-3 py-2 sm:p-3 text-white shadow-sm flex items-center justify-between border transition-all ${
+          summary.balance > 0 
+            ? 'bg-gradient-to-br from-[#452936] to-[#363042] border-rose-400/40' 
+            : summary.balance < 0 
+            ? 'bg-gradient-to-br from-[#223d32] to-[#363042] border-emerald-400/40' 
+            : 'bg-[#363042] border-[#5e5571]'
+        }`}>
+          <div className="flex flex-col justify-center">
+            <p className="text-[10px] font-bold tracking-wide">
               {summary.balance > 0 ? (
-                <span className="text-yellow-300 font-extrabold">{lang === 'bn' ? 'দোকানের পাওনা টাকা' : 'Outstanding Shop Due'}</span>
+                <span className="text-rose-300">{lang === 'bn' ? 'দোকানের পাওনা টাকা' : 'Outstanding Shop Due'}</span>
               ) : summary.balance < 0 ? (
-                <span className="text-emerald-300 font-extrabold">{lang === 'bn' ? 'আপনার সর্বমোট জমা' : 'Your Net Advance'}</span>
+                <span className="text-emerald-300">{lang === 'bn' ? 'আপনার সর্বমোট জমা' : 'Your Net Advance'}</span>
               ) : (
-                <span className="text-white/70 font-extrabold">{lang === 'bn' ? 'হিসাব পরিশোধিত' : 'Ledger settled'}</span>
+                <span className="text-slate-200">{lang === 'bn' ? 'হিসাব পরিশোধিত' : 'Ledger settled'}</span>
               )}
             </p>
             
-            <h1 className="text-base sm:text-xl font-black mt-0.5 text-white tracking-tight leading-none">
+            <h1 className="text-xl sm:text-2xl font-black mt-0.5 text-white tracking-tight leading-none font-mono">
               {currency}{toBn(Math.abs(summary.balance).toFixed(2))}
             </h1>
           </div>
 
-          {/* Custom styled dynamic status pill badge with required exact texts */}
-          <div className="relative z-10">
+          <div>
             {summary.balance > 0 ? (
-              <div id="due-badge" className="bg-yellow-450 text-[#300540] font-extrabold px-2.5 py-1 rounded-md text-[9px] uppercase tracking-wide leading-none shadow-sm">
+              <div id="due-badge" className="bg-rose-500/25 text-rose-200 border border-rose-400/40 font-bold px-2.5 py-0.5 rounded-lg text-[10px] sm:text-xs uppercase tracking-wide leading-none">
                 {lang === 'bn' ? 'মোট বকেয়া' : 'TOTAL DUE'}
               </div>
             ) : summary.balance < 0 ? (
-              <div id="credit-badge" className="bg-[#34c759] text-white font-extrabold px-2.5 py-1 rounded-md text-[9px] uppercase tracking-wide leading-none shadow-sm">
+              <div id="credit-badge" className="bg-emerald-500/25 text-emerald-200 border border-emerald-400/40 font-bold px-2.5 py-0.5 rounded-lg text-[10px] sm:text-xs uppercase tracking-wide leading-none">
                 {lang === 'bn' ? 'মোট জমা' : 'TOTAL DEPOSIT'}
               </div>
             ) : (
-              <div id="settled-badge" className="bg-white/10 text-white/90 font-extrabold px-2 py-1 rounded-md text-[8.5px] uppercase tracking-wide leading-none">
+              <div id="settled-badge" className="bg-purple-900/60 text-purple-200 border border-purple-400/40 font-bold px-2.5 py-0.5 rounded-lg text-[10px] sm:text-xs uppercase tracking-wide leading-none">
                 {lang === 'bn' ? 'পরিশোধিত' : 'SETTLED'}
               </div>
             )}
           </div>
         </div>
 
-        {/* RECHARGE PANEL */}
-        <div className="bg-white rounded-xl border border-slate-100 shadow-tiny p-2.5 space-y-2">
+        {/* RECHARGE & PAY-BILL COLLAPSIBLE CARD */}
+        <div className="bg-[#363042] rounded-xl border border-[#5e5571] shadow-sm p-1.5 sm:p-2 space-y-2">
           {myCurrentRequest ? (
-            // If there's an active request for this customer phone session
             myCurrentRequest.status === 'pending' ? (
-              <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3 text-center space-y-1.5 select-text">
-                <div className="inline-flex items-center justify-center w-8 h-8 bg-indigo-100 text-indigo-700 rounded-full animate-pulse">
+              <div className="bg-indigo-950/50 border border-indigo-500/35 rounded-xl p-3 text-center space-y-1.5 select-text">
+                <div className="inline-flex items-center justify-center w-8 h-8 bg-indigo-900/60 text-indigo-400 rounded-full border border-indigo-500/30">
                   <Clock className="w-4 h-4 animate-spin" style={{ animationDuration: '3s' }} />
                 </div>
-                <h4 className="text-[11px] font-black text-indigo-900 tracking-wide uppercase">
+                <h4 className="text-xs font-bold text-indigo-300 tracking-wide uppercase">
                   {lang === 'bn' ? 'অনুরোধ পেন্ডিং আছে' : 'RECHARGE REQUEST PENDING'}
                 </h4>
-                <p className="text-[11px] font-bold text-slate-705 leading-normal max-w-md mx-auto">
+                <p className="text-xs font-medium text-slate-300 leading-normal max-w-md mx-auto">
                   {lang === 'bn' 
                     ? 'আপনার রিকুয়েষ্ট টি গ্রহণ করা হয়েছে অনুগ্রহ করে অপেক্ষা করুন, প্রয়োজনে আপনার সাথে যোগাযোগ করা হতে পারে, ধন্যবাদ।'
                     : 'Your request has been received, please wait. We might contact you if needed. Thank you.'}
                 </p>
-                <div className="pt-1.5 flex flex-wrap justify-center gap-2 text-[10.5px] font-bold text-slate-700">
-                  <span className="bg-white px-2 py-0.5 rounded-lg border border-slate-200 flex items-center gap-1 font-mono">
+                <div className="pt-1.5 flex flex-wrap justify-center gap-2 text-xs font-semibold text-slate-300">
+                  <span className="bg-[#0b0f17] px-2.5 py-1 rounded-lg border border-[#1e2638] flex items-center gap-1 font-mono">
                     📱 {toBn(myCurrentRequest.rechargePhone)}
                   </span>
-                  <span className="bg-white px-2 py-0.5 rounded-lg border border-slate-200 flex items-center gap-1 font-mono">
+                  <span className="bg-[#0b0f17] px-2.5 py-1 rounded-lg border border-[#1e2638] flex items-center gap-1 font-mono">
                     💵 {currency}{toBn(myCurrentRequest.amount.toFixed(2))}
                   </span>
-                  <span className="bg-white px-2 py-0.5 rounded-lg border border-slate-200 flex items-center gap-1 font-black uppercase tracking-wide">
+                  <span className="bg-[#0b0f17] px-2.5 py-1 rounded-lg border border-[#1e2638] flex items-center gap-1 font-bold uppercase">
                     💰 {myCurrentRequest.method === 'bkash' ? (lang === 'bn' ? 'বিকাশ' : 'bKash') : myCurrentRequest.method === 'nagad' ? (lang === 'bn' ? 'নগদ' : 'Nagad') : (lang === 'bn' ? 'ফ্লেক্সিলোড' : 'Flexiload')}
                   </span>
                 </div>
               </div>
             ) : (
-              // Successful Completion Card
-              <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3 text-center space-y-1.5 select-text animate-fade-in">
-                <div className="inline-flex items-center justify-center w-8 h-8 bg-emerald-100 text-emerald-700 rounded-full">
-                  <Check className="w-4 h-4 text-emerald-600 animate-bounce" />
+              <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-3 text-center space-y-1.5 select-text">
+                <div className="inline-flex items-center justify-center w-8 h-8 bg-emerald-900/60 text-emerald-400 rounded-full border border-emerald-500/30">
+                  <Check className="w-4 h-4 text-emerald-400" />
                 </div>
-                <h4 className="text-[11px] font-black text-emerald-950 tracking-wide uppercase">
+                <h4 className="text-xs font-bold text-emerald-300 tracking-wide uppercase">
                   {lang === 'bn' ? 'রিচার্জ সফল হয়েছে!' : 'RECHARGE COMPLETED SECURELY!'}
                 </h4>
-                <p className="text-[11.5px] font-bold text-emerald-800 leading-normal max-w-md mx-auto">
+                <p className="text-xs font-medium text-emerald-200/90 leading-normal max-w-md mx-auto">
                   {lang === 'bn' 
                     ? `আপনার ${toBn(myCurrentRequest.amount.toFixed(2))} ${currency} রিচার্জ সফলভাবে সম্পন্ন করা হয়েছে এবং আপনার খাতার ব্যালেন্সে যোগ করা হয়েছে।`
                     : `Your recharge of ${currency}${toBn(myCurrentRequest.amount.toFixed(2))} has been completed successfully and logged to your ledger.`}
@@ -786,7 +791,7 @@ export function CustomerPortal({
                       onClearRechargeRequest?.(myCurrentRequest.id);
                       setIsRechargeExpanded(false);
                     }}
-                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-black rounded-lg shadow-tiny cursor-pointer transition-all uppercase"
+                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-sm cursor-pointer transition-colors uppercase"
                   >
                     {lang === 'bn' ? 'ঠিক আছে' : 'OKAY'}
                   </button>
@@ -794,135 +799,162 @@ export function CustomerPortal({
               </div>
             )
           ) : (
-            // Form to make request
             <div className="space-y-2">
               <button
                 type="button"
                 onClick={() => setIsRechargeExpanded(!isRechargeExpanded)}
-                className="w-full py-2 px-3 bg-[#6244a6] hover:bg-[#523496] text-white text-[10.5px] font-black rounded-xl shadow-tiny cursor-pointer flex items-center justify-between transition-all"
-                style={{ backgroundColor: themeColor }}
+                className="w-full py-1.5 px-3 bg-[#2b2635] hover:bg-[#3d364a] text-slate-100 text-xs font-bold rounded-lg border border-[#5e5571] shadow-xs cursor-pointer flex items-center justify-between transition-colors"
               >
-                <span className="flex items-center gap-1 uppercase tracking-wide">
-                  ⚡ {lang === 'bn' ? 'রিচার্জ এবং পে-বিল সাবমিট করুন' : 'Recharge & Pay-Bill Submit'}
+                <span className="flex items-center gap-1.5">
+                  <span className="text-purple-300">⚡</span>
+                  <span>{lang === 'bn' ? 'রিচার্জ এবং পে-বিল সাবমিট করুন' : 'Recharge & Pay-Bill Submit'}</span>
                 </span>
-                <span>{isRechargeExpanded ? '▲' : '▼'}</span>
+                <span className="text-purple-200 text-xs">{isRechargeExpanded ? '▲' : '▼'}</span>
               </button>
 
               {isRechargeExpanded && (
-                <div className="space-y-2.5 pt-1.5 border-t border-slate-100 animate-slide-down">
-                  {/* Option Grid */}
+                <div className="space-y-3 pt-2.5 border-t border-[#5e5571]">
                   <div>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-center mb-1.5">
+                    <p className="text-[10px] font-bold text-purple-200 uppercase tracking-wider text-center mb-2">
                       {lang === 'bn' ? 'রিচার্জ বা পেমেন্ট এর মাধ্যম সিলেক্ট করুন' : 'SELECT METHOD'}
                     </p>
-                    <div className="grid grid-cols-4 gap-1.5">
+                    <div className="grid grid-cols-4 gap-2">
                       <button
                         type="button"
                         onClick={() => setSelectedMethod('bkash')}
-                        className={`py-1.5 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all border font-bold text-[11px] cursor-pointer ${
+                        className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition-all border font-bold text-xs cursor-pointer ${
                           selectedMethod === 'bkash' 
-                            ? 'bg-[#da1c5c]/10 text-[#da1c5c] border-[#da1c5c] ring-2 ring-[#da1c5c]/25' 
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            ? 'bg-[#da1c5c]/25 text-pink-200 border-[#da1c5c] ring-1 ring-[#da1c5c]/40' 
+                            : 'bg-[#2b2635] text-slate-200 border-[#5e5571] hover:bg-[#3d364a]'
                         }`}
                       >
-                        <span className="w-2 h-2 rounded-full bg-[#da1c5c]" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#da1c5c]" />
                         <span>{lang === 'bn' ? 'বিকাশ' : 'bKash'}</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setSelectedMethod('nagad')}
-                        className={`py-1.5 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all border font-bold text-[11px] cursor-pointer ${
+                        className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition-all border font-bold text-xs cursor-pointer ${
                           selectedMethod === 'nagad' 
-                            ? 'bg-[#f15a22]/10 text-[#f15a22] border-[#f15a22] ring-2 ring-[#f15a22]/25' 
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            ? 'bg-[#f15a22]/25 text-orange-200 border-[#f15a22] ring-1 ring-[#f15a22]/40' 
+                            : 'bg-[#2b2635] text-slate-200 border-[#5e5571] hover:bg-[#3d364a]'
                         }`}
                       >
-                        <span className="w-2 h-2 rounded-full bg-[#f15a22]" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#f15a22]" />
                         <span>{lang === 'bn' ? 'নগদ' : 'Nagad'}</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setSelectedMethod('flexiload')}
-                        className={`py-1.5 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all border font-bold text-[11px] cursor-pointer ${
+                        className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition-all border font-bold text-xs cursor-pointer ${
                           selectedMethod === 'flexiload' 
-                            ? 'bg-purple-50 text-purple-700 border-purple-400 ring-2 ring-purple-400/20' 
-                            : 'bg-slate-50 text-slate-755 border-slate-200 hover:bg-slate-100'
+                            ? 'bg-purple-900/60 text-purple-200 border-purple-400 ring-1 ring-purple-400/40' 
+                            : 'bg-[#2b2635] text-slate-200 border-[#5e5571] hover:bg-[#3d364a]'
                         }`}
-                        style={selectedMethod === 'flexiload' ? { color: themeColor, borderColor: themeColor, backgroundColor: `${themeColor}10` } : {}}
                       >
-                        <span className="w-2.5 h-2.5 rounded-full bg-purple-600" style={{ backgroundColor: themeColor }} />
+                        <span className="w-2.5 h-2.5 rounded-full bg-purple-400" />
                         <span>{lang === 'bn' ? 'ফ্লেক্সিলোড' : 'Flexiload'}</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setSelectedMethod('paybill')}
-                        className={`py-1.5 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all border font-bold text-[11px] cursor-pointer ${
+                        className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition-all border font-bold text-xs cursor-pointer ${
                           selectedMethod === 'paybill' 
-                            ? 'bg-blue-50 text-blue-700 border-blue-400 ring-2 ring-blue-400/20' 
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            ? 'bg-blue-900/60 text-blue-200 border-blue-400 ring-1 ring-blue-400/40' 
+                            : 'bg-[#2b2635] text-slate-200 border-[#5e5571] hover:bg-[#3d364a]'
                         }`}
                       >
-                        <span className="w-2 h-2 rounded-full bg-blue-600" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-400" />
                         <span>{lang === 'bn' ? 'পে-বিল' : 'Pay-Bill'}</span>
                       </button>
                     </div>
                   </div>
 
                   {selectedMethod && selectedMethod !== 'paybill' && (
-                    <form onSubmit={handleSubmitRecharge} className="space-y-3 animate-fade-in">
-                      {/* Phone Input */}
+                    <form onSubmit={handleSubmitRecharge} className="space-y-3">
                       <div>
-                        <label className="block text-[9.5px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        <label className="block text-[10px] font-bold text-purple-200 uppercase tracking-wider mb-1">
                           {lang === 'bn' ? 'রিচার্জের মোবাইল নম্বর লিখুন' : 'RECHARGE MOBILE PHONE NUMBER'}
                         </label>
-                        <input
-                          type="tel"
-                          pattern="[0-9]*"
-                          maxLength={11}
-                          required
-                          value={rechargePhoneInput}
-                          onChange={(e) => setRechargePhoneInput(e.target.value)}
-                          placeholder={lang === 'bn' ? '১১ ডিজিটের মোবাইল নম্বর দিন' : 'e.g. 017XXXXXXXX'}
-                          className="w-full bg-slate-50 border border-slate-200 px-3 py-2.5 rounded-xl text-xs font-mono font-bold text-slate-800 outline-none focus:bg-white focus:border-purple-600 transition-all tracking-wider text-center"
-                        />
+                        <div className="relative flex items-center">
+                          <input
+                            type="text"
+                            required
+                            value={rechargePhoneInput}
+                            onChange={(e) => {
+                              setRechargePhoneInput(normalizeBdPhoneNumber(e.target.value));
+                              setRechargeError('');
+                            }}
+                            onPaste={(e) => {
+                              e.preventDefault();
+                              const pasted = e.clipboardData.getData('text');
+                              setRechargePhoneInput(normalizeBdPhoneNumber(pasted));
+                              setRechargeError('');
+                            }}
+                            placeholder={lang === 'bn' ? '১১ ডিজিটের মোবাইল নম্বর দিন' : 'e.g. 017XXXXXXXX'}
+                            className="w-full bg-[#2b2635] border border-[#5e5571] pl-3.5 pr-14 py-2.5 rounded-xl text-xs font-mono font-bold text-slate-100 placeholder:text-purple-300/50 outline-none focus:border-purple-400 transition-colors tracking-wider text-center"
+                          />
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              let pasted = '';
+                              try {
+                                if (navigator.clipboard?.readText) {
+                                  pasted = await navigator.clipboard.readText();
+                                }
+                              } catch {}
+                              if (!pasted) {
+                                try {
+                                  pasted = localStorage.getItem('hellopoint_clipboard_fallback') || '';
+                                } catch {}
+                              }
+                              if (pasted) {
+                                setRechargePhoneInput(normalizeBdPhoneNumber(pasted));
+                                setRechargeError('');
+                              }
+                            }}
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2 py-1 bg-purple-700/70 hover:bg-purple-600 text-purple-200 hover:text-white rounded-lg text-[9px] font-bold border border-purple-500/40 transition-all cursor-pointer flex items-center gap-1 shadow-xs active:scale-95"
+                            title={lang === 'bn' ? 'কপি করা নম্বর পেস্ট করুন' : 'Paste copied number'}
+                          >
+                            <ClipboardPaste className="w-3 h-3 shrink-0" />
+                            <span>{lang === 'bn' ? 'পেস্ট' : 'Paste'}</span>
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Amount Input */}
                       <div>
-                        <label className="block text-[9.5px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        <label className="block text-[10px] font-bold text-purple-200 uppercase tracking-wider mb-1">
                           {lang === 'bn' ? 'টাকার পরিমাণ লিখুন' : 'RECHARGE AMOUNT'}
                         </label>
                         <div className="relative">
-                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-mono font-bold text-xs">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-purple-300 font-mono font-bold text-xs">
                             {currency}
                           </span>
                           <input
                             type="number"
                             required
                             min="10"
-                            max="10000"
+                            max="1000000"
                             value={rechargeAmountInput}
                             onChange={(e) => setRechargeAmountInput(e.target.value)}
                             placeholder={lang === 'bn' ? 'টাকার পরিমাণ লিখুন' : 'Amount value'}
-                            className="w-full bg-slate-50 border border-slate-200 pl-8 pr-3 py-2.5 rounded-xl text-xs font-bold text-slate-800 outline-none focus:bg-white focus:border-purple-600 transition-all text-center font-mono tracking-wider"
+                            className="w-full bg-[#2b2635] border border-[#5e5571] pl-8 pr-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-100 placeholder:text-purple-300/50 outline-none focus:border-purple-400 transition-colors text-center font-mono tracking-wider"
                           />
                         </div>
                       </div>
 
                       {rechargeError && (
-                        <p className="text-[9.5px] font-bold text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-1.5 text-center leading-normal">
+                        <p className="text-xs font-semibold text-rose-300 bg-rose-950/60 border border-rose-500/40 rounded-xl px-3 py-2 text-center leading-normal">
                           ⚠️ {rechargeError}
                         </p>
                       )}
 
-                      {/* Action buttons */}
                       <button
                         type="submit"
-                        className="w-full py-2.5 bg-gradient-to-r from-purple-650 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white text-[10.5px] font-black rounded-xl shadow-tiny cursor-pointer transition-all flex items-center justify-center gap-1.5 uppercase tracking-wide"
-                        style={{ backgroundImage: `linear-gradient(to right, ${themeColor}, color-mix(in srgb, ${themeColor} 85%, black))` }}
+                        className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl shadow-sm cursor-pointer transition-colors flex items-center justify-center gap-1.5 uppercase tracking-wide"
                       >
                         <span>{lang === 'bn' ? 'অনুরোধ সাবমিট করুন' : 'SUBMIT RECHARGE REQUEST'}</span>
                       </button>
@@ -930,11 +962,10 @@ export function CustomerPortal({
                   )}
 
                   {selectedMethod === 'paybill' && (
-                    <form onSubmit={handleSubmitPaybill} className="space-y-3 animate-fade-in text-left">
-                      {/* Auto-filled notification banner */}
+                    <form onSubmit={handleSubmitPaybill} className="space-y-3 text-left">
                       {paybillAutoFilled && (
-                        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-2.5 text-[10px] font-bold flex items-center gap-2 animate-fade-in shadow-xs">
-                          <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 animate-pulse" />
+                        <div className="bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 rounded-xl p-2.5 text-xs font-semibold flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
                           <span>
                             {lang === 'bn' 
                               ? '✨ পূর্বের রেকর্ড অনুযায়ী নাম ও মোবাইল নম্বর অটো-ফিলাপ হয়েছে।' 
@@ -943,155 +974,176 @@ export function CustomerPortal({
                         </div>
                       )}
 
-                      {/* Biller ID Card */}
-                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 hover:border-blue-400 transition-all">
-                        <label className="block text-[9.5px] font-black text-slate-500 uppercase tracking-wider mb-1">
-                          {lang === 'bn' ? 'বিলার আইডি দিন' : 'BILLER ID / ACCOUNT NUMBER'} <span className="text-rose-500 font-bold">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={paybillBillerNum}
-                          onChange={(e) => handleBillerNumberChange(e.target.value)}
-                          placeholder={lang === 'bn' ? 'বিলার আইডি লিখুন (শুধু ডিজিট)' : 'e.g. 123456'}
-                          className={`w-full bg-white border px-3.5 py-2 rounded-xl text-xs font-mono font-bold outline-none transition-all text-center tracking-wider ${
-                            paybillBillerNum && /[a-zA-Z\u0980-\u09FF]/.test(paybillBillerNum)
-                              ? 'border-rose-400 text-rose-600 bg-rose-50/30'
-                              : 'border-slate-200 text-slate-800 focus:border-blue-600'
-                          }`}
-                        />
-                        {paybillBillerNum && /[a-zA-Z\u0980-\u09FF]/.test(paybillBillerNum) && (
-                          <p className="text-[9px] font-bold text-rose-500 mt-1 text-center">
-                            ⚠️ বিলার আইডিতে নাম/অক্ষর বসানো যাবে না, শুধুমাত্র ডিজিট লিখুন।
-                          </p>
-                        )}
+                      {/* Row 1: Biller ID (Left) & Amount (Right) */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* 1. Biller ID Card */}
+                        <div className="bg-[#172535] border border-sky-500/30 rounded-xl p-2 sm:p-2.5 shadow-2xs">
+                          <label className="block text-[9.5px] sm:text-[10px] font-bold text-sky-200 uppercase tracking-wide mb-1 text-center truncate">
+                            {lang === 'bn' ? 'বিলার আইডি' : 'BILLER ID'} <span className="text-rose-400">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={paybillBillerNum}
+                            onChange={(e) => handleBillerNumberChange(e.target.value)}
+                            placeholder={lang === 'bn' ? 'বিলার আইডি' : 'e.g. 123456'}
+                            className={`w-full bg-[#0f1924] border px-2.5 py-1.5 sm:py-2 rounded-lg text-xs font-mono font-bold outline-none transition-colors text-center tracking-wider ${
+                              paybillBillerNum && /[a-zA-Z\u0980-\u09FF]/.test(paybillBillerNum)
+                                ? 'border-rose-500 text-rose-300'
+                                : 'border-sky-400/40 text-sky-50 placeholder:text-sky-300/40 focus:border-sky-400'
+                            }`}
+                          />
+                          {paybillBillerNum && /[a-zA-Z\u0980-\u09FF]/.test(paybillBillerNum) && (
+                            <p className="text-[9px] font-semibold text-rose-400 mt-1 text-center leading-tight">
+                              ⚠️ শুধুমাত্র ডিজিট লিখুন
+                            </p>
+                          )}
+                        </div>
+
+                        {/* 2. Amount Card (Right) */}
+                        <div className="bg-[#172535] border border-sky-500/30 rounded-xl p-2 sm:p-2.5 shadow-2xs">
+                          <label className="block text-[9.5px] sm:text-[10px] font-bold text-sky-200 uppercase tracking-wide mb-1 text-center truncate">
+                            {lang === 'bn' ? 'টাকার পরিমাণ' : 'AMOUNT'} <span className="text-rose-400">*</span>
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-sky-400 font-mono font-bold text-xs">
+                              {currency}
+                            </span>
+                            <input
+                              type="number"
+                              required
+                              min="1"
+                              max="1000000"
+                              value={paybillAmount}
+                              onChange={(e) => {
+                                setPaybillAmount(e.target.value);
+                                setPaybillError('');
+                              }}
+                              placeholder={lang === 'bn' ? 'টাকার পরিমাণ' : 'Amount'}
+                              className={`w-full bg-[#0f1924] border pl-7 pr-2.5 py-1.5 sm:py-2 rounded-lg text-xs font-bold outline-none transition-colors text-center font-mono tracking-wider ${
+                                paybillAmount && /^01\d{9}$/.test(paybillAmount)
+                                  ? 'border-rose-500 text-rose-300'
+                                  : 'border-sky-400/40 text-sky-50 placeholder:text-sky-300/40 focus:border-sky-400'
+                              }`}
+                            />
+                          </div>
+                        </div>
                       </div>
 
-                      {/* Amount Input Card */}
-                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 hover:border-blue-400 transition-all">
-                        <label className="block text-[9.5px] font-black text-slate-500 uppercase tracking-wider mb-1">
-                          {lang === 'bn' ? 'টাকার পরিমাণ লিখুন' : 'BILL AMOUNT'} <span className="text-rose-500 font-bold">*</span>
-                        </label>
-                        <div className="relative">
-                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-mono font-bold text-xs">
-                            {currency}
-                          </span>
+                      {/* Row 2: Name (Left) & Due Date (Right) */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* 3. Name Card */}
+                        <div className="bg-[#172535] border border-sky-500/30 rounded-xl p-2 sm:p-2.5 shadow-2xs">
+                          <label className="block text-[9.5px] sm:text-[10px] font-bold text-sky-200 uppercase tracking-wide mb-1 text-center truncate">
+                            {lang === 'bn' ? 'বাংলায় নাম' : 'NAME'} <span className="text-rose-400">*</span>
+                          </label>
                           <input
-                            type="number"
+                            type="text"
                             required
-                            min="1"
-                            max="1000000"
-                            value={paybillAmount}
+                            value={paybillName}
                             onChange={(e) => {
-                              setPaybillAmount(e.target.value);
+                              setPaybillName(e.target.value);
                               setPaybillError('');
                             }}
-                            placeholder={lang === 'bn' ? 'টাকার পরিমাণ লিখুন' : 'Amount value'}
-                            className={`w-full bg-white border pl-8 pr-3 py-2 rounded-xl text-xs font-bold outline-none transition-all text-center font-mono tracking-wider ${
-                              paybillAmount && /^01\d{9}$/.test(paybillAmount)
-                                ? 'border-rose-400 text-rose-600 bg-rose-50/30'
-                                : 'border-slate-200 text-slate-800 focus:border-blue-600'
+                            placeholder={lang === 'bn' ? 'গ্রাহকের নাম' : 'e.g. Rahis Ali'}
+                            className={`w-full bg-[#0f1924] border px-2.5 py-1.5 sm:py-2 rounded-lg text-xs font-bold outline-none transition-colors text-center ${
+                              paybillName && /^\d+$/.test(paybillName.trim())
+                                ? 'border-rose-500 text-rose-300'
+                                : 'border-sky-400/40 text-sky-50 placeholder:text-sky-300/40 focus:border-sky-400'
                             }`}
                           />
                         </div>
-                        {paybillAmount && /^01\d{9}$/.test(paybillAmount) && (
-                          <p className="text-[9px] font-bold text-rose-500 mt-1 text-center">
-                            ⚠️ টাকার পরিমাণের জায়গায় মোবাইল নম্বর বসানো হয়েছে!
-                          </p>
-                        )}
+
+                        {/* 4. Due Date Card (Right) */}
+                        <div className="bg-[#172535] border border-sky-500/30 rounded-xl p-2 sm:p-2.5 shadow-2xs">
+                          <label className="block text-[9.5px] sm:text-[10px] font-bold text-sky-200 uppercase tracking-wide mb-1 text-center truncate">
+                            {lang === 'bn' ? 'বিল ডেট / শেষ সময়' : 'DUE DATE'} <span className="text-rose-400">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            required
+                            value={paybillDueDate}
+                            onChange={(e) => {
+                              setPaybillDueDate(e.target.value);
+                              setPaybillError('');
+                            }}
+                            className="w-full bg-[#0f1924] border border-sky-400/40 focus:border-sky-400 px-2 py-1.5 sm:py-2 rounded-lg text-xs font-bold text-sky-100 outline-none transition-colors text-center font-mono cursor-pointer"
+                          />
+                        </div>
                       </div>
 
-                      {/* Biller Name Card */}
-                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 hover:border-blue-400 transition-all">
-                        <label className="block text-[9.5px] font-black text-slate-500 uppercase tracking-wider mb-1">
-                          {lang === 'bn' ? 'বাংলায় নাম লিখুন' : 'BILLER NAME / DESCRIPTION'} <span className="text-rose-500 font-bold">*</span>
+                      {/* Row 3: Mobile Phone Number Card (Bottom, full width) */}
+                      <div className="bg-[#172535] border border-sky-500/30 rounded-xl p-2 sm:p-2.5 shadow-2xs">
+                        <label className="block text-[9.5px] sm:text-[10px] font-bold text-sky-200 uppercase tracking-wide mb-1 text-center truncate">
+                          {lang === 'bn' ? 'মোবাইল নাম্বার' : 'MOBILE PHONE NUMBER'} <span className="text-rose-400">*</span>
                         </label>
-                        <input
-                          type="text"
-                          required
-                          value={paybillName}
-                          onChange={(e) => {
-                            setPaybillName(e.target.value);
-                            setPaybillError('');
-                          }}
-                          placeholder={lang === 'bn' ? 'বাংলায় নাম লিখুন' : 'e.g. Rahis Ali'}
-                          className={`w-full bg-white border px-3.5 py-2 rounded-xl text-xs font-bold outline-none transition-all text-center ${
-                            paybillName && /^\d+$/.test(paybillName.trim())
-                              ? 'border-rose-400 text-rose-600 bg-rose-50/30'
-                              : 'border-slate-200 text-slate-800 focus:border-blue-600'
-                          }`}
-                        />
-                        {paybillName && /^\d+$/.test(paybillName.trim()) && (
-                          <p className="text-[9px] font-bold text-rose-500 mt-1 text-center">
-                            ⚠️ নামের জায়গায় বিলার আইডি বা মোবাইল নম্বর বসানো হয়েছে!
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Due Date Card */}
-                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 hover:border-blue-400 transition-all">
-                        <label className="block text-[9.5px] font-black text-slate-500 uppercase tracking-wider mb-1">
-                          {lang === 'bn' ? 'বিল পরিশোধের শেষ সময়' : 'LAST PAYMENT DATE'} <span className="text-rose-500 font-bold">*</span>
-                        </label>
-                        <input
-                          type="date"
-                          required
-                          value={paybillDueDate}
-                          onChange={(e) => {
-                            setPaybillDueDate(e.target.value);
-                            setPaybillError('');
-                          }}
-                          className="w-full bg-white border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-blue-600 transition-all text-center"
-                        />
-                      </div>
-
-                      {/* Mobile Number Card */}
-                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 hover:border-blue-400 transition-all">
-                        <label className="block text-[9.5px] font-black text-slate-500 uppercase tracking-wider mb-1">
-                          {lang === 'bn' ? 'মোবাইল নাম্বার' : 'MOBILE PHONE NUMBER'} <span className="text-rose-500 font-bold">*</span>
-                        </label>
-                        <input
-                          type="tel"
-                          pattern="[0-9]*"
-                          maxLength={11}
-                          required
-                          value={paybillPhone}
-                          onChange={(e) => {
-                            setPaybillPhone(e.target.value);
-                            setPaybillError('');
-                          }}
-                          placeholder={lang === 'bn' ? '১১ ডিজিটের মোবাইল নম্বর দিন' : 'e.g. 017XXXXXXXX'}
-                          className={`w-full bg-white border px-3.5 py-2 rounded-xl text-xs font-mono font-bold outline-none transition-all tracking-wider text-center ${
-                            paybillPhone && (/[a-zA-Z\u0980-\u09FF]/.test(paybillPhone) || (paybillPhone.replace(/\D/g, '').length > 0 && !paybillPhone.replace(/\D/g, '').startsWith('01')))
-                              ? 'border-rose-400 text-rose-600 bg-rose-50/30'
-                              : 'border-slate-200 text-slate-800 focus:border-blue-600'
-                          }`}
-                        />
-                        {paybillPhone && /[a-zA-Z\u0980-\u09FF]/.test(paybillPhone) && (
-                          <p className="text-[9px] font-bold text-rose-500 mt-1 text-center">
-                            ⚠️ মোবাইল নম্বর ফিল্ডে নাম বা লেখা বসানো হয়েছে!
-                          </p>
-                        )}
+                        <div className="relative flex items-center">
+                          <input
+                            type="text"
+                            required
+                            value={paybillPhone}
+                            onChange={(e) => {
+                              setPaybillPhone(normalizeBdPhoneNumber(e.target.value));
+                              setPaybillError('');
+                            }}
+                            onPaste={(e) => {
+                              e.preventDefault();
+                              const pasted = e.clipboardData.getData('text');
+                              setPaybillPhone(normalizeBdPhoneNumber(pasted));
+                              setPaybillError('');
+                            }}
+                            placeholder={lang === 'bn' ? '১১ ডিজিটের মোবাইল নম্বর দিন' : 'e.g. 017XXXXXXXX'}
+                            className={`w-full bg-[#0f1924] border pl-3 pr-16 py-1.5 sm:py-2 rounded-lg text-xs font-mono font-bold outline-none transition-colors tracking-wider text-center ${
+                              paybillPhone && paybillPhone.length > 0 && !paybillPhone.startsWith('01')
+                                ? 'border-rose-500 text-rose-300'
+                                : 'border-sky-400/40 text-sky-50 placeholder:text-sky-300/40 focus:border-sky-400'
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              let pasted = '';
+                              try {
+                                if (navigator.clipboard?.readText) {
+                                  pasted = await navigator.clipboard.readText();
+                                }
+                              } catch {}
+                              if (!pasted) {
+                                try {
+                                  pasted = localStorage.getItem('hellopoint_clipboard_fallback') || '';
+                                } catch {}
+                              }
+                              if (pasted) {
+                                setPaybillPhone(normalizeBdPhoneNumber(pasted));
+                                setPaybillError('');
+                              }
+                            }}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-sky-700/60 hover:bg-sky-600 text-sky-100 hover:text-white rounded-md text-[9px] font-bold border border-sky-400/40 transition-all cursor-pointer flex items-center gap-1 shadow-xs active:scale-95"
+                            title={lang === 'bn' ? 'কপি করা নম্বর পেস্ট করুন' : 'Paste copied number'}
+                          >
+                            <ClipboardPaste className="w-3 h-3 shrink-0" />
+                            <span>{lang === 'bn' ? 'পেস্ট' : 'Paste'}</span>
+                          </button>
+                        </div>
                       </div>
 
                       {paybillError && (
-                        <p className="text-[9.5px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-center leading-normal shadow-xs">
+                        <p className="text-xs font-semibold text-rose-300 bg-rose-950/60 border border-rose-500/40 rounded-xl px-3 py-2 text-center leading-normal">
                           ⚠️ {paybillError}
                         </p>
                       )}
 
-                      {/* Action buttons */}
                       <div className="flex gap-2 pt-1">
                         <button
                           type="button"
                           onClick={() => setSelectedMethod(null)}
-                          className="flex-1 py-2 px-3 border border-slate-200 hover:bg-slate-50 text-slate-500 text-[10.5px] font-black rounded-xl transition-all cursor-pointer uppercase text-center"
+                          className="flex-1 py-2.5 px-3 border border-[#5e5571] hover:bg-[#3d364a] text-slate-200 text-xs font-bold rounded-xl transition-colors cursor-pointer uppercase text-center"
                         >
                           {lang === 'bn' ? 'বাতিল' : 'CANCEL'}
                         </button>
                         <button
                           type="submit"
-                          className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white text-[10.5px] font-black rounded-xl shadow-tiny cursor-pointer transition-all uppercase text-center"
+                          className="flex-1 py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-sm cursor-pointer transition-colors uppercase text-center"
                         >
                           {lang === 'bn' ? 'সাবমিট করুন' : 'SUBMIT BILL'}
                         </button>
@@ -1104,60 +1156,60 @@ export function CustomerPortal({
           )}
         </div>
 
-        {/* CUMULATIVE STATS COMPACT GRID ROW */}
-        <div className="grid grid-cols-2 gap-1.5">
-          <div className="bg-white rounded-xl border border-slate-100 p-2 flex flex-col justify-between h-[52px] shadow-tiny">
-            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider leading-none">
+        {/* CUMULATIVE STATS CARDS (CLEAN TWO-COLUMN GRID - HARMONIOUS PLUM-SLATE CARDS) */}
+        <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+          <div className="bg-[#363042] rounded-xl border border-[#5e5571] px-2.5 py-1.5 sm:p-2.5 shadow-sm flex flex-col justify-between">
+            <span className="text-[9px] font-bold text-purple-200 uppercase tracking-wider leading-none">
               {lang === 'bn' ? 'মোট খরিদ (বাকি)' : 'TOTAL GOODS TAKEN'}
             </span>
-            <span className="text-xs sm:text-sm font-black text-slate-850 tracking-tight leading-none mt-0.5">
+            <span className="text-xs sm:text-sm font-extrabold text-rose-400 tracking-tight leading-none mt-0.5 font-mono">
               {currency}{toBn(summary.totalGave.toFixed(2))}
             </span>
-            <span className="text-[7.5px] font-bold text-slate-400 leading-none">
-              {lang === 'bn' ? 'দোকানের ক্রিসেন্ট খাতা' : 'goods purchase invoice logs'}
+            <span className="text-[9px] font-medium text-slate-300 leading-none mt-0.5">
+              {lang === 'bn' ? 'দোকানের খাতা হিসাব' : 'goods purchase invoice logs'}
             </span>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-100 p-2 flex flex-col justify-between h-[52px] shadow-tiny">
-            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider leading-none">
+          <div className="bg-[#363042] rounded-xl border border-[#5e5571] px-2.5 py-1.5 sm:p-2.5 shadow-sm flex flex-col justify-between">
+            <span className="text-[9px] font-bold text-purple-200 uppercase tracking-wider leading-none">
               {lang === 'bn' ? 'মোট পরিশোধ (জমা)' : 'TOTAL PAID / DEPOSITED'}
             </span>
-            <span className="text-xs sm:text-sm font-black text-slate-850 tracking-tight leading-none mt-0.5">
+            <span className="text-xs sm:text-sm font-extrabold text-emerald-400 tracking-tight leading-none mt-0.5 font-mono">
               {currency}{toBn(summary.totalGot.toFixed(2))}
             </span>
-            <span className="text-[7.5px] font-bold text-slate-400 leading-none">
+            <span className="text-[9px] font-medium text-slate-300 leading-none mt-0.5">
               {lang === 'bn' ? `${toBn(summary.entryCount)}টি পেমেন্ট রশিদ` : `${summary.entryCount} total receipts`}
             </span>
           </div>
         </div>
 
-        {/* Categorical swapper - outside the grid */}
-        <div className="flex justify-between items-center bg-slate-50 border border-slate-205/65 p-1.5 rounded-lg mt-1.5 select-none print:hidden">
-          <div className="flex items-center gap-1.5 ml-1">
-            <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider">
+        {/* FILTER BAR (CLEAN SEGMENTED CONTROLS - HARMONIOUS PLUM-SLATE CARD) */}
+        <div className="flex justify-between items-center bg-[#363042] border border-[#5e5571] px-2.5 py-1 sm:py-1.5 rounded-xl select-none print:hidden shadow-sm">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-bold text-slate-100 uppercase tracking-wide">
               {lang === 'bn' ? 'হিসাব খতিয়ান ফিল্টার' : 'LEDGER ACCOUNT FILTER'}
             </span>
             <button 
               type="button"
               onClick={toggleHideRunningBalance}
               title={hideRunningBalance ? 'জের ব্যালেন্স দেখান' : 'জের ব্যালেন্স লুকান'}
-              className="p-0.5 hover:bg-slate-200 active:scale-95 text-slate-500 rounded transition-all cursor-pointer inline-flex items-center justify-center shrink-0"
+              className="p-0.5 hover:bg-[#2b2635] text-purple-200 hover:text-white rounded transition-colors cursor-pointer inline-flex items-center justify-center"
             >
               {hideRunningBalance ? (
-                <EyeOff className="w-3.5 h-3.5 text-slate-400 hover:text-purple-600" />
+                <EyeOff className="w-3.5 h-3.5 text-purple-300 hover:text-white" />
               ) : (
-                <Eye className="w-3.5 h-3.5 text-slate-400 hover:text-purple-600" />
+                <Eye className="w-3.5 h-3.5 text-purple-300 hover:text-white" />
               )}
             </button>
           </div>
-          <div className="flex rounded-lg bg-slate-200 p-0.5 select-none text-[8.5px] font-extrabold">
+          <div className="flex rounded-lg bg-[#2b2635] border border-[#5e5571] p-0.5 select-none text-[11px] font-bold">
             <button
               type="button"
               onClick={() => setFilterType('all')}
-              className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+              className={`px-2.5 py-0.5 rounded-md transition-colors cursor-pointer ${
                 filterType === 'all' 
-                  ? 'bg-purple-650 text-white shadow-tiny font-black' 
-                  : 'text-slate-550 hover:text-slate-855'
+                  ? 'bg-purple-600 text-white shadow-xs' 
+                  : 'text-purple-200 hover:text-white'
               }`}
             >
               {lang === 'bn' ? 'সব' : 'All'}
@@ -1165,10 +1217,10 @@ export function CustomerPortal({
             <button
               type="button"
               onClick={() => setFilterType('gave')}
-              className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+              className={`px-2.5 py-0.5 rounded-md transition-colors cursor-pointer ${
                 filterType === 'gave' 
-                  ? 'bg-rose-500 text-white font-black shadow-tiny' 
-                  : 'text-slate-550 hover:text-slate-855'
+                  ? 'bg-rose-600 text-white shadow-xs' 
+                  : 'text-purple-200 hover:text-white'
               }`}
             >
               {lang === 'bn' ? 'ক্রয়' : 'Purchased'}
@@ -1176,10 +1228,10 @@ export function CustomerPortal({
             <button
               type="button"
               onClick={() => setFilterType('got')}
-              className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+              className={`px-2.5 py-0.5 rounded-md transition-colors cursor-pointer ${
                 filterType === 'got' 
-                  ? 'bg-emerald-600 text-white font-black shadow-tiny' 
-                  : 'text-slate-550 hover:text-slate-855'
+                  ? 'bg-emerald-600 text-white shadow-xs' 
+                  : 'text-purple-200 hover:text-white'
               }`}
             >
               {lang === 'bn' ? 'পরিশোধ' : 'Paid'}
@@ -1187,84 +1239,53 @@ export function CustomerPortal({
           </div>
         </div>
 
-        {/* Search input within customer transactions */}
-        <div className="bg-white flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200/80 shadow-tiny print:hidden">
-          <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+        {/* SEARCH BAR (HARMONIOUS PLUM-SLATE CARD) */}
+        <div className="bg-[#363042] flex items-center gap-2 px-2.5 py-1 sm:py-1.5 rounded-xl border border-[#5e5571] shadow-sm focus-within:border-purple-300 transition-colors print:hidden">
+          <Search className="w-3.5 h-3.5 text-purple-300 shrink-0" />
           <input 
             type="text" 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={lang === 'bn' ? 'নোট, ভাউচার নং বা টাকার পরিমাণ দিয়ে খুঁজুন...' : 'Search by note, bill no or amount...'}
-            className="w-full bg-transparent border-none text-[10.5px] outline-none placeholder:text-slate-400 font-bold"
+            className="w-full bg-transparent border-none text-xs outline-none text-slate-100 placeholder:text-purple-200/50 font-medium py-0"
           />
           {searchQuery && (
             <button 
               type="button" 
               onClick={() => setSearchQuery('')} 
-              className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+              className="text-purple-200 hover:text-white p-0.5 rounded cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
 
-        {/* Column labels matching 12-column row layout */}
-        <div className="grid grid-cols-12 items-center text-[8.5px] font-bold text-slate-400 uppercase px-2 sm:px-3 mb-1.5 select-none print:hidden">
-          <div className="col-span-5 sm:col-span-5 flex items-center gap-1 min-w-0">
+        {/* TABLE COLUMN HEADER */}
+        <div className="grid grid-cols-12 items-center text-[9px] font-bold text-purple-200 uppercase px-2 py-0.5 select-none print:hidden">
+          <div className="col-span-5 flex items-center gap-1 min-w-0">
             <span className="truncate">{lang === 'bn' ? `তারিখ ও বিবরণ (${filteredTxs.length})` : `Date & Note (${filteredTxs.length})`}</span>
           </div>
-          <div className="col-span-4 sm:col-span-4 text-center">
-            <span className="text-slate-500 font-black">{lang === 'bn' ? 'মূল ব্যালেন্স' : 'Amount'}</span>
+          <div className="col-span-4 text-center">
+            <span className="text-purple-200 font-bold">{lang === 'bn' ? 'মূল ব্যালেন্স' : 'Amount'}</span>
           </div>
-          <div className="col-span-3 sm:col-span-3 text-right">
-            <span className="text-slate-500 font-black">{!hideRunningBalance ? (lang === 'bn' ? 'জের ব্যালেন্স' : 'Balance') : (lang === 'bn' ? 'জের (লুকানো)' : 'Hidden')}</span>
+          <div className="col-span-3 text-right">
+            <span className="text-purple-200 font-bold">{!hideRunningBalance ? (lang === 'bn' ? 'জের ব্যালেন্স' : 'Balance') : (lang === 'bn' ? 'জের (লুকানো)' : 'Hidden')}</span>
           </div>
         </div>
 
-        {/* Render Timeline entries - LONG BILLER CARD STYLE */}
-        <div className="space-y-3 sm:space-y-3.5">
+        {/* TRANSACTION HISTORY ROWS (LIGHT DARK CARDS ON SOFT DARK BACKGROUND #4A4459) */}
+        <div className="space-y-1">
             {dateGroupedPortalTxs.length === 0 ? (
-              <div className="text-center py-6 text-slate-400 border border-dashed border-slate-150 rounded-xl">
-                <Clock className="w-5 h-5 text-slate-350 mx-auto mb-1 animate-pulse" />
-                <p className="text-[10px] font-bold leading-none">
+              <div className="text-center py-6 text-purple-200 border border-dashed border-[#5e5571] rounded-xl bg-[#363042]/70">
+                <Clock className="w-4 h-4 text-purple-300 mx-auto mb-1.5" />
+                <p className="text-xs font-semibold leading-none">
                   {lang === 'bn' ? 'কোনো লেনদেনের রেকর্ড পাওয়া যায়নি।' : 'No records match search parameters.'}
                 </p>
               </div>
             ) : (
               dateGroupedPortalTxs.map((group) => {
-                // Card density mapping configurations for transaction rows
-                const rowStyles = {
-                  compact: {
-                    containerPadding: "px-2 py-0.5 sm:py-1 gap-1",
-                    dateText: "text-[7.5px] sm:text-[8px]",
-                    separator: "text-[7.5px]",
-                    noteText: "text-[9.5px] sm:text-[10px]",
-                    amountText: "text-[10px] sm:text-[10.5px]",
-                    balanceText: "text-[10px] sm:text-[10.5px]"
-                  },
-                  comfortable: {
-                    containerPadding: "px-2.5 py-1 sm:py-1.5 gap-1.5",
-                    dateText: "text-[8px] sm:text-[8.5px]",
-                    separator: "text-[8px]",
-                    noteText: "text-[10.5px] sm:text-[11px]",
-                    amountText: "text-[11px] sm:text-[11.5px]",
-                    balanceText: "text-[11px] sm:text-[11.5px]"
-                  },
-                  large: {
-                    containerPadding: "px-3 py-1.5 sm:py-2 gap-2",
-                    dateText: "text-[9px] sm:text-[9.5px]",
-                    separator: "text-[9px]",
-                    noteText: "text-[11.5px] sm:text-[12px]",
-                    amountText: "text-[12px] sm:text-[12.5px]",
-                    balanceText: "text-[12px] sm:text-[12.5px]"
-                  }
-                };
-
-                const style = rowStyles[cardDensity] || rowStyles.comfortable;
-
                 return (
-                  <div key={group.dateKey} className="space-y-1 sm:space-y-1.5 flex flex-col">
-                    {/* Entries for this date */}
+                  <div key={group.dateKey} className="space-y-1 flex flex-col">
                     {group.items.map((tx) => {
                       const isGave = tx.type === 'GAVE';
                       const isToday = isDateToday(tx.date || tx.createdAt);
@@ -1273,29 +1294,24 @@ export function CustomerPortal({
                         <div 
                           key={tx.id}
                           onClick={() => setSelectedTx(tx)}
-                          className={`${
-                            !isGave
-                              ? 'bg-emerald-50/70 hover:bg-emerald-100/60 border-emerald-200/80'
-                              : 'bg-white hover:bg-slate-50 border-slate-200/50'
-                          } border rounded-lg ${style.containerPadding} grid grid-cols-12 items-center cursor-pointer transition-all shadow-tiny hover:border-purple-300 select-none text-left gap-1 sm:gap-2`}
+                          className="bg-[#363042] hover:bg-[#413a4f] border border-[#5e5571] hover:border-purple-300/60 rounded-lg px-2.5 py-1.5 sm:py-2 grid grid-cols-12 items-center cursor-pointer transition-colors shadow-xs select-none text-left gap-1"
                         >
-                          <div className="col-span-5 sm:col-span-5 flex items-center gap-1.5 sm:gap-2 min-w-0">
-                            {/* Date: Light yellow/amber for today, muted slate for other days */}
+                          {/* Col 1: Date & Note */}
+                          <div className="col-span-5 flex items-center gap-1.5 min-w-0">
                             <span 
-                              className={`${style.dateText} font-mono shrink-0 ${
+                              className={`text-[9px] sm:text-[10px] font-mono shrink-0 ${
                                 isToday 
-                                  ? 'text-amber-500 dark:text-yellow-300 font-black' 
-                                  : 'text-slate-400 font-bold'
+                                  ? 'text-amber-300 font-bold' 
+                                  : 'text-purple-200 font-medium'
                               }`}
                               title={isToday ? (lang === 'bn' ? 'আজকের লেনদেন' : 'Today\'s transaction') : undefined}
                             >
                               {formatTxDate(tx.date || tx.createdAt)}
                             </span>
                             
-                            <span className={`text-slate-300 ${style.separator} shrink-0 font-light`}>|</span>
+                            <span className="text-[#5e5571] text-[9px] shrink-0">|</span>
        
-                            {/* Note / Comment */}
-                            <span className={`${style.noteText} font-extrabold text-slate-700 truncate min-w-0 flex-1`}>
+                            <span className="text-xs font-semibold text-white truncate min-w-0 flex-1">
                               {tx.note || (isGave 
                                 ? (lang === 'bn' ? 'পণ্য ক্রয় হিসাব' : 'Goods Purchased') 
                                 : (lang === 'bn' ? 'টাকা জমা/পরিশোধ' : 'Amount Deposited'))
@@ -1303,34 +1319,34 @@ export function CustomerPortal({
                             </span>
                           </div>
 
-                          {/* Middle Column: Main Balance (মূল ব্যালেন্স) - centered in the middle, in a straight vertical line */}
-                          <div className="col-span-4 sm:col-span-4 flex items-center justify-center text-center">
-                            <span className={`${style.amountText} font-black font-mono tabular-nums tracking-tight whitespace-nowrap text-center ${
-                              !isGave ? 'text-emerald-600' : 'text-rose-600'
+                          {/* Col 2: Amount (মূল ব্যালেন্স) */}
+                          <div className="col-span-4 flex items-center justify-center text-center">
+                            <span className={`text-xs sm:text-sm font-extrabold font-mono tabular-nums tracking-tight whitespace-nowrap text-center ${
+                              !isGave ? 'text-emerald-400' : 'text-rose-400'
                             }`}>
                               {!isGave ? '+' : '-'}{currency}{toBn(tx.amount.toFixed(2))}
                             </span>
                           </div>
 
-                          {/* Right Column: Running Balance Column (জের ব্যালেন্স) */}
-                          <div className="col-span-3 sm:col-span-3 flex items-center justify-end text-right">
+                          {/* Col 3: Running Balance (জের ব্যালেন্স) */}
+                          <div className="col-span-3 flex items-center justify-end text-right">
                             {!hideRunningBalance ? (
-                              <span className={`${style.balanceText} font-bold tracking-tight leading-none inline-flex items-center justify-end gap-0.5 shrink-0 whitespace-nowrap text-right`}>
-                                <span className="text-slate-400 font-normal">(</span>
-                                <span className={`font-black font-mono tabular-nums ${
+                              <span className="text-[11px] sm:text-xs font-mono font-bold tracking-tight inline-flex items-center justify-end shrink-0 whitespace-nowrap text-right">
+                                <span className="text-purple-300 font-normal mr-0.5">(</span>
+                                <span className={`tabular-nums ${
                                   (tx as any).runningBalance < 0 
-                                    ? 'text-emerald-600 dark:text-emerald-400' 
+                                    ? 'text-emerald-400' 
                                     : (tx as any).runningBalance > 0
-                                    ? 'text-rose-600 dark:text-rose-400'
-                                    : 'text-slate-600 dark:text-slate-400'
+                                    ? 'text-rose-400'
+                                    : 'text-purple-200'
                                 }`}>
                                   {(tx as any).runningBalance < 0 ? '+' : (tx as any).runningBalance > 0 ? '-' : ''}
                                   {currency}{toBn(Math.abs((tx as any).runningBalance).toFixed(1))}
                                 </span>
-                                <span className="text-slate-400 font-normal">)</span>
+                                <span className="text-purple-300 font-normal ml-0.5">)</span>
                               </span>
                             ) : (
-                              <span className="text-[9px] font-extrabold text-slate-300 tracking-wider leading-none shrink-0 text-right">
+                              <span className="text-xs font-mono text-purple-300 tracking-wider shrink-0 text-right">
                                 (•••)
                               </span>
                             )}
@@ -1344,141 +1360,139 @@ export function CustomerPortal({
             )}
           </div>
 
-          {/* Print Report Text at the extremely bottom of history list */}
-          <div className="pt-5 pb-1 flex justify-center print:hidden">
+          {/* Print Statement Button */}
+          <div className="pt-3 pb-1 flex justify-center print:hidden">
             <button 
               onClick={handlePrintPortal}
-              className="inline-flex items-center gap-2 bg-brand-light hover:bg-brand-light/95 border border-brand-primary/20 text-brand-hover font-black text-[11px] px-5 py-2.5 rounded-full shadow-sm transition-all duration-200 cursor-pointer animate-pulse hover:animate-none"
+              className="inline-flex items-center gap-1.5 bg-[#363042] hover:bg-[#413a4f] border border-[#5e5571] text-slate-100 hover:text-white font-bold text-xs px-4 py-1.5 rounded-lg shadow-sm transition-colors cursor-pointer"
             >
-              <Printer className="w-4 h-4 text-brand-hover" />
+              <Printer className="w-3.5 h-3.5 text-purple-300" />
               <span>{lang === 'bn' ? 'রিপোর্ট প্রিন্ট করুন' : 'Print Statement Report'}</span>
             </button>
           </div>
         </main>
 
-      {/* DENSE SYSTEM STATEMENT FOOTER */}
-      <footer className="mt-auto border-t border-slate-200 bg-white p-3 text-center print:border-none print:bg-white">
-        <p className="text-[9px] font-black text-slate-405 uppercase tracking-widest">
+      {/* SYSTEM STATEMENT FOOTER */}
+      <footer className="mt-auto border-t border-[#5e5571] bg-[#363042] p-3 text-center print:border-none print:bg-white print:text-slate-800">
+        <p className="text-[10px] font-bold text-purple-200 uppercase tracking-wider">
           {lang === 'bn' ? ' হ্যালো পয়েন্ট - মেসার্স এন্টারপ্রাইজ' : ' HELLO POINT LEDGER ACCOUNT SECURITY'}
         </p>
-        <p className="text-[7.5px] font-bold text-slate-400 mt-1 uppercase tracking-wide">
+        <p className="text-[9px] font-medium text-purple-300/80 mt-0.5">
           {lang === 'bn' 
             ? 'এই হিসাব বিবরণীটি একটি সংরক্ষিত এন্ট্রি যা কেবল মালিক পরিবর্তন বা রদবদল করতে পারেন।'
             : 'Internal transactions bookkeeping remains certified by admin credentials of overall owner.'}
         </p>
       </footer>
 
-      {/* COMPACT MODAL: VIEW SINGLE LEDGER TRANSACTION DETAILS (RECEIPT PREVIEW) */}
+      {/* TRANSACTION DETAILS MODAL */}
       {selectedTx && (
-        <div id="tx-receipt-details-portal" className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[999999] print:hidden">
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-2xl p-5 w-full max-w-sm flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-3">
-              <span className="text-[9.5px] font-black text-brand-primary uppercase tracking-widest">
+        <div id="tx-receipt-details-portal" className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-[999999] print:hidden">
+          <div className="bg-[#363042] rounded-2xl border border-[#5e5571] shadow-2xl p-5 w-full max-w-sm flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center border-b border-[#5e5571] pb-3 mb-3">
+              <span className="text-xs font-bold text-purple-200 uppercase tracking-wider">
                 {lang === 'bn' ? 'লেনদেনের বিস্তারিত রশিদ' : 'RECEIPT VOUCHER'}
               </span>
               <button 
                 onClick={() => setSelectedTx(null)}
-                className="w-6 h-6 rounded-full bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 transition-all cursor-pointer"
+                className="w-7 h-7 rounded-lg bg-[#2b2635] hover:bg-[#3d364a] border border-[#5e5571] flex items-center justify-center text-slate-200 hover:text-white transition-colors cursor-pointer"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin">
-              
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
               {/* Receipt status */}
-              <div className="text-center bg-slate-50 border border-slate-150 p-3 rounded-2xl">
-                <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full inline-block mb-1.5 ${
-                  selectedTx.type === 'GAVE' ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+              <div className="text-center bg-[#2b2635] border border-[#5e5571] p-3.5 rounded-xl">
+                <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full inline-block mb-1.5 ${
+                  selectedTx.type === 'GAVE' ? 'bg-rose-950/60 text-rose-300 border border-rose-500/40' : 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
                 }`}>
                   {selectedTx.type === 'GAVE' ? (lang === 'bn' ? 'মাল ক্রয় করেছেন' : 'Purchased') : (lang === 'bn' ? 'টাকা পরিশোধ/জমা' : 'Amount Deposited')}
                 </span>
                 
-                <h4 className={`text-2xl font-light font-sans tracking-tight ${
-                  selectedTx.type === 'GAVE' ? 'text-[#ff3b30]' : 'text-[#34c759]'
+                <h4 className={`text-2xl font-extrabold font-mono tracking-tight ${
+                  selectedTx.type === 'GAVE' ? 'text-rose-400' : 'text-emerald-400'
                 }`}>
                   {selectedTx.type === 'GAVE' ? '-' : '+'} {currency}{toBn(selectedTx.amount.toFixed(2))}
                 </h4>
               </div>
 
               {/* Transaction details block */}
-              <div className="grid grid-cols-2 gap-3 text-[10.5px] font-bold text-slate-550">
-                <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
-                  <span className="text-[8px] font-black text-slate-400 uppercase block tracking-wider mb-0.5">
+              <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-300">
+                <div className="bg-[#2b2635] p-2.5 rounded-xl border border-[#5e5571]">
+                  <span className="text-[9px] font-bold text-purple-200 uppercase block tracking-wider mb-0.5">
                     {lang === 'bn' ? 'রশিদ নং' : 'BILL NO'}
                   </span>
-                  <span className="text-slate-800 font-mono font-black select-all">
+                  <span className="text-white font-mono font-bold select-all">
                     {selectedTx.billNo ? toBn(selectedTx.billNo) : (lang === 'bn' ? '- মন্তব্য নেই -' : 'N/A')}
                   </span>
                 </div>
 
-                <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
-                  <span className="text-[8px] font-black text-slate-400 uppercase block tracking-wider mb-0.5">
+                <div className="bg-[#2b2635] p-2.5 rounded-xl border border-[#5e5571]">
+                  <span className="text-[9px] font-bold text-purple-200 uppercase block tracking-wider mb-0.5">
                     {lang === 'bn' ? 'তারিখ ও সময়' : 'DATE & TIME'}
                   </span>
-                  <span className="text-slate-800 leading-tight block">
+                  <span className="text-slate-100 leading-tight block">
                     {formatTxDate(selectedTx.date || selectedTx.createdAt)}
                   </span>
                 </div>
               </div>
 
-              <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100 text-[10.5px]">
-                <span className="text-[8.5px] font-black text-slate-400 uppercase block tracking-wider mb-0.5">
+              <div className="bg-[#2b2635] p-2.5 rounded-xl border border-[#5e5571] text-xs">
+                <span className="text-[9px] font-bold text-purple-200 uppercase block tracking-wider mb-0.5">
                   {lang === 'bn' ? 'বিবরণ বা পণ্য মন্তব্য' : 'REMARKS / INVOICE DETS'}
                 </span>
-                <span className="text-slate-800 font-bold">
+                <span className="text-slate-100 font-semibold">
                   {selectedTx.note || (lang === 'bn' ? 'কোনো বিবরণ রেকর্ড করা নেই।' : 'No note entered.')}
                 </span>
               </div>
 
-              {/* Media upload view (attached voucher paper photo) */}
+              {/* Attached voucher photo */}
               {selectedTx.attachFile && (
-                <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
-                  <span className="text-[8.5px] font-black text-slate-400 uppercase block tracking-wider mb-1.5 flex items-center gap-1">
+                <div className="bg-[#2b2635] p-2.5 rounded-xl border border-[#5e5571]">
+                  <span className="text-[9px] font-bold text-purple-200 uppercase block tracking-wider mb-1.5 flex items-center gap-1">
                     <Image className="w-3.5 h-3.5 text-indigo-400" />
                     <span>{lang === 'bn' ? 'সংযুক্ত রশিদের ছবি' : 'ATTACHED VOUCHER DOCUMENT'}</span>
                   </span>
-                  <div className="relative rounded-lg overflow-hidden border border-slate-200 bg-white max-h-48 flex items-center justify-center">
+                  <div className="relative rounded-lg overflow-hidden border border-[#5e5571] bg-black/60 max-h-48 flex items-center justify-center">
                     <img 
                       src={selectedTx.attachFile} 
                       alt="receipt attach" 
-                      className="max-h-48 object-contain scale-in duration-300 w-full"
+                      className="max-h-48 object-contain w-full"
                       referrerPolicy="no-referrer"
                     />
                   </div>
                 </div>
               )}
 
-              {/* Base64 dynamic Signature canvas */}
+              {/* Signature canvas */}
               {selectedTx.signature && (
-                <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
-                  <span className="text-[8.5px] font-black text-slate-400 uppercase block tracking-wider mb-1 flex items-center gap-1">
-                    <PenTool className="w-3.5 h-3.5 text-[#ff9500]" />
+                <div className="bg-[#2b2635] p-2.5 rounded-xl border border-[#5e5571]">
+                  <span className="text-[9px] font-bold text-purple-200 uppercase block tracking-wider mb-1 flex items-center gap-1">
+                    <PenTool className="w-3.5 h-3.5 text-amber-400" />
                     <span>{lang === 'bn' ? 'গ্রাহকের স্বাক্ষর ভেরিফিকেশন' : 'CUSTOMER SIGNLOCK VERIFIED'}</span>
                   </span>
-                  <div className="bg-orange-50/40 p-2 rounded-lg border border-orange-100/50 flex justify-center items-center h-24">
+                  <div className="bg-[#363042] p-2 rounded-lg border border-[#5e5571] flex justify-center items-center h-20">
                     <img 
                       src={selectedTx.signature} 
                       alt="Signature" 
-                      className="max-h-20 object-contain selection:bg-transparent"
+                      className="max-h-16 object-contain invert" 
                       referrerPolicy="no-referrer"
                     />
                   </div>
                 </div>
               )}
-
             </div>
 
-            <div className="flex gap-2 border-t border-slate-100 pt-3 mt-3">
+            <div className="flex gap-2 border-t border-[#5e5571] pt-3 mt-3">
               <button
                 onClick={() => setSelectedTx(null)}
-                className="flex-1 py-1.8 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 text-[10.5px] font-black rounded-xl transition-all cursor-pointer"
+                className="flex-1 py-2 bg-[#2b2635] hover:bg-[#3d364a] border border-[#5e5571] text-slate-200 text-xs font-bold rounded-xl transition-colors cursor-pointer"
               >
                 {lang === 'bn' ? 'বন্ধ করুন' : 'Close Receipt'}
               </button>
               <button
                 onClick={handlePrintReceipt}
-                className="flex-1 py-1.8 bg-purple-650 hover:bg-purple-600 text-white text-[10.5px] font-black rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-tiny"
+                className="flex-1 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>{lang === 'bn' ? 'প্রিন্ট রশিদ' : 'Print Voucher'}</span>
@@ -1488,40 +1502,40 @@ export function CustomerPortal({
         </div>
       )}
 
-      {/* BEAUTIFUL CUSTOM FULL-SCREEN IMAGE ZOOM MODAL */}
+      {/* FULL-SCREEN IMAGE ZOOM MODAL */}
       {zoomedImage && (
         <div 
           id="photo-zoom-dialog-overlay"
           onClick={() => setZoomedImage(null)}
-          className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-[999999] animate-fade-in print:hidden"
+          className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-[999999] print:hidden"
         >
           <div 
-            className="relative bg-white rounded-3xl p-3 border border-slate-100 shadow-2xl flex flex-col items-center justify-center w-full max-w-[340px] animate-scale-in"
+            className="relative bg-[#131823] rounded-2xl p-3 border border-[#222c3f] shadow-2xl flex flex-col items-center justify-center w-full max-w-[340px]"
             onClick={e => e.stopPropagation()}
           >
             <button 
               onClick={() => setZoomedImage(null)}
-              className="absolute top-3 right-3 bg-slate-100/80 hover:bg-slate-200 text-slate-700 rounded-full p-1.5 transition-all active:scale-90 cursor-pointer z-10"
+              className="absolute top-3 right-3 bg-[#0b0f17] hover:bg-slate-800 text-slate-300 rounded-lg p-1.5 transition-colors cursor-pointer z-10"
               title="বন্ধ করুন"
             >
-              <X className="w-4 h-4 text-slate-800" />
+              <X className="w-4 h-4 text-slate-200" />
             </button>
-            <div className="w-full aspect-square rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 flex items-center justify-center shadow-inner mt-6 mb-3">
+            <div className="w-full aspect-square rounded-xl overflow-hidden border border-[#1e2638] bg-black/60 flex items-center justify-center mt-6 mb-3">
               <img 
                 src={zoomedImage.url} 
                 alt={zoomedImage.name} 
                 referrerPolicy="no-referrer"
-                className="w-full h-full object-cover animate-fade-in"
+                className="w-full h-full object-cover" 
               />
             </div>
-            <h3 className="text-xs font-black text-slate-800 mb-2 truncate max-w-full px-2 text-center leading-tight">
+            <h3 className="text-xs font-bold text-slate-100 mb-2 truncate max-w-full px-2 text-center leading-tight">
               {zoomedImage.name}
             </h3>
           </div>
         </div>
       )}
 
-      {/* ACTIVE CLIENT CHAT DIALOG FOR CUSTOMER VIEW */}
+      {/* ACTIVE CLIENT CHAT DIALOG */}
       <AnimatePresence>
         {showChatModal && (
           <ChatBox 
@@ -1539,24 +1553,24 @@ export function CustomerPortal({
         )}
       </AnimatePresence>
 
-      {/* Pay-Bill Success Modal Popup */}
+      {/* PAY-BILL SUCCESS MODAL */}
       {showPaybillSuccessPopup && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[99999] animate-fade-in select-text">
-          <div className="w-full max-w-sm bg-white border border-slate-200/95 rounded-[32px] shadow-2xl p-6 flex flex-col items-center text-center animate-slide-up">
-            <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4 shrink-0">
-              <Check className="w-6 h-6 animate-bounce text-emerald-600" />
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-[99999] select-text">
+          <div className="w-full max-w-sm bg-[#131823] border border-[#222c3f] rounded-2xl shadow-2xl p-5 flex flex-col items-center text-center">
+            <div className="w-12 h-12 bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 rounded-full flex items-center justify-center mb-3 shrink-0">
+              <Check className="w-6 h-6 text-emerald-400" />
             </div>
             
-            <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-2">
+            <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider mb-2">
               {lang === 'bn' ? 'বিল সাবমিট সফল!' : 'BILL SUBMIT SUCCESSFUL!'}
             </h3>
             
-            <p className="text-xs text-slate-650 leading-relaxed mb-5">
+            <p className="text-xs text-slate-300 leading-relaxed mb-4">
               {lang === 'bn' ? (
                 <>
                   আপনার বিল সাবমিট সফল হয়েছে ধন্যবাদ। আপনার বিলের সিরিয়াল নাম্বারটি নিচে দেওয়া হলো, এটি আপনার বিলের পেপারে লিখে রাখুন।
                   <br />
-                  <span className="font-mono font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-xl text-sm border border-blue-100 inline-block my-2">
+                  <span className="font-mono font-bold text-blue-300 bg-blue-950/60 px-3 py-1.5 rounded-xl text-sm border border-blue-500/30 inline-block my-2">
                     {toBn(paybillSuccessSerial)}
                   </span>
                 </>
@@ -1564,7 +1578,7 @@ export function CustomerPortal({
                 <>
                   Your bill submission has been successful, thank you. Your bill serial number is shown below, please write it on your bill paper.
                   <br />
-                  <span className="font-mono font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-xl text-sm border border-blue-100 inline-block my-2">
+                  <span className="font-mono font-bold text-blue-300 bg-blue-950/60 px-3 py-1.5 rounded-xl text-sm border border-blue-500/30 inline-block my-2">
                     {paybillSuccessSerial}
                   </span>
                 </>
@@ -1573,7 +1587,7 @@ export function CustomerPortal({
             
             <button
               onClick={() => setShowPaybillSuccessPopup(false)}
-              className="w-full py-2.5 bg-gradient-to-r from-emerald-600 to-teal-650 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs rounded-xl shadow-tiny cursor-pointer transition-all active:scale-95 uppercase"
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-sm cursor-pointer transition-colors uppercase"
             >
               {lang === 'bn' ? 'ঠিক আছে' : 'OKAY'}
             </button>

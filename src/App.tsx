@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { safeLocalStorage as localStorage } from './utils/safeStorage';
 import { motion, AnimatePresence } from 'motion/react';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, ChatQuickFAQ, CashInAccount, CashInTransaction } from './types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, ChatQuickFAQ, CashInAccount, CashInTransaction, CustomerLoginNotification } from './types';
 import { 
   loadContacts, 
   saveContacts, 
@@ -24,7 +24,9 @@ import {
   saveCashInTransactions,
   findMatchingCashInAccount,
   getCurrency,
-  saveCurrency
+  saveCurrency,
+  loadCustomerLoginNotifications,
+  saveCustomerLoginNotifications
 } from './utils/storage';
 import { MainDashboard } from './components/MainDashboard';
 import { CustomerDetail } from './components/CustomerDetail';
@@ -173,6 +175,9 @@ export default function App() {
 
   // Paybill requests state
   const [paybillRequests, setPaybillRequests] = useState<PayBillRequest[]>([]);
+
+  // Customer login notifications state
+  const [customerLogins, setCustomerLogins] = useState<CustomerLoginNotification[]>(() => loadCustomerLoginNotifications());
 
   // Synchronized security passcode state
   const [ownerPin, setOwnerPin] = useState<string>(() => localStorage.getItem('hellopoint_pin') || '1234');
@@ -628,7 +633,9 @@ export default function App() {
 
       setRechargeRequests(list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       localStorage.setItem('hellopoint_recharge_requests', JSON.stringify(list));
-      window.dispatchEvent(new Event('storage'));
+      setTimeout(() => {
+        window.dispatchEvent(new Event('storage'));
+      }, 0);
     }, (error) => {
       console.error('Failed to subscribe to recharge requests:', error);
       handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/recharge_requests`);
@@ -703,7 +710,9 @@ export default function App() {
 
       setPaybillRequests(list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       localStorage.setItem('hellopoint_paybill_requests', JSON.stringify(list));
-      window.dispatchEvent(new Event('storage'));
+      setTimeout(() => {
+        window.dispatchEvent(new Event('storage'));
+      }, 0);
     }, (error) => {
       console.error('Failed to subscribe to paybill requests:', error);
       handleFirestoreError(error, OperationType.LIST, `users/${activeUid}/paybill_requests`);
@@ -789,6 +798,38 @@ export default function App() {
       console.error('Failed to subscribe to quick_faqs:', error);
     });
 
+    const qCustomerLogins = collection(db, 'users', activeUid, 'customer_logins');
+    let isLoginsInitial = true;
+    const unsubCustomerLogins = onSnapshot(qCustomerLogins, (snapshot) => {
+      const list: CustomerLoginNotification[] = [];
+      snapshot.forEach((snapDoc) => {
+        const data = snapDoc.data() as CustomerLoginNotification;
+        list.push({ ...data, id: data.id || snapDoc.id });
+      });
+
+      if (!isLoginsInitial && !isCustDevice) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const loginData = change.doc.data() as CustomerLoginNotification;
+            notifyWithDeduplication({
+              title: '🔔 কাস্টমার ভিজিট করেছেন!',
+              body: `${loginData.customerName || 'কাস্টমার'} অ্যাপে ভিজিট করেছেন।`,
+              tag: `login-${change.doc.id}`,
+              dedupeKey: `login-${change.doc.id}`,
+              playSound: true
+            });
+          }
+        });
+      }
+      isLoginsInitial = false;
+
+      const sorted = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50);
+      setCustomerLogins(sorted);
+      saveCustomerLoginNotifications(sorted);
+    }, (error) => {
+      console.warn('Customer logins sync notice:', error);
+    });
+
     return () => {
       unsubContacts();
       unsubTransactions();
@@ -800,6 +841,7 @@ export default function App() {
       unsubPaybillRequests();
       unsubChats();
       unsubQuickFaqs();
+      unsubCustomerLogins();
     };
   }, [user, ownerUid, authLoading, sessionRole, loggedInCustomerId]);
 
@@ -830,16 +872,18 @@ export default function App() {
   // Real-time cross-tab synchronization listener
   useEffect(() => {
     const handleStorageChange = () => {
-      setQuickFaqs(loadQuickFaqs());
-      const savedChats = localStorage.getItem('hellopoint_chat_messages');
-      if (savedChats) {
-        try {
-          const parsed = JSON.parse(savedChats);
-          if (Array.isArray(parsed)) {
-            setChatMessages(parsed);
-          }
-        } catch {}
-      }
+      setTimeout(() => {
+        setQuickFaqs(loadQuickFaqs());
+        const savedChats = localStorage.getItem('hellopoint_chat_messages');
+        if (savedChats) {
+          try {
+            const parsed = JSON.parse(savedChats);
+            if (Array.isArray(parsed)) {
+              setChatMessages(parsed);
+            }
+          } catch {}
+        }
+      }, 0);
     };
 
     window.addEventListener('storage', handleStorageChange);
@@ -2591,13 +2635,119 @@ export default function App() {
           localStorage.setItem('hellopoint_remembered_cust_id', updated[0].id);
           localStorage.setItem('hellopoint_remembered_cust_name', updated[0].name);
           localStorage.setItem('hellopoint_remembered_cust_num', updated[0].phone);
-          window.dispatchEvent(new Event('storage'));
+          setTimeout(() => {
+            window.dispatchEvent(new Event('storage'));
+          }, 0);
         } catch (e) {
           console.error('Failed to sync remembered customer in handleUnlock:', e);
+        }
+
+        // Record customer login notification for the store owner
+        if (role === 'customer') {
+          const loginEvent: CustomerLoginNotification = {
+            id: 'login_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+            contactId: custObj.id,
+            customerName: custObj.name || 'কাস্টমার',
+            customerPhone: custObj.phone || '',
+            loginTime: new Date().toISOString(),
+            read: false,
+            createdAt: new Date().toISOString()
+          };
+
+          setCustomerLogins(prev => {
+            const updated = [loginEvent, ...prev.filter(l => l.id !== loginEvent.id)].slice(0, 50);
+            saveCustomerLoginNotifications(updated);
+            return updated;
+          });
+
+          const targetUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid') || 'lJRGRj5w92RxSUcGybklzs3cFho1';
+          if (targetUid) {
+            setDoc(doc(db, 'users', targetUid, 'customer_logins', loginEvent.id), cleanForFirestore(loginEvent))
+              .catch(err => console.warn('Customer login cloud sync notice:', err));
+          }
         }
       }
     } else {
       localStorage.removeItem('hellopoint_session_customer_id');
+    }
+  };
+
+  const handleMarkCustomerLoginAsRead = (loginId: string) => {
+    setCustomerLogins(prev => {
+      const updated = prev.map(l => l.id === loginId ? { ...l, read: true } : l);
+      saveCustomerLoginNotifications(updated);
+      return updated;
+    });
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      setDoc(doc(db, 'users', activeUid, 'customer_logins', loginId), { read: true }, { merge: true })
+        .catch(err => console.warn('Failed to mark login as read in Firestore:', err));
+    }
+  };
+
+  const handleMarkAllCustomerLoginsAsRead = () => {
+    setCustomerLogins(prev => {
+      const updated = prev.map(l => ({ ...l, read: true }));
+      saveCustomerLoginNotifications(updated);
+      return updated;
+    });
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      customerLogins.forEach(l => {
+        if (!l.read) {
+          setDoc(doc(db, 'users', activeUid, 'customer_logins', l.id), { read: true }, { merge: true }).catch(() => {});
+        }
+      });
+    }
+  };
+
+  const handleClearCustomerLogins = () => {
+    const toDelete = [...customerLogins];
+    setCustomerLogins([]);
+    saveCustomerLoginNotifications([]);
+    const activeUid = user?.uid || ownerUid;
+    if (activeUid) {
+      toDelete.forEach(l => {
+        deleteDoc(doc(db, 'users', activeUid, 'customer_logins', l.id)).catch(() => {});
+      });
+    }
+  };
+
+  const handleClearAllNotifications = () => {
+    handleClearCustomerLogins();
+  };
+
+  const handleRecordCustomerVisit = (cust: Contact | null) => {
+    if (!cust || !cust.id) return;
+    const visitKey = `hellopoint_last_visit_${cust.id}`;
+    const lastVisit = sessionStorage.getItem(visitKey);
+    const now = Date.now();
+    // Only record once every 3 minutes per session to prevent refresh spam
+    if (lastVisit && now - parseInt(lastVisit, 10) < 180000) {
+      return;
+    }
+    sessionStorage.setItem(visitKey, now.toString());
+
+    const visitEvent: CustomerLoginNotification = {
+      id: 'visit_' + now + '_' + Math.random().toString(36).substring(2, 7),
+      contactId: cust.id,
+      customerName: cust.name || 'কাস্টমার',
+      customerPhone: cust.phone || '',
+      loginTime: new Date().toISOString(),
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+
+    setCustomerLogins(prev => {
+      const updated = [visitEvent, ...prev.filter(l => l.id !== visitEvent.id)].slice(0, 50);
+      saveCustomerLoginNotifications(updated);
+      return updated;
+    });
+
+    const targetUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid') || 'lJRGRj5w92RxSUcGybklzs3cFho1';
+    if (targetUid) {
+      setDoc(doc(db, 'users', targetUid, 'customer_logins', visitEvent.id), cleanForFirestore(visitEvent))
+        .catch(err => console.warn('Customer visit cloud sync notice:', err));
     }
   };
 
@@ -2645,6 +2795,7 @@ export default function App() {
           onSavePayBill={handleSavePayBill}
           onCreatePayBillRequest={handleCreatePayBillRequest}
           paybillRequests={paybillRequests}
+          onCustomerVisit={() => handleRecordCustomerVisit(loggedInCustomerObj)}
         />
       </>
     );
@@ -2720,6 +2871,11 @@ export default function App() {
               onDeleteCashInTransaction={handleDeleteCashInTransaction}
               onClearCashInAccountHistory={handleClearCashInAccountHistory}
               onSaveCustomerTransaction={handleSaveTransaction}
+              customerLogins={customerLogins}
+              onMarkCustomerLoginAsRead={handleMarkCustomerLoginAsRead}
+              onMarkAllCustomerLoginsAsRead={handleMarkAllCustomerLoginsAsRead}
+              onClearCustomerLogins={handleClearCustomerLogins}
+              onClearAllNotifications={handleClearAllNotifications}
             />
           </motion.div>
         )}

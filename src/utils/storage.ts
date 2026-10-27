@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Contact, Transaction, CashbookEntry, PayBillEntry, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount } from '../types';
+import { Contact, Transaction, CashbookEntry, PayBillEntry, Product, ChatQuickFAQ, CashInAccount, CashInTransaction, ShopOrder, ShopCustomerAccount, CustomerLoginNotification } from '../types';
 import { safeLocalStorage as localStorage } from './safeStorage';
 
 const CONTACTS_KEY = 'hellopoint_contacts';
@@ -18,6 +18,7 @@ const CASHIN_ACCOUNTS_KEY = 'hellopoint_cashin_accounts';
 const CASHIN_TRANSACTIONS_KEY = 'hellopoint_cashin_transactions';
 const SHOP_ORDERS_KEY = 'hellopoint_shop_orders';
 const SHOP_CUSTOMERS_KEY = 'hellopoint_shop_customers';
+const CUSTOMER_LOGINS_KEY = 'hellopoint_customer_logins';
 
 export const DEFAULT_PAYBILL_ACCOUNTS: string[] = [];
 
@@ -832,7 +833,9 @@ export function loadProducts(): Product[] {
 export function saveProducts(products: Product[]): void {
   if (typeof window !== 'undefined') {
     localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-    window.dispatchEvent(new Event('storage'));
+    setTimeout(() => {
+      window.dispatchEvent(new Event('storage'));
+    }, 0);
   }
 }
 
@@ -851,7 +854,9 @@ export function loadShopOrders(): ShopOrder[] {
 export function saveShopOrders(orders: ShopOrder[]): void {
   if (typeof window !== 'undefined') {
     localStorage.setItem(SHOP_ORDERS_KEY, JSON.stringify(orders));
-    window.dispatchEvent(new Event('storage'));
+    setTimeout(() => {
+      window.dispatchEvent(new Event('storage'));
+    }, 0);
   }
 }
 
@@ -870,7 +875,9 @@ export function loadShopCustomers(): ShopCustomerAccount[] {
 export function saveShopCustomers(customers: ShopCustomerAccount[]): void {
   if (typeof window !== 'undefined') {
     localStorage.setItem(SHOP_CUSTOMERS_KEY, JSON.stringify(customers));
-    window.dispatchEvent(new Event('storage'));
+    setTimeout(() => {
+      window.dispatchEvent(new Event('storage'));
+    }, 0);
   }
 }
 
@@ -892,7 +899,30 @@ export function loadQuickFaqs(): ChatQuickFAQ[] {
 export function saveQuickFaqs(faqs: ChatQuickFAQ[]): void {
   if (typeof window !== 'undefined') {
     localStorage.setItem(QUICK_FAQS_KEY, JSON.stringify(faqs));
-    window.dispatchEvent(new Event('storage'));
+    setTimeout(() => {
+      window.dispatchEvent(new Event('storage'));
+    }, 0);
+  }
+}
+
+export function loadCustomerLoginNotifications(): CustomerLoginNotification[] {
+  if (typeof window === 'undefined') return [];
+  const raw = localStorage.getItem(CUSTOMER_LOGINS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export function saveCustomerLoginNotifications(logins: CustomerLoginNotification[]): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(CUSTOMER_LOGINS_KEY, JSON.stringify(logins.slice(0, 50)));
+    setTimeout(() => {
+      window.dispatchEvent(new Event('storage'));
+    }, 0);
   }
 }
 

@@ -221,3 +221,14 @@ export interface ChatQuickFAQ {
   createdAt?: string;
 }
 
+export interface CustomerLoginNotification {
+  id: string;
+  contactId: string;
+  customerName: string;
+  customerPhone?: string;
+  loginTime: string;
+  read: boolean;
+  createdAt: string;
+}
+
+

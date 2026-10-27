@@ -530,7 +530,7 @@ export function CustomerDetail({
   };
 
   return (
-    <div id="customer-detail-viewport" className="flex flex-col min-h-screen bg-[#141b26] text-slate-100 font-sans pb-20 select-none print:bg-white print:p-0">
+    <div id="customer-detail-viewport" className="flex flex-col min-h-screen bg-[#4A4459] text-slate-100 font-sans pb-20 select-none print:bg-white print:p-0">
       
       {/* Signature Brand Theme Header containing Back buttons and options menu - Hides on print */}
       <header className="bg-brand-primary text-white px-3 py-3.5 flex items-center justify-between shadow-md border-b-2 border-yellow-300 print:hidden">
@@ -584,13 +584,13 @@ export function CustomerDetail({
             </button>
           
             {showOptionsDropdown && (
-              <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-100 rounded-lg shadow-xl z-20 text-slate-800 overflow-hidden divide-y divide-slate-50">
+              <div className="absolute right-0 mt-1 w-44 bg-[#252f40] border border-[#364359] rounded-lg shadow-xl z-20 text-slate-100 overflow-hidden divide-y divide-[#364359]">
                 {contact.phone && (
                   <a 
                     href={`tel:${contact.phone}`}
-                    className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 block"
+                    className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-[#1a202c] text-slate-200 flex items-center gap-1.5 block"
                   >
-                    <PhoneCall className="w-4 h-4 text-emerald-600" /> সরাসরি কল
+                    <PhoneCall className="w-4 h-4 text-emerald-400" /> সরাসরি কল
                   </a>
                 )}
                 <button 
@@ -598,18 +598,18 @@ export function CustomerDetail({
                     setShowEditModal(true);
                     setShowOptionsDropdown(false);
                   }}
-                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 cursor-pointer"
+                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-[#1a202c] text-slate-200 flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Edit3 className="w-4 h-4 text-rose-500" /> তথ্য পরিবর্তন (Edit)
+                  <Edit3 className="w-4 h-4 text-rose-400" /> তথ্য পরিবর্তন (Edit)
                 </button>
                 <button 
                   onClick={() => {
                     exportSingleCustomerToGoogleSheet();
                     setShowOptionsDropdown(false);
                   }}
-                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 cursor-pointer"
+                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-[#1a202c] text-slate-200 flex items-center gap-1.5 cursor-pointer"
                 >
-                  <FileText className="w-4 h-4 text-emerald-600" /> গুগল শিট ডাউনলোড
+                  <FileText className="w-4 h-4 text-emerald-400" /> গুগল শিট ডাউনলোড
                 </button>
 
                 <button 
@@ -617,9 +617,9 @@ export function CustomerDetail({
                     setShowClearEntriesConfirm(true);
                     setShowOptionsDropdown(false);
                   }}
-                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-amber-50 text-amber-700 flex items-center gap-1.5 cursor-pointer transition-colors"
+                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-[#1a202c] text-amber-300 flex items-center gap-1.5 cursor-pointer transition-colors"
                 >
-                  <RotateCcw className="w-4 h-4 text-amber-600" /> সব এন্ট্রি ক্লিয়ার
+                  <RotateCcw className="w-4 h-4 text-amber-400" /> সব এন্ট্রি ক্লিয়ার
                 </button>
 
                 <button 
@@ -627,9 +627,9 @@ export function CustomerDetail({
                     setShowDeleteContactConfirm(true);
                     setShowOptionsDropdown(false);
                   }}
-                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-red-50 text-red-600 flex items-center gap-1.5 cursor-pointer animate-pulse"
+                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold hover:bg-rose-950/40 text-rose-400 flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Trash2 className="w-4 h-4 text-red-600" /> কাস্টমার ডিলিট (Delete)
+                  <Trash2 className="w-4 h-4 text-rose-400" /> কাস্টমার ডিলিট (Delete)
                 </button>
               </div>
             )}
@@ -651,18 +651,18 @@ export function CustomerDetail({
 
           {/* LEFT COLUMN (ON DESKTOP): Transaction History Feed & Search */}
           <div className="order-2 md:order-1 md:col-span-7 lg:col-span-7 space-y-2.5">
-            {/* Small search within customer transaction entries */}
-            <div className="bg-white flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200/80 shadow-tiny">
+            {/* Small search within customer transaction entries (Light Dark Card) */}
+            <div className="bg-[#252f40] flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-[#364359] shadow-xs">
               <Search className="w-3.5 h-3.5 text-slate-400" />
               <input 
                 type="text" 
                 value={searchTxQuery}
                 onChange={(e) => setSearchTxQuery(e.target.value)}
                 placeholder="নোট বা বিবরণ দিয়ে খুঁজুন..."
-                className="w-full bg-transparent border-none text-[10.5px] outline-none placeholder:text-slate-400 font-bold"
+                className="w-full bg-transparent border-none text-[10.5px] outline-none placeholder:text-slate-400 font-bold text-slate-100"
               />
               {searchTxQuery && (
-                <button onClick={() => setSearchTxQuery('')} className="text-slate-400">
+                <button onClick={() => setSearchTxQuery('')} className="text-slate-400 hover:text-white">
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
@@ -670,26 +670,26 @@ export function CustomerDetail({
 
             {/* Ledger Entries List */}
             <div>
-              <div className="flex justify-between items-center text-[9px] font-black tracking-widest text-slate-400 uppercase px-1 mb-1 pb-1 border-b border-slate-100">
+              <div className="flex justify-between items-center text-[9px] font-black tracking-widest text-slate-400 uppercase px-1 mb-1 pb-1 border-b border-[#364359]">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="truncate">লেনদেন খতিয়ান তালিকা ({txsWithRunningBalance.length})</span>
                   <button 
                     type="button"
                     onClick={toggleHideRunningBalance}
                     title={hideRunningBalance ? 'জের ব্যালেন্স দেখান' : 'জের ব্যালেন্স লুকান'}
-                    className="p-0.5 hover:bg-slate-100 active:scale-95 text-slate-500 rounded transition-all cursor-pointer inline-flex items-center justify-center shrink-0"
+                    className="p-0.5 hover:bg-[#1a202c] active:scale-95 text-slate-400 rounded transition-all cursor-pointer inline-flex items-center justify-center shrink-0"
                   >
                     {hideRunningBalance ? (
-                      <EyeOff className="w-3.5 h-3.5 text-slate-400 hover:text-purple-600" />
+                      <EyeOff className="w-3.5 h-3.5 text-slate-400 hover:text-purple-400" />
                     ) : (
-                      <Eye className="w-3.5 h-3.5 text-slate-400 hover:text-purple-600" />
+                      <Eye className="w-3.5 h-3.5 text-slate-400 hover:text-purple-400" />
                     )}
                   </button>
                 </div>
                 <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                   <span className="flex gap-1.5 text-[8.5px]">
-                    <span className="text-emerald-600 font-bold">● জমা (+)</span>
-                    <span className="text-rose-500 font-bold">● বাকি (-)</span>
+                    <span className="text-emerald-400 font-bold">● জমা (+)</span>
+                    <span className="text-rose-400 font-bold">● বাকি (-)</span>
                   </span>
                 </div>
               </div>
@@ -700,16 +700,16 @@ export function CustomerDetail({
                   <span className="truncate">ক্রমিক / তারিখ / বিবরণ</span>
                 </div>
                 <div className="col-span-4 sm:col-span-4 text-center">
-                  <span className="text-slate-500 dark:text-slate-400 font-black">মূল ব্যালেন্স</span>
+                  <span className="text-slate-400 font-black">মূল ব্যালেন্স</span>
                 </div>
                 <div className="col-span-3 sm:col-span-3 text-right">
-                  <span className="text-slate-500 dark:text-slate-400 font-black">{!hideRunningBalance ? 'জের ব্যালেন্স' : 'জের (লুকানো)'}</span>
+                  <span className="text-slate-400 font-black">{!hideRunningBalance ? 'জের ব্যালেন্স' : 'জের (লুকানো)'}</span>
                 </div>
               </div>
 
               <div id="ledger-rows-wrapper" className="space-y-3 sm:space-y-3.5 w-full flex flex-col">
                 {dateGroupedTransactions.length === 0 ? (
-                  <div className="text-center py-6 bg-white rounded-lg border border-slate-100 shadow-tiny text-slate-400 text-[9.5px] font-bold col-span-full">
+                  <div className="text-center py-6 bg-[#252f40] rounded-lg border border-[#364359] shadow-xs text-slate-400 text-[9.5px] font-bold col-span-full">
                     কোনো লেনদেনের এন্ট্রি পাওয়া যায়নি।
                   </div>
                 ) : (
@@ -759,9 +759,9 @@ export function CustomerDetail({
                               }}
                               className={`${
                                 !isGaveType
-                                  ? 'bg-emerald-50/70 dark:bg-emerald-950/25 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/40 border-emerald-200/80 dark:border-emerald-800/50'
-                                  : 'bg-white hover:bg-slate-50 border-slate-200'
-                              } border rounded-lg transition-all shadow-tiny hover:border-purple-300 select-none text-left flex flex-col overflow-hidden`}
+                                  ? 'bg-[#1b2b25] hover:bg-[#20332c] border-emerald-500/40'
+                                  : 'bg-[#252f40] hover:bg-[#2c374b] border-[#364359]'
+                              } border rounded-lg transition-all shadow-xs hover:border-slate-500/60 select-none text-left flex flex-col overflow-hidden`}
                               id={`tx-card-${t.id}`}
                             >
                               {/* Top-Row: Left (Serial, Date, Note) | Middle (Main Balance) | Right (Jer Balance) */}
@@ -769,7 +769,7 @@ export function CustomerDetail({
                                 <div className="col-span-5 sm:col-span-5 flex items-center gap-1.5 sm:gap-2 min-w-0">
                                   {/* Serial Number: Clean typography without background or border */}
                                   <span 
-                                    className="font-black font-mono text-[10px] sm:text-[11px] text-slate-700 dark:text-slate-200 shrink-0 min-w-[14px] text-center select-none"
+                                    className="font-black font-mono text-[10px] sm:text-[11px] text-slate-300 shrink-0 min-w-[14px] text-center select-none"
                                     title={`ক্রমিক নং: ${toBengaliNumber(index + 1)}`}
                                   >
                                     {toBengaliNumber(index + 1)}
@@ -779,18 +779,18 @@ export function CustomerDetail({
                                   <span 
                                     className={`${style.dateText} font-mono shrink-0 ${
                                       isToday 
-                                        ? 'text-amber-500 dark:text-yellow-300 font-black' 
-                                        : 'text-slate-400 dark:text-slate-400 font-bold'
+                                        ? 'text-amber-400 font-black' 
+                                        : 'text-slate-300 font-bold'
                                     }`}
                                     title={isToday ? 'আজকের লেনদেন' : undefined}
                                   >
                                     {displayTime(t.date || t.createdAt)}
                                   </span>
                                   
-                                  <span className={`text-slate-300 dark:text-slate-600 ${style.separator} shrink-0 font-light`}>|</span>
+                                  <span className={`text-slate-500 ${style.separator} shrink-0 font-light`}>|</span>
 
                                   {/* Note / Category */}
-                                  <span className={`${style.noteText} font-extrabold text-slate-800 dark:text-slate-100 truncate flex-1 min-w-0`}>
+                                  <span className={`${style.noteText} font-extrabold text-slate-100 truncate flex-1 min-w-0`}>
                                     {t.note || (isGaveType ? 'দিলেন (GAVE)' : 'পেলেন (RECEIVED)')}
                                   </span>
                                 </div>
@@ -799,8 +799,8 @@ export function CustomerDetail({
                                 <div className="col-span-4 sm:col-span-4 flex items-center justify-center text-center">
                                   <span className={`${style.amountText} font-black font-mono tabular-nums tracking-tight whitespace-nowrap text-center ${
                                     !isGaveType 
-                                      ? 'text-emerald-600 dark:text-emerald-400' 
-                                      : 'text-rose-600 dark:text-rose-400'
+                                      ? 'text-emerald-400' 
+                                      : 'text-rose-400'
                                   }`}>
                                     {!isGaveType ? '+' : '-'}{currency}{t.amount.toFixed(2)}
                                   </span>
@@ -810,21 +810,21 @@ export function CustomerDetail({
                                 <div className="col-span-3 sm:col-span-3 flex items-center justify-end text-right">
                                   {!hideRunningBalance ? (
                                     <span className={`${style.balanceText} font-bold tracking-tight leading-none inline-flex items-center justify-end gap-0.5 shrink-0 whitespace-nowrap text-right`}>
-                                      <span className="text-slate-400 dark:text-slate-500 font-normal">(</span>
+                                      <span className="text-slate-400 font-normal">(</span>
                                       <span className={`font-black font-mono tabular-nums ${
                                         t.runningBalance < 0 
-                                          ? 'text-emerald-600 dark:text-emerald-400' 
+                                          ? 'text-emerald-400' 
                                           : t.runningBalance > 0
-                                          ? 'text-rose-600 dark:text-rose-400'
-                                          : 'text-slate-600 dark:text-slate-400'
+                                          ? 'text-rose-400'
+                                          : 'text-slate-300'
                                       }`}>
                                         {t.runningBalance < 0 ? '+' : t.runningBalance > 0 ? '-' : ''}
                                         {currency}{Math.abs(t.runningBalance).toFixed(1)}
                                       </span>
-                                      <span className="text-slate-400 dark:text-slate-500 font-normal">)</span>
+                                      <span className="text-slate-400 font-normal">)</span>
                                     </span>
                                   ) : (
-                                    <span className="text-[9px] font-extrabold text-slate-300 dark:text-slate-500 tracking-wider leading-none shrink-0 text-right">
+                                    <span className="text-[9px] font-extrabold text-slate-400 tracking-wider leading-none shrink-0 text-right">
                                       (•••)
                                     </span>
                                   )}
@@ -835,27 +835,27 @@ export function CustomerDetail({
                               {expandedTxId === t.id && (
                                 <div 
                                   onClick={(e) => e.stopPropagation()}
-                                  className="border-t border-slate-100 bg-slate-50/50 p-3 space-y-3 animate-fade-in text-left select-text cursor-default"
+                                  className="border-t border-[#364359] bg-[#1a202c] p-3 space-y-3 animate-fade-in text-left select-text cursor-default"
                                 >
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[10.5px] text-slate-600">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[10.5px] text-slate-300">
                                     {/* Left Details block */}
                                     <div className="space-y-1">
                                       <p className="font-bold">
-                                        ⚖️ <span className="text-slate-400">লেনদেন পরবর্তী ব্যালেন্স (জের):</span> <span className={`font-mono font-extrabold ${t.runningBalance > 0 ? 'text-rose-600 dark:text-rose-400' : t.runningBalance < 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>
+                                        ⚖️ <span className="text-slate-400">লেনদেন পরবর্তী ব্যালেন্স (জের):</span> <span className={`font-mono font-extrabold ${t.runningBalance > 0 ? 'text-rose-400' : t.runningBalance < 0 ? 'text-emerald-400' : 'text-slate-400'}`}>
                                           {currency}{Math.abs(t.runningBalance).toFixed(2)}
                                           {t.runningBalance > 0 ? ' (পাওনা/Receivable)' : t.runningBalance < 0 ? ' (জমা/Deposit)' : ' (সমতা/Balanced)'}
                                         </span>
                                       </p>
                                       {t.billNo && (
                                         <p className="font-bold">
-                                          📝 <span className="text-slate-400">ভাউচার / রসিদ নং:</span> <span className="font-mono text-xs text-purple-900 font-extrabold">{t.billNo}</span>
+                                          📝 <span className="text-slate-400">ভাউচার / রসিদ নং:</span> <span className="font-mono text-xs text-purple-300 font-extrabold">{t.billNo}</span>
                                         </p>
                                       )}
                                       <p className="font-bold">
-                                        📅 <span className="text-slate-400">লেনদেনের আসল সময়:</span> <span className="text-slate-700">{new Date(t.date || t.createdAt).toLocaleDateString('bn-BD', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                                        📅 <span className="text-slate-400">লেনদেনের আসল সময়:</span> <span className="text-slate-200">{new Date(t.date || t.createdAt).toLocaleDateString('bn-BD', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                                       </p>
                                       <p className="font-bold">
-                                        📊 <span className="text-slate-400">নিট হিসাবের প্রভাব:</span> <span className={isGaveType ? 'text-rose-600' : 'text-emerald-600'}>
+                                        📊 <span className="text-slate-400">নিট হিসাবের প্রভাব:</span> <span className={isGaveType ? 'text-rose-400' : 'text-emerald-400'}>
                                           {isGaveType ? 'কাস্টমার বকেয়া বৃদ্ধি পেয়েছে' : 'কাস্টমার বকেয়া পরিশোধ করেছে/জমা দিয়েছে'}
                                         </span>
                                       </p>
@@ -866,7 +866,7 @@ export function CustomerDetail({
                                       {t.attachFile && (
                                         <div className="text-center">
                                           <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">সংযুক্ত রশিদ</span>
-                                          <div className="border border-slate-200 bg-white p-0.5 rounded-lg shadow-tiny overflow-hidden">
+                                          <div className="border border-[#364359] bg-[#1a202c] p-0.5 rounded-lg shadow-xs overflow-hidden">
                                             <img 
                                               src={t.attachFile} 
                                               alt="Bill Attachment" 
@@ -886,11 +886,11 @@ export function CustomerDetail({
                                       {t.signature && (
                                         <div className="text-center">
                                           <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider block mb-0.5">ডিজিটাল স্বাক্ষর</span>
-                                          <div className="border border-slate-200 bg-white p-0.5 rounded-lg shadow-tiny overflow-hidden flex items-center justify-center">
+                                          <div className="border border-[#364359] bg-[#1a202c] p-0.5 rounded-lg shadow-xs overflow-hidden flex items-center justify-center">
                                             <img 
                                               src={t.signature} 
                                               alt="Signature" 
-                                              className="h-14 w-14 object-contain opacity-85 rounded bg-slate-50" 
+                                              className="h-14 w-14 object-contain opacity-85 rounded bg-[#252f40] invert" 
                                               referrerPolicy="no-referrer"
                                             />
                                           </div>
@@ -900,12 +900,12 @@ export function CustomerDetail({
                                   </div>
 
                                   {/* Action buttons inside card */}
-                                  <div className="pt-2 border-t border-slate-200/60 flex items-center justify-end gap-2 text-xs">
+                                  <div className="pt-2 border-t border-[#364359] flex items-center justify-end gap-2 text-xs">
                                     <button
                                       onClick={() => {
                                         onNavigateToForm(contact.id, isGaveType, t.id);
                                       }}
-                                      className="px-3 py-1.5 font-bold text-slate-650 bg-white hover:bg-slate-100 border border-slate-205 rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-tiny"
+                                      className="px-3 py-1.5 font-bold text-slate-200 bg-[#252f40] hover:bg-[#2c374b] border border-[#364359] rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-xs"
                                     >
                                       <Edit3 className="w-3.5 h-3.5 text-slate-500" />
                                       <span>সম্পাদন</span>
@@ -915,7 +915,7 @@ export function CustomerDetail({
                                       onClick={() => {
                                         setTxToDelete(t);
                                       }}
-                                      className="px-3 py-1.5 font-bold text-rose-600 bg-rose-50 hover:bg-rose-100/80 border border-rose-200 rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-tiny"
+                                      className="px-3 py-1.5 font-bold text-rose-300 bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/35 rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-xs"
                                     >
                                       <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                                       <span>মুছুন</span>
@@ -1089,7 +1089,7 @@ export function CustomerDetail({
       </div>
 
       {/* Persistent Bottom Action split layout buttons (Mobile only, hidden on desktop where buttons are on the left) */}
-      <footer className="md:hidden fixed bottom-0 left-0 right-0 p-2.5 bg-white border-t border-slate-100 flex gap-2 shadow-[0_-4px_10px_rgba(0,0,0,0.02)] z-10 max-w-sm mx-auto rounded-t-xl print:hidden">
+      <footer className="md:hidden fixed bottom-0 left-0 right-0 p-2.5 bg-[#1e2636] border-t border-[#364359] flex gap-2 shadow-2xl z-10 max-w-sm mx-auto rounded-t-xl print:hidden">
         <button 
           id="btn-you-got"
           onClick={() => onNavigateToForm(contact.id, false)} 
@@ -1195,17 +1195,17 @@ export function CustomerDetail({
           className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-[999999] animate-fade-in print:hidden"
         >
           <div 
-            className="relative bg-white rounded-3xl p-3 border border-slate-100 shadow-2xl flex flex-col items-center justify-center w-full max-w-[340px] animate-scale-in"
+            className="relative bg-[#252f40] rounded-3xl p-3 border border-[#364359] shadow-2xl flex flex-col items-center justify-center w-full max-w-[340px] animate-scale-in"
             onClick={e => e.stopPropagation()}
           >
             <button 
               onClick={() => setZoomedImage(null)}
-              className="absolute top-3 right-3 bg-slate-100/80 hover:bg-slate-200 text-slate-700 rounded-full p-1.5 transition-all active:scale-90 cursor-pointer z-10"
+              className="absolute top-3 right-3 bg-[#1a202c] hover:bg-[#202938] text-slate-300 rounded-full p-1.5 transition-all active:scale-90 cursor-pointer z-10"
               title="বন্ধ করুন"
             >
-              <X className="w-4 h-4 text-slate-800" />
+              <X className="w-4 h-4 text-slate-200" />
             </button>
-            <div className="w-full aspect-square rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 flex items-center justify-center shadow-inner mt-6 mb-3">
+            <div className="w-full aspect-square rounded-2xl overflow-hidden border border-[#364359] bg-[#1a202c] flex items-center justify-center shadow-inner mt-6 mb-3">
               <img 
                 src={zoomedImage.url} 
                 alt={zoomedImage.name} 
@@ -1213,7 +1213,7 @@ export function CustomerDetail({
                 className="w-full h-full object-cover animate-fade-in"
               />
             </div>
-            <h3 className="text-xs font-black text-slate-800 mb-2 truncate max-w-full px-2 text-center leading-tight">
+            <h3 className="text-xs font-black text-slate-100 mb-2 truncate max-w-full px-2 text-center leading-tight">
               {zoomedImage.name}
             </h3>
           </div>
@@ -1223,23 +1223,23 @@ export function CustomerDetail({
       {/* BEAUTIFUL CUSTOM TRANSACTION DELETION CONFIRMATION DIALOG OVERLAY */}
       {txToDelete && (
         <div id="delete-tx-dialog-overlay" className="fixed inset-0 bg-slate-950/65 backdrop-blur-xs flex items-center justify-center p-4 z-[999999] animate-fade-in print:hidden">
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-2xl p-5 w-full max-w-[300px] text-center transform scale-100 transition-all animate-scale-in">
-            <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center mx-auto mb-3.5 text-rose-500 animate-bounce">
+          <div className="bg-[#252f40] rounded-3xl border border-[#364359] shadow-2xl p-5 w-full max-w-[300px] text-center transform scale-100 transition-all animate-scale-in">
+            <div className="w-12 h-12 rounded-full bg-rose-950/50 border border-rose-500/40 flex items-center justify-center mx-auto mb-3.5 text-rose-400 animate-bounce">
               <Trash2 className="w-6 h-6" />
             </div>
             
-            <h3 className="text-sm font-black text-slate-800 leading-tight">
+            <h3 className="text-sm font-black text-slate-100 leading-tight">
               লেনদেন মুছে ফেলার নিশ্চিতকরণ
             </h3>
             
-            <p className="text-[11px] font-bold text-slate-500 mt-2 leading-relaxed">
+            <p className="text-[11px] font-bold text-slate-400 mt-2 leading-relaxed">
               আপনি কি নিশ্চিতভাবে এই লেনদেনটি ডিলিট করতে চান? ডিলিট করলে হিসাব থেকে {currency} {txToDelete.amount.toFixed(1)} বাদ যাবে।
             </p>
 
             <div className="flex gap-2 mt-5">
               <button
                 onClick={() => setTxToDelete(null)}
-                className="flex-1 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-250 text-slate-700 text-xs font-black transition-all cursor-pointer outline-none"
+                className="flex-1 py-2 px-3 rounded-xl bg-[#1a202c] hover:bg-[#202938] border border-[#364359] text-slate-300 text-xs font-black transition-all cursor-pointer outline-none"
               >
                 না, বন্ধ করুন
               </button>
@@ -1262,16 +1262,16 @@ export function CustomerDetail({
       {/* BEAUTIFUL CUSTOM CONTACT EDITING DIALOG OVERLAY */}
       {showEditModal && (
         <div id="edit-contact-dialog-overlay" className="fixed inset-0 bg-slate-950/65 backdrop-blur-xs flex items-center justify-center p-4 z-[999999] animate-fade-in print:hidden">
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-2xl p-6 w-full max-w-[340px] transform scale-100 transition-all animate-scale-in">
-            <div className="w-12 h-12 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center mx-auto mb-3.5 text-indigo-600">
+          <div className="bg-[#252f40] rounded-3xl border border-[#364359] shadow-2xl p-6 w-full max-w-[340px] transform scale-100 transition-all animate-scale-in">
+            <div className="w-12 h-12 rounded-full bg-indigo-950/50 border border-indigo-500/40 flex items-center justify-center mx-auto mb-3.5 text-indigo-400">
               <User className="w-6 h-6" />
             </div>
             
-            <h3 className="text-sm font-black text-slate-800 leading-tight text-center">
+            <h3 className="text-sm font-black text-slate-100 leading-tight text-center">
               গ্রাহকের তথ্য পরিবর্তন করুন
             </h3>
             
-            <p className="text-[10px] font-bold text-slate-500 mt-1.5 leading-relaxed text-center mb-4">
+            <p className="text-[10px] font-bold text-slate-400 mt-1.5 leading-relaxed text-center mb-4">
               সাহায্যকারী অপশনটি ব্যবহার করে নাম এবং মোবাইল নম্বর আপডেট করুন
             </p>
 
@@ -1285,7 +1285,7 @@ export function CustomerDetail({
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
                   placeholder="নাম লিখুন"
-                  className="w-full bg-slate-50 hover:bg-slate-100/70 focus:bg-white text-slate-800 rounded-xl py-2 px-3.5 text-xs font-bold border border-slate-200 focus:border-slate-300 outline-none transition-all placeholder:text-slate-400/70"
+                  className="w-full bg-[#1a202c] hover:bg-[#202938] focus:bg-[#1a202c] text-slate-100 rounded-xl py-2 px-3.5 text-xs font-bold border border-[#364359] focus:border-indigo-400 outline-none transition-all placeholder:text-slate-500"
                   maxLength={50}
                 />
               </div>
@@ -1299,27 +1299,27 @@ export function CustomerDetail({
                   value={editPhone}
                   onChange={(e) => setEditPhone(e.target.value)}
                   placeholder="01XXXXXXXXX"
-                  className="w-full bg-slate-50 hover:bg-slate-100/70 focus:bg-white text-slate-800 rounded-xl py-2 px-3.5 text-xs font-bold border border-slate-200 focus:border-slate-300 outline-none transition-all placeholder:text-slate-400/70"
+                  className="w-full bg-[#1a202c] hover:bg-[#202938] focus:bg-[#1a202c] text-slate-100 rounded-xl py-2 px-3.5 text-xs font-bold border border-[#364359] focus:border-indigo-400 outline-none transition-all placeholder:text-slate-500"
                   maxLength={17}
                 />
               </div>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-slate-100 flex justify-center">
+            <div className="mt-4 pt-3 border-t border-[#364359] flex justify-center">
               <button
                 type="button"
                 onClick={() => {
                   setShowEditModal(false);
                   setShowDeleteContactConfirm(true);
                 }}
-                className="text-[10px] font-black text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100/70 border border-rose-100 rounded-xl px-4 py-1.5 transition-all flex items-center gap-1 cursor-pointer"
+                className="text-[10px] font-black text-rose-400 hover:text-rose-300 bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/35 rounded-xl px-4 py-1.5 transition-all flex items-center gap-1 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" /> কাস্টমার মুছে ফেলুন (Delete)
               </button>
             </div>
 
             {editError && (
-              <p className="mt-3 text-[10px] font-black text-rose-600 bg-rose-50 border border-rose-100 rounded-lg py-1.5 px-2.5 text-center leading-normal animate-fade-in">
+              <p className="mt-3 text-[10px] font-black text-rose-300 bg-rose-950/40 border border-rose-500/35 rounded-lg py-1.5 px-2.5 text-center leading-normal animate-fade-in">
                 ⚠️ {editError}
               </p>
             )}
@@ -1327,7 +1327,7 @@ export function CustomerDetail({
             <div className="flex gap-2 mt-5">
               <button
                 onClick={() => setShowEditModal(false)}
-                className="flex-1 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-250 text-slate-700 text-xs font-black transition-all cursor-pointer outline-none"
+                className="flex-1 py-2 px-3 rounded-xl bg-[#1a202c] hover:bg-[#202938] border border-[#364359] text-slate-300 text-xs font-black transition-all cursor-pointer outline-none"
               >
                 বাতিল
               </button>
@@ -1371,23 +1371,23 @@ export function CustomerDetail({
       {/* BEAUTIFUL CUSTOM YES/NO CONFIRMATION DIALOG FOR CLEAR ALL ENTRIES */}
       {showClearEntriesConfirm && (
         <div id="clear-entries-dialog-overlay" className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[999999]">
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-2xl p-5 w-full max-w-xs text-center transform scale-100 transition-all">
-            <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center mx-auto mb-3.5 text-amber-600 animate-bounce animate-duration-1000">
+          <div className="bg-[#252f40] rounded-3xl border border-[#364359] shadow-2xl p-5 w-full max-w-xs text-center transform scale-100 transition-all">
+            <div className="w-12 h-12 rounded-full bg-amber-950/50 border border-amber-500/40 flex items-center justify-center mx-auto mb-3.5 text-amber-400 animate-bounce animate-duration-1000">
               <RotateCcw className="w-6 h-6" />
             </div>
             
-            <h3 className="text-sm font-black text-slate-800 leading-tight">
+            <h3 className="text-sm font-black text-slate-100 leading-tight">
               সব এন্ট্রি ক্লিয়ার নিশ্চিতকরণ
             </h3>
             
-            <p className="text-[11px] font-bold text-slate-500 mt-2 leading-relaxed">
+            <p className="text-[11px] font-bold text-slate-400 mt-2 leading-relaxed">
               আপনি কি সত্যি "{contact.name}"-এর সব লেনদেন এন্ট্রি ক্লিয়ার করতে চান? এতে কাস্টমারের খাতা ঠিক থাকবে কিন্তু সকল পূর্বের হিসাব শূন্য হয়ে যাবে।
             </p>
 
             <div className="flex gap-2.5 mt-5">
               <button
                 onClick={() => setShowClearEntriesConfirm(false)}
-                className="flex-1 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
+                className="flex-1 py-2 px-3 rounded-xl bg-[#1a202c] hover:bg-[#202938] border border-[#364359] text-slate-300 text-xs font-black transition-all cursor-pointer"
               >
                 না, বন্ধ করুন
               </button>
@@ -1412,23 +1412,23 @@ export function CustomerDetail({
       {/* BEAUTIFUL CUSTOM YES/NO CONFIRMATION DIALOG FOR CUSTOMER DELETION */}
       {showDeleteContactConfirm && (
         <div id="customer-delete-dialog-overlay" className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-[999999]">
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-2xl p-5 w-full max-w-xs text-center transform scale-100 transition-all">
-            <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center mx-auto mb-3.5 text-rose-500 animate-bounce animate-duration-1000">
+          <div className="bg-[#252f40] rounded-3xl border border-[#364359] shadow-2xl p-5 w-full max-w-xs text-center transform scale-100 transition-all">
+            <div className="w-12 h-12 rounded-full bg-rose-950/50 border border-rose-500/40 flex items-center justify-center mx-auto mb-3.5 text-rose-400 animate-bounce animate-duration-1000">
               <Trash2 className="w-6 h-6" />
             </div>
             
-            <h3 className="text-sm font-black text-slate-800 leading-tight">
+            <h3 className="text-sm font-black text-slate-100 leading-tight">
               গ্রাহক মুছে ফেলার নিশ্চিতকরণ
             </h3>
             
-            <p className="text-[11px] font-bold text-slate-500 mt-2 leading-relaxed">
+            <p className="text-[11px] font-bold text-slate-400 mt-2 leading-relaxed">
               আপনি কি সত্যি "{contact.name}" গ্রাহক খাতাটি মুছতে চান? গ্রাহক মুছে ফেললে তার সকল পূর্ববর্তী লেনদেন রেকর্ডও মুছে যাবে।
             </p>
 
             <div className="flex gap-2.5 mt-5">
               <button
                 onClick={() => setShowDeleteContactConfirm(false)}
-                className="flex-1 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 text-xs font-black transition-all cursor-pointer"
+                className="flex-1 py-2 px-3 rounded-xl bg-[#1a202c] hover:bg-[#202938] border border-[#364359] text-slate-300 text-xs font-black transition-all cursor-pointer"
               >
                 না, বন্ধ করুন
               </button>
