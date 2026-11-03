@@ -346,7 +346,7 @@ export function TransactionForm({
     return 'general';
   }, [favoriteTags, tagOverrides]);
 
-  const [tagFilter, setTagFilter] = useState<'all' | 'favorite' | 'person' | 'transaction' | 'expense'>('all');
+  const [tagFilter, setTagFilter] = useState<'all' | 'favorite' | 'person' | 'transaction' | 'expense' | null>(null);
   const [tagSearchQuery, setTagSearchQuery] = useState('');
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [isAddingTagToFilter, setIsAddingTagToFilter] = useState<'favorite' | 'person' | 'transaction' | 'expense' | null>(null);
@@ -515,8 +515,12 @@ export function TransactionForm({
 
   // Strict requirement: প্রতি ক্যাটাগরিতে ট্যাগ গুলি অ,আ,ই,ঈ এই সিরিয়ালে থাকে (Bengali alphabetical sorting)
   const filteredNotesForView = React.useMemo(() => {
+    // If no category is selected and no search query, return empty list (prevents heavy DOM overload on open)
+    if (!tagFilter && !tagSearchQuery.trim()) {
+      return [];
+    }
     let list = sortedRecentNotes.filter(n => !isNumericOrPhoneTag(n));
-    if (tagFilter !== 'all') {
+    if (tagFilter && tagFilter !== 'all') {
       list = list.filter(n => getTagCategory(n) === tagFilter);
     }
     if (tagSearchQuery.trim()) {
@@ -1121,7 +1125,7 @@ export function TransactionForm({
                 <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 mb-2 w-full">
                   <button
                     type="button"
-                    onClick={() => setTagFilter('all')}
+                    onClick={() => setTagFilter(tagFilter === 'all' ? null : 'all')}
                     className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 whitespace-nowrap flex items-center gap-1 border ${
                       tagFilter === 'all'
                         ? 'bg-slate-700 dark:bg-slate-200 text-white dark:text-slate-900 border-slate-700 dark:border-slate-200 shadow-2xs'
@@ -1136,7 +1140,7 @@ export function TransactionForm({
 
                   <button
                     type="button"
-                    onClick={() => setTagFilter('favorite')}
+                    onClick={() => setTagFilter(tagFilter === 'favorite' ? null : 'favorite')}
                     title="ফেভারিট"
                     className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 whitespace-nowrap flex items-center gap-1 border ${
                       tagFilter === 'favorite'
@@ -1152,7 +1156,7 @@ export function TransactionForm({
 
                   <button
                     type="button"
-                    onClick={() => setTagFilter('person')}
+                    onClick={() => setTagFilter(tagFilter === 'person' ? null : 'person')}
                     title="ব্যক্তি"
                     className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 whitespace-nowrap flex items-center gap-1 border ${
                       tagFilter === 'person'
@@ -1168,7 +1172,7 @@ export function TransactionForm({
 
                   <button
                     type="button"
-                    onClick={() => setTagFilter('transaction')}
+                    onClick={() => setTagFilter(tagFilter === 'transaction' ? null : 'transaction')}
                     title="লেনদেন"
                     className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 whitespace-nowrap flex items-center gap-1 border ${
                       tagFilter === 'transaction'
@@ -1184,7 +1188,7 @@ export function TransactionForm({
 
                   <button
                     type="button"
-                    onClick={() => setTagFilter('expense')}
+                    onClick={() => setTagFilter(tagFilter === 'expense' ? null : 'expense')}
                     title="খরচ"
                     className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold transition-all duration-150 cursor-pointer hover:scale-105 active:scale-95 whitespace-nowrap flex items-center gap-1 border ${
                       tagFilter === 'expense'
@@ -1234,6 +1238,11 @@ export function TransactionForm({
                   <div className="text-center py-2.5 px-2 bg-slate-50 dark:bg-[#252B33] rounded-lg border border-dashed border-slate-200 dark:border-[#46515E] text-[10px] text-slate-400 dark:text-slate-400 font-bold mb-2">
                     {tagSearchQuery ? (
                       <span>🔍 "{tagSearchQuery}" দিয়ে কোন ট্যাগ খুঁজে পাওয়া যায়নি</span>
+                    ) : tagFilter === null ? (
+                      <span className="text-slate-400 dark:text-slate-400 flex items-center justify-center gap-1.5 py-1">
+                        <span>👆</span>
+                        <span>উপরের যেকোনো ক্যাটাগরিতে ক্লিক করে প্রয়োজনীয় ট্যাগ দেখুন</span>
+                      </span>
                     ) : (
                       <>
                         {tagFilter === 'favorite' && '⭐ কোন ফেভারিট ট্যাগ নেই। নিচের "এড+" বাটনে ট্যাপ করে যোগ করুন!'}

@@ -911,7 +911,22 @@ export function loadCustomerLoginNotifications(): CustomerLoginNotification[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    const localCleared = localStorage.getItem('hellopoint_notifications_cleared_at');
+    const clearedTime = localCleared ? new Date(localCleared).getTime() : 0;
+    const seen = new Set<string>();
+    const deduped: CustomerLoginNotification[] = [];
+    for (const item of parsed) {
+      const timeMs = new Date(item.loginTime || item.createdAt).getTime();
+      if (clearedTime > 0 && timeMs <= clearedTime) continue;
+      const bucket = Math.floor(timeMs / (10 * 60 * 1000));
+      const key = `${item.contactId || item.customerPhone || item.customerName}_${bucket}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(item);
+      }
+    }
+    return deduped;
   } catch (e) {
     return [];
   }

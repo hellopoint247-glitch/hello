@@ -297,23 +297,26 @@ export function CustomerDetail({
     }
   };
 
+  // Progressive rendering state: render first 30 transactions instantly (0ms lag), load more smoothly
+  const [visibleCount, setVisibleCount] = useState<number>(30);
+
+  useEffect(() => {
+    setVisibleCount(30);
+  }, [contact.id, searchTxQuery]);
+
+  // Pre-calculate todayKey and yesterdayKey once (prevents hundreds of new Date() allocations in render loops)
+  const { todayKey, yesterdayKey } = useMemo(() => {
+    const now = new Date();
+    const tk = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const yd = new Date();
+    yd.setDate(now.getDate() - 1);
+    const yk = `${yd.getFullYear()}-${String(yd.getMonth() + 1).padStart(2, '0')}-${String(yd.getDate()).padStart(2, '0')}`;
+    return { todayKey: tk, yesterdayKey: yk };
+  }, []);
+
   const isDateToday = (dateStr?: string) => {
     if (!dateStr) return false;
-    const key = getNormalizedDateKey(dateStr);
-    const now = new Date();
-    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    if (key === todayKey) return true;
-    try {
-      const d = new Date(dateStr);
-      if (!isNaN(d.getTime())) {
-        return (
-          d.getFullYear() === now.getFullYear() &&
-          d.getMonth() === now.getMonth() &&
-          d.getDate() === now.getDate()
-        );
-      }
-    } catch {}
-    return false;
+    return getNormalizedDateKey(dateStr) === todayKey;
   };
 
   const getNormalizedDateKey = (dateStr: string) => {
@@ -348,13 +351,6 @@ export function CustomerDetail({
       ];
       const monthName = monthNamesBn[monthNum] || mStr;
 
-      const now = new Date();
-      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      
-      const yesterday = new Date();
-      yesterday.setDate(now.getDate() - 1);
-      const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
-
       let prefix = '';
       if (dateKey === todayKey) {
         prefix = 'আজ, ';
@@ -368,7 +364,12 @@ export function CustomerDetail({
     }
   };
 
-  // Group customer transactions by date
+  // Sliced transactions for instant initial render
+  const displayedTxs = useMemo(() => {
+    return txsWithRunningBalance.slice(0, visibleCount);
+  }, [txsWithRunningBalance, visibleCount]);
+
+  // Group customer transactions by date for rendered chunk
   const dateGroupedTransactions = useMemo(() => {
     const groups: {
       dateKey: string;
@@ -381,7 +382,7 @@ export function CustomerDetail({
 
     const groupMap = new Map<string, typeof groups[0]>();
 
-    txsWithRunningBalance.forEach((tx, globalIndex) => {
+    displayedTxs.forEach((tx, globalIndex) => {
       const key = getNormalizedDateKey(tx.date || tx.createdAt);
       let group = groupMap.get(key);
       if (!group) {
@@ -398,7 +399,7 @@ export function CustomerDetail({
     });
 
     return groups;
-  }, [txsWithRunningBalance]);
+  }, [displayedTxs, todayKey, yesterdayKey]);
 
   const copyToClipboard = (txt: string) => {
     if (!txt) return;
@@ -929,6 +930,29 @@ export function CustomerDetail({
                       </div>
                     );
                   })
+                )}
+
+                {/* Progressive load more controls (Ultra-smooth 0ms entry, loads more on demand) */}
+                {txsWithRunningBalance.length > visibleCount && (
+                  <div className="py-2.5 flex flex-col sm:flex-row items-center justify-center gap-2 print:hidden">
+                    <button
+                      type="button"
+                      onClick={() => setVisibleCount(prev => prev + 30)}
+                      className="w-full sm:w-auto px-4 py-2 bg-[#252f40] hover:bg-[#2c374b] text-slate-200 border border-[#364359] hover:border-slate-400 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+                    >
+                      <span>👇 আরও ৩০টি লেনদেন দেখুন</span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        ({toBengaliNumber(Math.min(visibleCount, txsWithRunningBalance.length))} / {toBengaliNumber(txsWithRunningBalance.length)})
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisibleCount(txsWithRunningBalance.length)}
+                      className="w-full sm:w-auto px-3 py-1.5 bg-transparent hover:bg-white/5 text-slate-400 hover:text-slate-200 rounded-xl text-[11px] font-semibold transition-all cursor-pointer"
+                    >
+                      সবগুলো একসাথে দেখুন
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

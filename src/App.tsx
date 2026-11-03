@@ -65,7 +65,8 @@ import {
   getDocs,
   query,
   where,
-  addDoc
+  addDoc,
+  writeBatch
 } from 'firebase/firestore';
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -802,20 +803,50 @@ export default function App() {
     let isLoginsInitial = true;
     const unsubCustomerLogins = onSnapshot(qCustomerLogins, (snapshot) => {
       const list: CustomerLoginNotification[] = [];
+      const localCleared = localStorage.getItem('hellopoint_notifications_cleared_at');
+      const clearedTime = localCleared ? new Date(localCleared).getTime() : 0;
+
       snapshot.forEach((snapDoc) => {
         const data = snapDoc.data() as CustomerLoginNotification;
-        list.push({ ...data, id: data.id || snapDoc.id });
+        const item = { ...data, id: data.id || snapDoc.id };
+        const itemTime = new Date(item.loginTime || item.createdAt).getTime();
+        if (clearedTime > 0 && itemTime <= clearedTime) {
+          return;
+        }
+        list.push(item);
       });
+
+      // Deduplicate by customer contactId / phone / name within 10-minute window
+      const dedupedMap = new Map<string, CustomerLoginNotification>();
+      for (const item of list) {
+        const timeMs = new Date(item.loginTime || item.createdAt).getTime();
+        const bucket = Math.floor(timeMs / (10 * 60 * 1000));
+        const key = `${item.contactId || item.customerPhone || item.customerName}_${bucket}`;
+        if (!dedupedMap.has(key)) {
+          dedupedMap.set(key, item);
+        } else {
+          const prevItem = dedupedMap.get(key)!;
+          const prevMs = new Date(prevItem.loginTime || prevItem.createdAt).getTime();
+          if (timeMs > prevMs) {
+            dedupedMap.set(key, item);
+          }
+        }
+      }
+      const dedupedList = Array.from(dedupedMap.values());
 
       if (!isLoginsInitial && !isCustDevice) {
         snapshot.docChanges().forEach((change) => {
           if (change.type === 'added') {
             const loginData = change.doc.data() as CustomerLoginNotification;
+            const timeMs = new Date(loginData.loginTime || loginData.createdAt).getTime();
+            if (clearedTime > 0 && timeMs <= clearedTime) return;
+            const bucket = Math.floor(timeMs / (10 * 60 * 1000));
+            const dedupeTag = `cust-visit-${loginData.contactId || loginData.customerPhone || loginData.customerName}-${bucket}`;
             notifyWithDeduplication({
               title: '🔔 কাস্টমার ভিজিট করেছেন!',
               body: `${loginData.customerName || 'কাস্টমার'} অ্যাপে ভিজিট করেছেন।`,
-              tag: `login-${change.doc.id}`,
-              dedupeKey: `login-${change.doc.id}`,
+              tag: dedupeTag,
+              dedupeKey: dedupeTag,
               playSound: true
             });
           }
@@ -823,7 +854,7 @@ export default function App() {
       }
       isLoginsInitial = false;
 
-      const sorted = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50);
+      const sorted = dedupedList.sort((a, b) => (b.createdAt || b.loginTime).localeCompare(a.createdAt || a.loginTime)).slice(0, 50);
       setCustomerLogins(sorted);
       saveCustomerLoginNotifications(sorted);
     }, (error) => {
@@ -966,6 +997,20 @@ export default function App() {
           if (data.tagCategoryOverrides) {
             localStorage.setItem('hellopoint_tag_category_overrides', JSON.stringify(data.tagCategoryOverrides));
             window.dispatchEvent(new Event('storage'));
+          }
+          if (data.notificationsClearedAt) {
+            const clearedTime = new Date(data.notificationsClearedAt).getTime();
+            const localCleared = localStorage.getItem('hellopoint_notifications_cleared_at');
+            const localClearedTime = localCleared ? new Date(localCleared).getTime() : 0;
+            if (clearedTime > localClearedTime) {
+              localStorage.setItem('hellopoint_notifications_cleared_at', data.notificationsClearedAt);
+              setCustomerLogins(prev => {
+                const remaining = prev.filter(l => new Date(l.loginTime || l.createdAt).getTime() > clearedTime);
+                saveCustomerLoginNotifications(remaining);
+                return remaining;
+              });
+              window.dispatchEvent(new Event('storage'));
+            }
           }
         }
       }
@@ -2580,6 +2625,53 @@ export default function App() {
     return undefined;
   }, [screen, transactions]);
 
+  const handleRecordCustomerVisit = (cust: Contact | null) => {
+    if (!cust || !cust.id) return;
+    const visitKey = `hellopoint_last_visit_${cust.id}`;
+    const lastVisit = sessionStorage.getItem(visitKey);
+    const now = Date.now();
+    // Only record once every 10 minutes per session to prevent duplicate spam
+    if (lastVisit && now - parseInt(lastVisit, 10) < 600000) {
+      return;
+    }
+    sessionStorage.setItem(visitKey, now.toString());
+
+    // Check if an unread notification for this customer already exists in the last 10 minutes
+    const recentThreshold = now - 600000;
+    const alreadyRecorded = customerLogins.some(l => 
+      l.contactId === cust.id && new Date(l.loginTime || l.createdAt).getTime() > recentThreshold
+    );
+    if (alreadyRecorded) {
+      return;
+    }
+
+    const visitEvent: CustomerLoginNotification = {
+      id: 'visit_' + now + '_' + Math.random().toString(36).substring(2, 7),
+      contactId: cust.id,
+      customerName: cust.name || 'কাস্টমার',
+      customerPhone: cust.phone || '',
+      loginTime: new Date().toISOString(),
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+
+    setCustomerLogins(prev => {
+      // Remove any duplicate for the same contact in the last 10 minutes
+      const filtered = prev.filter(l => 
+        l.id !== visitEvent.id && !(l.contactId === cust.id && (now - new Date(l.loginTime || l.createdAt).getTime()) < 600000)
+      );
+      const updated = [visitEvent, ...filtered].slice(0, 50);
+      saveCustomerLoginNotifications(updated);
+      return updated;
+    });
+
+    const targetUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid') || 'lJRGRj5w92RxSUcGybklzs3cFho1';
+    if (targetUid) {
+      setDoc(doc(db, 'users', targetUid, 'customer_logins', visitEvent.id), cleanForFirestore(visitEvent))
+        .catch(err => console.warn('Customer visit cloud sync notice:', err));
+    }
+  };
+
   const handleUnlock = (role: 'owner' | 'customer', contactId?: string) => {
     setIsLocked(false);
     setSessionRole(role);
@@ -2642,29 +2734,9 @@ export default function App() {
           console.error('Failed to sync remembered customer in handleUnlock:', e);
         }
 
-        // Record customer login notification for the store owner
+        // Record customer login notification for the store owner (unified, exactly once per visit)
         if (role === 'customer') {
-          const loginEvent: CustomerLoginNotification = {
-            id: 'login_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
-            contactId: custObj.id,
-            customerName: custObj.name || 'কাস্টমার',
-            customerPhone: custObj.phone || '',
-            loginTime: new Date().toISOString(),
-            read: false,
-            createdAt: new Date().toISOString()
-          };
-
-          setCustomerLogins(prev => {
-            const updated = [loginEvent, ...prev.filter(l => l.id !== loginEvent.id)].slice(0, 50);
-            saveCustomerLoginNotifications(updated);
-            return updated;
-          });
-
-          const targetUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid') || 'lJRGRj5w92RxSUcGybklzs3cFho1';
-          if (targetUid) {
-            setDoc(doc(db, 'users', targetUid, 'customer_logins', loginEvent.id), cleanForFirestore(loginEvent))
-              .catch(err => console.warn('Customer login cloud sync notice:', err));
-          }
+          handleRecordCustomerVisit(custObj);
         }
       }
     } else {
@@ -2702,53 +2774,37 @@ export default function App() {
   };
 
   const handleClearCustomerLogins = () => {
-    const toDelete = [...customerLogins];
+    // 1. Instant zero-block local wipe (0ms delay)
+    const nowIso = new Date().toISOString();
+    localStorage.setItem('hellopoint_notifications_cleared_at', nowIso);
     setCustomerLogins([]);
     saveCustomerLoginNotifications([]);
-    const activeUid = user?.uid || ownerUid;
+    window.dispatchEvent(new Event('storage'));
+
+    // 2. High-speed Firestore cleanup across all devices
+    const activeUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid') || localStorage.getItem('hellopoint_active_uid') || 'lJRGRj5w92RxSUcGybklzs3cFho1';
     if (activeUid) {
-      toDelete.forEach(l => {
-        deleteDoc(doc(db, 'users', activeUid, 'customer_logins', l.id)).catch(() => {});
-      });
+      // Broadcast cleared timestamp to all other devices in real-time
+      setDoc(doc(db, 'users', activeUid), { notificationsClearedAt: nowIso }, { merge: true })
+        .catch(err => console.warn('Failed to update notificationsClearedAt in Firestore:', err));
+
+      // Batch delete all customer_logins documents
+      getDocs(collection(db, 'users', activeUid, 'customer_logins'))
+        .then(snap => {
+          if (!snap.empty) {
+            const batch = writeBatch(db);
+            snap.docs.forEach(docSnap => {
+              batch.delete(docSnap.ref);
+            });
+            return batch.commit();
+          }
+        })
+        .catch(err => console.warn('Failed to batch delete customer_logins in Firestore:', err));
     }
   };
 
   const handleClearAllNotifications = () => {
     handleClearCustomerLogins();
-  };
-
-  const handleRecordCustomerVisit = (cust: Contact | null) => {
-    if (!cust || !cust.id) return;
-    const visitKey = `hellopoint_last_visit_${cust.id}`;
-    const lastVisit = sessionStorage.getItem(visitKey);
-    const now = Date.now();
-    // Only record once every 3 minutes per session to prevent refresh spam
-    if (lastVisit && now - parseInt(lastVisit, 10) < 180000) {
-      return;
-    }
-    sessionStorage.setItem(visitKey, now.toString());
-
-    const visitEvent: CustomerLoginNotification = {
-      id: 'visit_' + now + '_' + Math.random().toString(36).substring(2, 7),
-      contactId: cust.id,
-      customerName: cust.name || 'কাস্টমার',
-      customerPhone: cust.phone || '',
-      loginTime: new Date().toISOString(),
-      read: false,
-      createdAt: new Date().toISOString()
-    };
-
-    setCustomerLogins(prev => {
-      const updated = [visitEvent, ...prev.filter(l => l.id !== visitEvent.id)].slice(0, 50);
-      saveCustomerLoginNotifications(updated);
-      return updated;
-    });
-
-    const targetUid = user?.uid || ownerUid || localStorage.getItem('hellopoint_synced_owner_uid') || 'lJRGRj5w92RxSUcGybklzs3cFho1';
-    if (targetUid) {
-      setDoc(doc(db, 'users', targetUid, 'customer_logins', visitEvent.id), cleanForFirestore(visitEvent))
-        .catch(err => console.warn('Customer visit cloud sync notice:', err));
-    }
   };
 
   const handleCustomerLogout = () => {
@@ -2884,10 +2940,10 @@ export default function App() {
         {!isLocked && screen.type === 'contact_detail' && selectedContact && (
           <motion.div
             key={`contact_detail-${selectedContact.id}`}
-            initial={{ x: 12, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -12, opacity: 0 }}
-            transition={{ duration: 0.12, ease: 'easeInOut' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.08, ease: 'easeOut' }}
           >
             <CustomerDetail 
               contact={selectedContact}
@@ -2917,10 +2973,10 @@ export default function App() {
         {!isLocked && screen.type === 'transaction_form' && selectedContact && (
           <motion.div
             key={`transaction_form-${selectedContact.id}-${screen.transactionId || 'new'}`}
-            initial={{ y: 15, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 15, opacity: 0 }}
-            transition={{ duration: 0.12, ease: 'easeInOut' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.08, ease: 'easeOut' }}
           >
             <TransactionForm 
               contact={selectedContact}

@@ -1619,7 +1619,26 @@ export function MainDashboard({
   const pendingRechargesCount = useMemo(() => rechargeRequests.filter(r => r.status === 'pending').length, [rechargeRequests]);
   const pendingPaybillsCount = useMemo(() => paybillRequests.filter(r => r.status === 'pending').length, [paybillRequests]);
   const pendingSignupsCount = useMemo(() => signupRequests ? signupRequests.filter(req => req.status === 'pending').length : 0, [signupRequests]);
-  const unreadCustomerLoginsCount = useMemo(() => customerLogins ? customerLogins.filter(l => !l.read).length : 0, [customerLogins]);
+  const deduplicatedCustomerLogins = useMemo(() => {
+    if (!customerLogins || customerLogins.length === 0) return [];
+    const seen = new Set<string>();
+    const result: CustomerLoginNotification[] = [];
+    const sorted = [...customerLogins].sort((a, b) => 
+      new Date(b.loginTime || b.createdAt).getTime() - new Date(a.loginTime || a.createdAt).getTime()
+    );
+    for (const item of sorted) {
+      const timeMs = new Date(item.loginTime || item.createdAt).getTime();
+      const timeBucket = Math.floor(timeMs / (10 * 60 * 1000));
+      const key = `${item.contactId || item.customerPhone || item.customerName}_${timeBucket}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(item);
+      }
+    }
+    return result;
+  }, [customerLogins]);
+
+  const unreadCustomerLoginsCount = useMemo(() => deduplicatedCustomerLogins.filter(l => !l.read).length, [deduplicatedCustomerLogins]);
   const totalNotificationsCount = pendingSignupsCount + pendingRechargesCount + unreadCustomerLoginsCount;
 
   return (
@@ -1675,9 +1694,9 @@ export function MainDashboard({
               }`}
               title={lang === 'bn' ? 'নোটিফিকেশন সেন্টার' : 'Notification Center'}
             >
-              <Bell className={`w-5 h-5 ${totalNotificationsCount > 0 ? 'text-white fill-amber-300 animate-pulse' : 'text-yellow-300'}`} />
+              <Bell className={`w-5 h-5 ${totalNotificationsCount > 0 ? 'text-white fill-amber-300' : 'text-yellow-300'}`} />
               {totalNotificationsCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-4.5 h-4.5 bg-red-650 text-white rounded-full text-[8.5px] font-black flex items-center justify-center px-1 border border-brand-primary shadow-md animate-bounce">
+                <span className="absolute -top-1 -right-1 min-w-4.5 h-4.5 bg-red-650 text-white rounded-full text-[8.5px] font-black flex items-center justify-center px-1 border border-brand-primary shadow-md">
                   {totalNotificationsCount}
                 </span>
               )}
@@ -3370,28 +3389,28 @@ export function MainDashboard({
       )}
 
       {showNotificationsModal && (
-        <div id="notifications-modal" className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fade-in print:hidden select-none font-sans">
-          <div className="bg-white rounded-[28px] w-full max-w-[640px] overflow-hidden shadow-[0_25px_60px_-15px_rgba(15,23,42,0.3)] border border-slate-200/90 transform transition-all p-4 sm:p-5 flex flex-col max-h-[85vh]">
+        <div id="notifications-modal" className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 z-50 backdrop-blur-sm animate-fade-in print:hidden select-none font-sans">
+          <div className="bg-white dark:bg-[#1E2530] rounded-2xl w-full max-w-[480px] overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800 transform transition-all p-4 sm:p-5 flex flex-col max-h-[85vh]">
             
             {/* Header */}
-            <div className="flex justify-between items-center mb-3 pb-2.5 border-b border-slate-100 shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-500 shadow-sm">
-                  <Bell className="w-4.5 h-4.5 animate-wiggle" />
+            <div className="flex justify-between items-center mb-3 pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shadow-2xs">
+                  <Bell className="w-4.5 h-4.5" />
                 </div>
                 <div className="text-left">
-                  <h3 className="font-extrabold text-slate-855 text-xs sm:text-xs flex items-center gap-2 uppercase tracking-wide">
+                  <h3 className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm tracking-tight">
                     {lang === 'bn' ? 'নোটিফিকেশন সেন্টার' : 'Notification Center'}
                   </h3>
-                  <p className="text-[9px] font-bold text-slate-400">
+                  <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">
                     {totalNotificationsCount > 0 
-                      ? (lang === 'bn' ? `আপনি ${totalNotificationsCount}টি নতুন নোটিফিকেশন পেয়েছেন` : `You have ${totalNotificationsCount} active alerts`)
+                      ? (lang === 'bn' ? `${totalNotificationsCount}টি নতুন নোটিফিকেশন` : `${totalNotificationsCount} new notifications`)
                       : (lang === 'bn' ? 'কোন পেন্ডিং অ্যালার্ট নেই' : 'No pending alerts')}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                {((customerLogins && customerLogins.length > 0) || totalNotificationsCount > 0) && (
+              <div className="flex items-center gap-2">
+                {((deduplicatedCustomerLogins && deduplicatedCustomerLogins.length > 0) || totalNotificationsCount > 0) && (
                   <button
                     type="button"
                     onClick={() => {
@@ -3401,78 +3420,54 @@ export function MainDashboard({
                         onClearCustomerLogins();
                       }
                     }}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 border border-rose-200/80 rounded-xl text-[9px] font-black transition-all cursor-pointer active:scale-95 shadow-2xs"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900/50 border border-rose-200/80 rounded-xl text-[11px] font-bold transition-all cursor-pointer active:scale-95 shadow-2xs"
                     title={lang === 'bn' ? 'সব নোটিফিকেশন ক্লিয়ার করুন' : 'Clear All Notifications'}
                   >
-                    <Trash2 className="w-3 h-3 text-rose-500" />
+                    <Trash2 className="w-3.5 h-3.5 text-rose-500 dark:text-rose-400" />
                     <span>{lang === 'bn' ? 'অল ক্লিয়ার' : 'Clear All'}</span>
                   </button>
                 )}
                 <button 
                   onClick={() => setShowNotificationsModal(false)}
-                  className="text-slate-400 hover:text-slate-600 hover:bg-slate-50 p-1.5 rounded-full cursor-pointer transition-all active:scale-90"
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 p-1.5 rounded-full cursor-pointer transition-all active:scale-90"
                 >
-                  <X className="w-4 h-4 text-slate-500" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            {/* List of active (triggered / due) notifications */}
-            <div className="flex-1 overflow-y-auto space-y-2.5 min-h-0 pr-1 select-none">
-              {totalNotificationsCount === 0 && (customerLogins || []).length === 0 ? (
-                <div className="text-center py-12 px-4 border border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400">
-                  <div className="bg-slate-50 p-3.5 rounded-full mb-3 border border-slate-100">
-                    <BellOff className="w-6 h-6 text-slate-350" />
+            {/* List of active notifications */}
+            <div className="flex-1 overflow-y-auto space-y-2.5 min-h-0 pr-0.5 select-none">
+              {totalNotificationsCount === 0 && deduplicatedCustomerLogins.length === 0 ? (
+                <div className="text-center py-12 px-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
+                  <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-full mb-3 border border-slate-100 dark:border-slate-700/60">
+                    <BellOff className="w-6 h-6 text-slate-400 dark:text-slate-500" />
                   </div>
-                  <p className="text-xs font-black text-slate-700">{lang === 'bn' ? 'কোন নতুন নোটিফিকেশন নেই!' : 'No active notifications!'}</p>
-                  <p className="text-[9px] mt-1.5 text-center text-slate-500 max-w-[260px] leading-relaxed">
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{lang === 'bn' ? 'কোন নতুন নোটিফিকেশন নেই' : 'No active notifications'}</p>
+                  <p className="text-[10px] mt-1 text-center text-slate-400 dark:text-slate-500 max-w-[240px] leading-relaxed">
                     {lang === 'bn' 
-                      ? "কাস্টমার ভিজিট বা লগইন করলে অথবা নতুন অনুরোধ আসলে এখানে দেখতে পাবেন।" 
+                      ? "কাস্টমার ভিজিট করলে বা নতুন কোনো অনুরোধ আসলে এখানে দেখতে পাবেন।" 
                       : "When customers visit or submit requests, they will appear here."}
                   </p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {/* Customer Login / Visit Notifications */}
-                  {customerLogins && customerLogins.length > 0 && (
-                    <div className="bg-emerald-50/25 border border-emerald-100 rounded-2xl p-2.5 space-y-1.5">
-                      <div className="flex justify-between items-center px-1 border-b border-emerald-100 pb-1">
-                        <span className="text-[9px] font-black text-emerald-800 uppercase tracking-widest flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 -ml-2.5" />
-                          {lang === 'bn' ? 'কাস্টমার ভিজিট নোটিফিকেশন' : 'CUSTOMER VISIT ALERTS'}
+                  {/* Customer Visit Notifications */}
+                  {deduplicatedCustomerLogins && deduplicatedCustomerLogins.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center px-1">
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          {lang === 'bn' ? 'কাস্টমার ভিজিট' : 'Customer Visits'}
                         </span>
-                        <div className="flex items-center gap-1.5">
-                          {unreadCustomerLoginsCount > 0 && (
-                            <span className="text-[8px] font-black px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded-full font-mono">
-                              {unreadCustomerLoginsCount} {lang === 'bn' ? 'নতুন' : 'new'}
-                            </span>
-                          )}
-                          {unreadCustomerLoginsCount > 0 && onMarkAllCustomerLoginsAsRead && (
-                            <button
-                              type="button"
-                              onClick={onMarkAllCustomerLoginsAsRead}
-                              className="text-[8px] font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-100/70 hover:bg-emerald-100 px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
-                            >
-                              {lang === 'bn' ? 'সব পড়া হয়েছে' : 'Mark all read'}
-                            </button>
-                          )}
-                          {onClearCustomerLogins && (
-                            <button
-                              type="button"
-                              onClick={onClearCustomerLogins}
-                              className="text-[8px] font-bold text-slate-400 hover:text-rose-500 p-1 rounded transition-colors cursor-pointer"
-                              title={lang === 'bn' ? 'মুছে ফেলুন' : 'Clear all'}
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 rounded-full font-mono">
+                          {deduplicatedCustomerLogins.length}
+                        </span>
                       </div>
 
-                      {/* Ultra-compact Customer Visit List: Name and Time only */}
-                      <div className="space-y-1 max-h-56 overflow-y-auto pr-0.5">
-                        {customerLogins.map((login) => {
+                      {/* Clean Customer Visit List */}
+                      <div className="space-y-1.5 max-h-60 overflow-y-auto pr-0.5">
+                        {deduplicatedCustomerLogins.map((login) => {
                           const loginTimeFormatted = (() => {
                             try {
                               const d = new Date(login.loginTime || login.createdAt);
@@ -3496,52 +3491,45 @@ export function MainDashboard({
                           return (
                             <div 
                               key={login.id}
-                              className={`px-2 py-1.5 rounded-xl border flex items-center justify-between gap-2 transition-all ${
+                              onClick={() => {
+                                if (onMarkCustomerLoginAsRead && !login.read) {
+                                  onMarkCustomerLoginAsRead(login.id);
+                                }
+                                onSelectContact(login.contactId);
+                                setShowNotificationsModal(false);
+                              }}
+                              className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 transition-all cursor-pointer select-none ${
                                 !login.read 
-                                  ? 'bg-white border-emerald-300 shadow-2xs ring-1 ring-emerald-300/40' 
-                                  : 'bg-white/70 border-slate-100 opacity-90 hover:opacity-100'
+                                  ? 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800/80 hover:bg-emerald-50/70 shadow-2xs' 
+                                  : 'bg-white dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/70'
                               }`}
                             >
-                              {/* Customer Name and tag */}
-                              <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${!login.read ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
-                                <span className="text-[10.5px] font-black text-slate-850 truncate leading-none">
-                                  {login.customerName || (lang === 'bn' ? 'কাস্টমার' : 'Customer')}
-                                </span>
-                                <span className="text-[7.5px] font-bold px-1.2 py-0.2 rounded bg-emerald-100 text-emerald-800 shrink-0 leading-none">
-                                  {lang === 'bn' ? 'ভিজিট' : 'Visit'}
-                                </span>
+                              {/* Left: Avatar initial + Name + Subtitle */}
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 flex items-center justify-center font-bold text-xs shrink-0">
+                                  {(login.customerName || 'ক').charAt(0)}
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                                      {login.customerName || (lang === 'bn' ? 'কাস্টমার' : 'Customer')}
+                                    </span>
+                                    {!login.read && (
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                                    {lang === 'bn' ? 'অ্যাপে ভিজিট করেছেন' : 'Visited app'}
+                                  </span>
+                                </div>
                               </div>
 
-                              {/* Time and minimal action buttons */}
+                              {/* Right: Timestamp & Chevron */}
                               <div className="flex items-center gap-1.5 shrink-0">
-                                <span className="text-[8.5px] font-bold font-mono text-slate-500 leading-none">
+                                <span className="text-[10px] font-medium font-mono text-slate-400 dark:text-slate-500">
                                   {loginTimeFormatted}
                                 </span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (onMarkCustomerLoginAsRead && !login.read) {
-                                      onMarkCustomerLoginAsRead(login.id);
-                                    }
-                                    onSelectContact(login.contactId);
-                                    setShowNotificationsModal(false);
-                                  }}
-                                  className="p-1 hover:bg-emerald-50 text-emerald-650 rounded cursor-pointer transition-colors"
-                                  title={lang === 'bn' ? 'খতিয়ান' : 'Ledger'}
-                                >
-                                  <BookOpen className="w-3 h-3" />
-                                </button>
-                                {!login.read && onMarkCustomerLoginAsRead && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onMarkCustomerLoginAsRead(login.id)}
-                                    className="p-1 hover:bg-slate-100 text-slate-400 hover:text-emerald-600 rounded cursor-pointer transition-colors"
-                                    title={lang === 'bn' ? 'পড়া হয়েছে' : 'Mark as read'}
-                                  >
-                                    <Check className="w-3 h-3" />
-                                  </button>
-                                )}
+                                <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                               </div>
                             </div>
                           );
@@ -3550,54 +3538,53 @@ export function MainDashboard({
                     </div>
                   )}
 
-                  {/* Signup requests - Compact Name + Time */}
+                  {/* Signup requests */}
                   {signupRequests && signupRequests.filter(req => req.status === 'pending').length > 0 && (
-                    <div className="bg-purple-50/20 border border-purple-100 rounded-2xl p-2.5 space-y-1.5">
-                      <div className="flex justify-between items-center px-1 border-b border-purple-100 pb-1">
-                        <span className="text-[9px] font-black text-purple-750 uppercase tracking-widest flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse" />
-                          {lang === 'bn' ? 'কাস্টমার অ্যাকাউন্ট অনুরোধ' : 'PENDING SIGNUP REQUESTS'}
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex justify-between items-center px-1">
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                          {lang === 'bn' ? 'অ্যাকাউন্ট অনুরোধ' : 'Signup Requests'}
                         </span>
-                        <span className="text-[8px] font-black px-1.5 py-0.2 bg-purple-100 text-purple-705 rounded-full">
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 rounded-full font-mono">
                           {signupRequests.filter(req => req.status === 'pending').length}
                         </span>
                       </div>
                       
-                      <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
                         {signupRequests.filter(req => req.status === 'pending').map((req) => (
                           <div 
                             key={req.id}
-                            className="px-2 py-1.5 bg-white border border-purple-100 rounded-xl flex items-center justify-between gap-2 shadow-2xs hover:shadow-xs transition-all"
+                            className="p-2.5 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between gap-2 shadow-2xs hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-all"
                           >
-                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" />
-                              <span className="text-[10.5px] font-black text-slate-850 truncate leading-none">
-                                {req.name}
-                              </span>
-                              <span className="text-[7.5px] font-bold px-1.2 py-0.2 rounded bg-purple-100 text-purple-800 shrink-0 leading-none">
-                                {lang === 'bn' ? 'অনুরোধ' : 'Request'}
-                              </span>
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <div className="w-7 h-7 rounded-full bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200 flex items-center justify-center font-bold text-xs shrink-0">
+                                {(req.name || 'অ').charAt(0)}
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                                  {req.name}
+                                </span>
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                                  {req.phone}
+                                </span>
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-[8.5px] font-bold font-mono text-slate-500 leading-none">
-                                {req.createdAt ? new Date(req.createdAt).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : req.phone}
-                              </span>
                               <button
                                 type="button"
                                 onClick={() => onAcceptSignUpRequest?.(req)}
-                                className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white p-1 rounded-md shadow-2xs transition-all cursor-pointer"
-                                title={lang === 'bn' ? 'অনুমোদন' : 'Accept'}
+                                className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white px-2.5 py-1 rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer"
                               >
-                                <Check className="w-2.5 h-2.5 stroke-[3px]" />
+                                {lang === 'bn' ? 'অনুমোদন' : 'Accept'}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => onRejectSignUpRequest?.(req)}
-                                className="bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 p-1 rounded-md transition-all cursor-pointer"
-                                title={lang === 'bn' ? 'বাতিল' : 'Reject'}
+                                className="bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer"
                               >
-                                <X className="w-2.5 h-2.5 stroke-[3px]" />
+                                {lang === 'bn' ? 'বাতিল' : 'Reject'}
                               </button>
                             </div>
                           </div>
@@ -3606,54 +3593,53 @@ export function MainDashboard({
                     </div>
                   )}
 
-                  {/* Recharge Requests - Compact Name + Time */}
+                  {/* Recharge Requests */}
                   {rechargeRequests && rechargeRequests.filter(req => req.status === 'pending').length > 0 && (
-                    <div className="bg-blue-50/20 border border-blue-100 rounded-2xl p-2.5 space-y-1.5">
-                      <div className="flex justify-between items-center px-1 border-b border-blue-100 pb-1">
-                        <span className="text-[9px] font-black text-blue-750 uppercase tracking-widest flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
-                          {lang === 'bn' ? 'রিচার্জের অনুরোধ সমূহ' : 'PENDING RECHARGES'}
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex justify-between items-center px-1">
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                          {lang === 'bn' ? 'রিচার্জ অনুরোধ' : 'Recharge Requests'}
                         </span>
-                        <span className="text-[8px] font-black px-1.5 py-0.2 bg-blue-100 text-blue-700 rounded-full">
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded-full font-mono">
                           {rechargeRequests.filter(req => req.status === 'pending').length}
                         </span>
                       </div>
 
-                      <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
                         {rechargeRequests.filter(req => req.status === 'pending').map((req) => (
                           <div 
                             key={req.id}
-                            className="px-2 py-1.5 bg-white border border-blue-100 rounded-xl flex items-center justify-between gap-2 shadow-2xs hover:shadow-xs transition-all"
+                            className="p-2.5 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between gap-2 shadow-2xs hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-all"
                           >
-                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                              <span className="text-[10.5px] font-black text-slate-850 truncate leading-none">
-                                {req.customerName}
-                              </span>
-                              <span className="text-[7.5px] font-bold px-1.2 py-0.2 rounded bg-blue-100 text-blue-800 shrink-0 leading-none">
-                                {req.method === 'bkash' ? (lang === 'bn' ? 'বিকাশ' : 'bKash') : req.method === 'nagad' ? (lang === 'bn' ? 'নগদ' : 'Nagad') : (lang === 'bn' ? 'ফ্লেক্সি' : 'Flexi')} ৳{req.amount}
-                              </span>
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200 flex items-center justify-center font-bold text-xs shrink-0">
+                                {(req.customerName || 'র').charAt(0)}
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                                  {req.customerName}
+                                </span>
+                                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold font-mono">
+                                  {req.method === 'bkash' ? (lang === 'bn' ? 'বিকাশ' : 'bKash') : req.method === 'nagad' ? (lang === 'bn' ? 'নগদ' : 'Nagad') : (lang === 'bn' ? 'ফ্লেক্সি' : 'Flexi')} ৳{req.amount}
+                                </span>
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-[8.5px] font-bold font-mono text-slate-500 leading-none">
-                                {req.createdAt ? new Date(req.createdAt).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
-                              </span>
                               <button
                                 type="button"
                                 onClick={() => onCompleteRechargeRequest?.(req)}
-                                className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white p-1 rounded-md shadow-2xs transition-all cursor-pointer"
-                                title={lang === 'bn' ? 'সম্পূর্ণ' : 'Complete'}
+                                className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white px-2.5 py-1 rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer"
                               >
-                                <Check className="w-2.5 h-2.5 stroke-[3px]" />
+                                {lang === 'bn' ? 'সম্পূর্ণ' : 'Complete'}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setRechargeToCancel(req)}
-                                className="bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 p-1 rounded-md transition-all cursor-pointer"
-                                title={lang === 'bn' ? 'বাতিল' : 'Cancel'}
+                                className="bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer"
                               >
-                                <X className="w-2.5 h-2.5 stroke-[3px]" />
+                                {lang === 'bn' ? 'বাতিল' : 'Cancel'}
                               </button>
                             </div>
                           </div>
@@ -3666,36 +3652,15 @@ export function MainDashboard({
             </div>
 
             {/* Quick Navigation Footer */}
-            <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between shrink-0 font-sans">
-              {((customerLogins && customerLogins.length > 0) || totalNotificationsCount > 0) ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onClearAllNotifications) {
-                      onClearAllNotifications();
-                    } else if (onClearCustomerLogins) {
-                      onClearCustomerLogins();
-                    }
-                  }}
-                  className="text-[9px] font-black text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 px-3 py-1.5 rounded-xl uppercase transition-all cursor-pointer flex items-center gap-1 active:scale-95 shadow-2xs"
-                >
-                  <Trash2 className="w-3 h-3 text-rose-500" />
-                  <span>{lang === 'bn' ? 'সব নোটিফিকেশন ক্লিয়ার করুন' : 'Clear All Notifications'}</span>
-                </button>
-              ) : (
-                <span className="text-[8.2px] font-black text-slate-400 uppercase tracking-widest">
-                  Hello Point Smart Center
-                </span>
-              )}
+            <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end shrink-0 font-sans">
               <button
                 type="button"
                 onClick={() => setShowNotificationsModal(false)}
-                className="text-[9px] font-black text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl uppercase transition-all cursor-pointer"
+                className="text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 px-4 py-1.5 rounded-xl transition-all cursor-pointer active:scale-95"
               >
                 {lang === 'bn' ? 'বন্ধ করুন' : 'Close'}
               </button>
             </div>
-
 
           </div>
         </div>

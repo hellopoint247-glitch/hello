@@ -457,28 +457,27 @@ export function CustomerPortal({
     return String(enStr).replace(/[0-9]/g, (digit) => bnDigits[parseInt(digit, 10)]);
   };
 
-  // Human-friendly date printing
+  // Human-friendly compact date printing (without year to give maximum room for notes/info)
   const formatTxDate = (isoString: string) => {
     try {
       const dateObj = new Date(isoString);
       if (isNaN(dateObj.getTime())) return isoString;
       
       const day = dateObj.getDate();
-      const monthNamesBn = [
-        'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 
-        'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
+      const monthNamesBnShort = [
+        'জানু', 'ফেব্রু', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 
+        'জুলাই', 'আগস্ট', 'সেপ্টে', 'অক্টো', 'নভে', 'ডিসে'
       ];
       const monthNamesEn = [
         'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
       ];
       
-      const month = lang === 'bn' ? monthNamesBn[dateObj.getMonth()] : monthNamesEn[dateObj.getMonth()];
-      const year = dateObj.getFullYear();
+      const month = lang === 'bn' ? monthNamesBnShort[dateObj.getMonth()] : monthNamesEn[dateObj.getMonth()];
       
       return lang === 'bn' 
-        ? `${toBn(day)} ${month} ${toBn(year)}` 
-        : `${day} ${month} ${year}`;
+        ? `${toBn(day)} ${month}` 
+        : `${day} ${month}`;
     } catch {
       return isoString;
     }
@@ -623,8 +622,8 @@ export function CustomerPortal({
 
       <main className="max-w-2xl mx-auto px-2 py-1.5 sm:px-3 sm:py-2.5 w-full flex-1 space-y-1.5 sm:space-y-2.5 print:p-0">
         
-        {/* CUSTOMER PROFILE CARD (#363042 ON #4A4459 BACKGROUND) */}
-        <div id="portal-usercard" className="bg-[#363042] rounded-xl border border-[#5e5571] px-2.5 py-1.5 sm:p-2.5 shadow-sm flex flex-row justify-between items-center gap-2.5">
+        {/* CUSTOMER PROFILE CARD - HIGHLIGHTED IN SOFT LIGHT BLUE */}
+        <div id="portal-usercard" className="bg-gradient-to-r from-[#14263b] via-[#1c3856] to-[#14263b] rounded-xl border-2 border-sky-400/70 px-2.5 py-1.5 sm:p-2.5 shadow-[0_4px_20px_rgba(56,189,248,0.22)] ring-1 ring-sky-300/30 flex flex-row justify-between items-center gap-2.5">
           <div className="flex items-center gap-2.5 min-w-0">
             
             {/* Profile Avatar with Camera Button */}
@@ -635,7 +634,7 @@ export function CustomerPortal({
                     setZoomedImage({ url: customer.photoUrl, name: customer.name });
                   }
                 }}
-                className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-[#5e5571] overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-800 relative flex items-center justify-center shadow-xs select-none ${customer.photoUrl ? 'cursor-pointer hover:scale-105 active:scale-95 transition-transform' : ''}`}
+                className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-sky-300/80 overflow-hidden bg-gradient-to-br from-sky-600 via-sky-500 to-cyan-400 relative flex items-center justify-center shadow-[0_0_12px_rgba(56,189,248,0.35)] select-none ${customer.photoUrl ? 'cursor-pointer hover:scale-105 active:scale-95 transition-transform' : ''}`}
               >
                 {customer.photoUrl ? (
                   <img 
@@ -645,7 +644,7 @@ export function CustomerPortal({
                     className="w-full h-full object-cover" 
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-purple-100 font-bold text-sm sm:text-base select-none">
+                  <div className="w-full h-full flex items-center justify-center text-white font-extrabold text-sm sm:text-base select-none">
                     <span>{customer.name.trim().charAt(0).toUpperCase()}</span>
                   </div>
                 )}
@@ -659,7 +658,7 @@ export function CustomerPortal({
               
               {/* Camera Trigger */}
               <label 
-                className="absolute -bottom-0.5 -right-0.5 bg-purple-600 hover:bg-purple-500 text-white p-0.5 rounded-full shadow-xs cursor-pointer hover:scale-110 active:scale-95 transition-all border border-[#363042] flex items-center justify-center"
+                className="absolute -bottom-0.5 -right-0.5 bg-sky-600 hover:bg-sky-500 text-white p-0.5 rounded-full shadow-xs cursor-pointer hover:scale-110 active:scale-95 transition-all border border-sky-200 flex items-center justify-center"
                 title={lang === 'bn' ? 'প্রোফাইল ছবি পরিবর্তন করুন' : 'Change Profile Picture'}
               >
                 <Camera className="w-2 h-2" />
@@ -673,12 +672,12 @@ export function CustomerPortal({
             </div>
 
             <div className="min-w-0">
-              <h2 className="text-xs sm:text-sm font-bold text-white select-text leading-tight truncate">
+              <h2 className="text-xs sm:text-sm font-black text-white select-text leading-tight truncate drop-shadow-xs">
                 {customer.name}
               </h2>
-              <div className="text-[11px] font-semibold text-purple-200 flex items-center gap-1 mt-0.5 select-text">
-                <Phone className="w-2.5 h-2.5 text-purple-300 shrink-0" />
-                <span className="font-mono text-purple-200">{toBn(customer.phone)}</span>
+              <div className="text-[11px] font-bold text-sky-200 flex items-center gap-1 mt-0.5 select-text">
+                <Phone className="w-2.5 h-2.5 text-sky-300 shrink-0" />
+                <span className="font-mono text-sky-200">{toBn(customer.phone)}</span>
               </div>
             </div>
           </div>
@@ -688,15 +687,15 @@ export function CustomerPortal({
             id="portal-inbox-trigger"
             onClick={() => setShowChatModal(true)}
             title={lang === 'bn' ? 'মেসেজ ইনবক্স' : 'Message Inbox'}
-            className={`bg-[#2b2635] hover:bg-[#433b52] text-amber-300 p-2 rounded-lg border border-[#5e5571] transition-all flex items-center justify-center cursor-pointer shadow-xs relative shrink-0 ${
+            className={`bg-[#102033] hover:bg-[#18314e] text-sky-200 p-2 rounded-lg border border-sky-400/40 transition-all flex items-center justify-center cursor-pointer shadow-xs relative shrink-0 ${
               unreadChatsCount > 0 
                 ? 'ring-2 ring-amber-400/50 bg-amber-400/15' 
                 : 'hover:scale-105 active:scale-95'
             }`}
           >
-            <Mail className="w-4 h-4 text-amber-300" />
+            <Mail className="w-4 h-4 text-sky-200" />
             {unreadChatsCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-3.5 h-3.5 bg-rose-600 text-white rounded-full text-[8px] font-black flex items-center justify-center px-0.5 border border-[#363042] shadow-sm">
+              <span className="absolute -top-1 -right-1 min-w-3.5 h-3.5 bg-rose-600 text-white rounded-full text-[8px] font-black flex items-center justify-center px-0.5 border border-[#14263b] shadow-sm">
                 {toBn(unreadChatsCount)}
               </span>
             )}
@@ -1262,19 +1261,19 @@ export function CustomerPortal({
 
         {/* TABLE COLUMN HEADER */}
         <div className="grid grid-cols-12 items-center text-[9px] font-bold text-purple-200 uppercase px-2 py-0.5 select-none print:hidden">
-          <div className="col-span-5 flex items-center gap-1 min-w-0">
+          <div className="col-span-6 flex items-center gap-1 min-w-0">
             <span className="truncate">{lang === 'bn' ? `তারিখ ও বিবরণ (${filteredTxs.length})` : `Date & Note (${filteredTxs.length})`}</span>
           </div>
-          <div className="col-span-4 text-center">
-            <span className="text-purple-200 font-bold">{lang === 'bn' ? 'মূল ব্যালেন্স' : 'Amount'}</span>
+          <div className="col-span-3 text-center">
+            <span className="text-purple-200 font-bold whitespace-nowrap">{lang === 'bn' ? 'মূল ব্যালেন্স' : 'Amount'}</span>
           </div>
           <div className="col-span-3 text-right">
-            <span className="text-purple-200 font-bold">{!hideRunningBalance ? (lang === 'bn' ? 'জের ব্যালেন্স' : 'Balance') : (lang === 'bn' ? 'জের (লুকানো)' : 'Hidden')}</span>
+            <span className="text-purple-200 font-bold whitespace-nowrap">{!hideRunningBalance ? (lang === 'bn' ? 'জের ব্যালেন্স' : 'Balance') : (lang === 'bn' ? 'জের (লুকানো)' : 'Hidden')}</span>
           </div>
         </div>
 
         {/* TRANSACTION HISTORY ROWS (LIGHT DARK CARDS ON SOFT DARK BACKGROUND #4A4459) */}
-        <div className="space-y-1">
+        <div className="space-y-0.5">
             {dateGroupedPortalTxs.length === 0 ? (
               <div className="text-center py-6 text-purple-200 border border-dashed border-[#5e5571] rounded-xl bg-[#363042]/70">
                 <Clock className="w-4 h-4 text-purple-300 mx-auto mb-1.5" />
@@ -1285,7 +1284,7 @@ export function CustomerPortal({
             ) : (
               dateGroupedPortalTxs.map((group) => {
                 return (
-                  <div key={group.dateKey} className="space-y-1 flex flex-col">
+                  <div key={group.dateKey} className="space-y-0.5 flex flex-col">
                     {group.items.map((tx) => {
                       const isGave = tx.type === 'GAVE';
                       const isToday = isDateToday(tx.date || tx.createdAt);
@@ -1294,12 +1293,12 @@ export function CustomerPortal({
                         <div 
                           key={tx.id}
                           onClick={() => setSelectedTx(tx)}
-                          className="bg-[#363042] hover:bg-[#413a4f] border border-[#5e5571] hover:border-purple-300/60 rounded-lg px-2.5 py-1.5 sm:py-2 grid grid-cols-12 items-center cursor-pointer transition-colors shadow-xs select-none text-left gap-1"
+                          className="bg-[#363042] hover:bg-[#413a4f] border border-[#5e5571] hover:border-purple-300/60 rounded-md px-2 py-1 sm:py-1.5 grid grid-cols-12 items-center cursor-pointer transition-colors shadow-2xs select-none text-left gap-1"
                         >
                           {/* Col 1: Date & Note */}
-                          <div className="col-span-5 flex items-center gap-1.5 min-w-0">
+                          <div className="col-span-6 flex items-center gap-1.5 min-w-0">
                             <span 
-                              className={`text-[9px] sm:text-[10px] font-mono shrink-0 ${
+                              className={`text-[9.5px] font-mono shrink-0 whitespace-nowrap ${
                                 isToday 
                                   ? 'text-amber-300 font-bold' 
                                   : 'text-purple-200 font-medium'
@@ -1311,7 +1310,7 @@ export function CustomerPortal({
                             
                             <span className="text-[#5e5571] text-[9px] shrink-0">|</span>
        
-                            <span className="text-xs font-semibold text-white truncate min-w-0 flex-1">
+                            <span className="text-[11px] sm:text-xs font-semibold text-white truncate min-w-0 flex-1">
                               {tx.note || (isGave 
                                 ? (lang === 'bn' ? 'পণ্য ক্রয় হিসাব' : 'Goods Purchased') 
                                 : (lang === 'bn' ? 'টাকা জমা/পরিশোধ' : 'Amount Deposited'))
@@ -1320,8 +1319,8 @@ export function CustomerPortal({
                           </div>
 
                           {/* Col 2: Amount (মূল ব্যালেন্স) */}
-                          <div className="col-span-4 flex items-center justify-center text-center">
-                            <span className={`text-xs sm:text-sm font-extrabold font-mono tabular-nums tracking-tight whitespace-nowrap text-center ${
+                          <div className="col-span-3 flex items-center justify-center text-center min-w-0">
+                            <span className={`text-[11px] sm:text-xs font-extrabold font-mono tabular-nums tracking-tight whitespace-nowrap text-center ${
                               !isGave ? 'text-emerald-400' : 'text-rose-400'
                             }`}>
                               {!isGave ? '+' : '-'}{currency}{toBn(tx.amount.toFixed(2))}
@@ -1329,9 +1328,9 @@ export function CustomerPortal({
                           </div>
 
                           {/* Col 3: Running Balance (জের ব্যালেন্স) */}
-                          <div className="col-span-3 flex items-center justify-end text-right">
+                          <div className="col-span-3 flex items-center justify-end text-right min-w-0">
                             {!hideRunningBalance ? (
-                              <span className="text-[11px] sm:text-xs font-mono font-bold tracking-tight inline-flex items-center justify-end shrink-0 whitespace-nowrap text-right">
+                              <span className="text-[10px] sm:text-[11px] font-mono font-bold tracking-tight inline-flex items-center justify-end shrink-0 whitespace-nowrap text-right">
                                 <span className="text-purple-300 font-normal mr-0.5">(</span>
                                 <span className={`tabular-nums ${
                                   (tx as any).runningBalance < 0 
@@ -1358,7 +1357,7 @@ export function CustomerPortal({
                 );
               })
             )}
-          </div>
+        </div>
 
           {/* Print Statement Button */}
           <div className="pt-3 pb-1 flex justify-center print:hidden">
