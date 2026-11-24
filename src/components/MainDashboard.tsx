@@ -108,7 +108,7 @@ interface MainDashboardProps {
   onNavigateToForm: (contactId: string, isGaveMode: boolean) => void;
   currency: string;
   setCurrency: (c: string) => void;
-  onOpenCashbookForm: () => void;
+  onOpenCashbookForm: (initialType?: 'IN' | 'OUT') => void;
   cashbookBalance: { totalIn: number; totalOut: number; balance: number };
   cashbookEntries: CashbookEntry[];
   onDeleteCashbookEntry: (id: string) => void;
@@ -2766,6 +2766,17 @@ export function MainDashboard({
             <div className={`bg-gradient-to-br from-brand-primary to-brand-hover text-white rounded-xl shadow-md p-3.5 flex flex-col items-center text-center relative overflow-hidden transition-all duration-300 ${
               cardDensity === 'compact' ? 'py-2.5' : cardDensity === 'large' ? 'py-5' : 'py-3.5'
             }`}>
+              {/* Corner Plus Button to add customer / cash entry directly */}
+              <motion.button
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.92 }}
+                onClick={() => onOpenCashbookForm('IN')}
+                className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-all shadow-md active:scale-95 cursor-pointer border border-white/30 backdrop-blur-md z-20"
+                title="কাস্টমার বা লেনদেন যোগ করুন"
+              >
+                <Plus className="w-5 h-5 font-black stroke-[3]" />
+              </motion.button>
+
               <div className="absolute top-0 right-0 w-16 h-16 bg-white/5 rounded-full filter blur-xl transform translate-x-4 -translate-y-4" />
               <span className={`text-white/80 font-bold tracking-wider mb-0.5 uppercase ${
                 cardDensity === 'compact' ? 'text-[8.5px]' : cardDensity === 'large' ? 'text-[11px]' : 'text-[10px]'
@@ -2800,95 +2811,65 @@ export function MainDashboard({
               </div>
             </div>
 
-            {/* Quick entry for pure cash bookkeeping */}
-            <div className={`bg-white rounded-xl border border-slate-100 shadow-tiny transition-all duration-305 ${
-              cardDensity === 'compact' ? 'p-2' : cardDensity === 'large' ? 'p-4.5' : 'p-3'
-            }`}>
-              <div className="flex justify-between items-center mb-1">
-                <h4 className={`font-black text-slate-800 flex items-center gap-1 ${
-                  cardDensity === 'compact' ? 'text-[11px]' : 'text-xs'
-                }`}>
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-purple-600" />
-                  ক্যাশবুক সরাসরি হিসাব
-                </h4>
-              </div>
-              <p className={`text-slate-400 leading-relaxed ${
-                cardDensity === 'compact' ? 'text-[9px]' : 'text-[10px]'
-              }`}>
-                দোকান বা ক্যাশের সরাসরি খরচ বা খোচরা মালামাল কেনা সংক্রান্ত হিসাব রাখুন।
-              </p>
-              
-              <div className="mt-2.5 flex gap-2">
-                <motion.button 
-                  whileHover={{ scale: 1.015 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={onOpenCashbookForm}
-                  className="flex-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-2 rounded-lg text-[10px] font-black tracking-wide flex items-center justify-center gap-1 transition-all border border-emerald-200 outline-none cursor-pointer"
-                >
-                  <PlusCircle className="w-3.5 h-3.5" />
-                  ক্যাশ ইন (+ IN)
-                </motion.button>
-                <motion.button 
-                  whileHover={{ scale: 1.015 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={onOpenCashbookForm}
-                  className="flex-1 bg-rose-50 text-rose-700 hover:bg-rose-100 py-2 rounded-lg text-[10px] font-black tracking-wide flex items-center justify-center gap-1 transition-all border border-rose-200 outline-none cursor-pointer"
-                >
-                  <PlusCircle className="w-3.5 h-3.5" />
-                  ক্যাশ আউট (- OUT)
-                </motion.button>
-              </div>
-            </div>
-
             {/* Cashbook History Log List (Satisfying query 5 on cashbook entries with dual symmetric columns) */}
             <div className={`bg-white rounded-xl border border-slate-100 shadow-tiny transition-all duration-305 ${
-              cardDensity === 'compact' ? 'p-2' : cardDensity === 'large' ? 'p-4.5' : 'p-3'
+              cardDensity === 'compact' ? 'p-2.5' : cardDensity === 'large' ? 'p-4.5' : 'p-3.5'
             }`}>
-              <h4 className="font-black text-slate-800 text-xs flex justify-between items-center pb-1.5 border-b border-slate-100 mb-2">
+              <h4 className="font-black text-slate-800 text-xs flex justify-between items-center pb-1.5 border-b border-slate-100 mb-2.5">
                 <span>লেনদেন হিস্ট্রি ({cashbookEntries.length})</span>
                 <span className="text-[9px] text-slate-400 font-medium font-mono uppercase tracking-wider">ডাবল কলাম লেজার</span>
               </h4>
 
               {cashbookEntries.length === 0 ? (
-                <p className="text-center py-6 text-slate-450 text-[10px] font-medium leading-loose">কোনো দৈনিক ক্যাশবুক হিস্ট্রি লেনদেন নেই।</p>
+                <p className="text-center py-6 text-slate-400 text-xs font-medium leading-loose">কোনো দৈনিক ক্যাশবুক হিস্ট্রি লেনদেন নেই।</p>
               ) : (
-                <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
+                <div className="grid grid-cols-2 gap-2.5 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
                   {/* Left Column: Cash In (ক্যাশ ইন) */}
-                  <div className="space-y-2 border-r border-slate-100 pr-2 text-left">
-                    <div className="sticky top-0 bg-white/95 backdrop-blur-xs py-1 z-10 border-b border-emerald-100 flex justify-between items-center px-1 mb-1">
-                      <span className="text-[9.5px] font-black text-emerald-700 uppercase tracking-tight flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                  <div className="space-y-2 border-r border-slate-700/60 pr-2 text-left">
+                    <div className="sticky top-0 bg-[#202a3a]/95 backdrop-blur-xs py-1.5 z-10 border-b border-slate-700/70 flex justify-between items-center px-1 mb-1.5">
+                      <span className="text-[10px] font-black text-emerald-400 uppercase tracking-tight flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
                         ক্যাশ ইন (বাম)
                       </span>
-                      <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1 py-0.5 rounded font-mono">
-                        +{currency}{cashbookBalance.totalIn.toFixed(0)}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[9.5px] font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 px-1.5 py-0.5 rounded-md font-mono">
+                          +{currency}{cashbookBalance.totalIn.toFixed(0)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onOpenCashbookForm('IN')}
+                          className="p-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-300 border border-emerald-500/30 transition-all cursor-pointer active:scale-95"
+                          title="বাম পাশে ক্যাশ ইন যোগ করুন"
+                        >
+                          <Plus className="w-3 h-3 stroke-[3]" />
+                        </button>
+                      </div>
                     </div>
                     {cashbookEntries.filter(e => e.type === 'IN').length === 0 ? (
-                      <p className="text-center py-6 text-slate-450 text-[9px] font-medium italic">কোনো ক্যাশ ইন নেই</p>
+                      <p className="text-center py-6 text-slate-400 text-[10px] font-medium italic">কোনো ক্যাশ ইন নেই</p>
                     ) : (
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         {cashbookEntries.filter(e => e.type === 'IN').map(entry => {
                           const ledgerSizes = {
                             compact: {
-                              card: "p-1 py-0.5",
-                              title: "text-[9.5px]",
-                              date: "text-[7.5px]",
-                              amount: "text-[9px]",
-                              button: "p-0"
-                            },
-                            comfortable: {
-                              card: "p-1.5",
+                              card: "p-1.5 py-1",
                               title: "text-[10.5px]",
                               date: "text-[8px]",
                               amount: "text-[10px]",
                               button: "p-0.5"
                             },
+                            comfortable: {
+                              card: "p-2",
+                              title: "text-xs",
+                              date: "text-[8.5px]",
+                              amount: "text-[11px]",
+                              button: "p-0.5"
+                            },
                             large: {
                               card: "p-2.5",
-                              title: "text-xs sm:text-[12.5px]",
+                              title: "text-xs sm:text-[13px]",
                               date: "text-[9px]",
-                              amount: "text-[11.5px] sm:text-[12px]",
+                              amount: "text-[12px] sm:text-[13px]",
                               button: "p-1"
                             }
                           };
@@ -2897,29 +2878,29 @@ export function MainDashboard({
                           return (
                             <motion.div 
                               key={entry.id} 
-                              whileHover={{ scale: 1.02, x: 1 }}
+                              whileHover={{ scale: 1.015, x: 1 }}
                               whileTap={{ scale: 0.98 }}
-                              className={`border border-emerald-100 bg-emerald-50/25 hover:bg-emerald-50/50 rounded-lg transition-all flex justify-between items-center gap-1 ${lsz.card}`}
+                              className={`border border-emerald-500/25 bg-[#17202c] hover:bg-[#202c3d] hover:border-emerald-500/40 rounded-xl transition-all flex justify-between items-center gap-1.5 ${lsz.card}`}
                             >
-                              <div className="min-w-0 pr-0.5 text-left">
-                                <p className={`font-bold text-slate-700 truncate leading-tight ${lsz.title}`} title={entry.note}>{entry.note}</p>
-                                <span className={`text-slate-400 font-mono block ${lsz.date}`}>
+                              <div className="min-w-0 pr-1 text-left flex-1">
+                                <p className={`font-black text-white truncate leading-tight ${lsz.title}`} title={entry.note}>{entry.note}</p>
+                                <span className={`text-slate-400 font-mono block mt-0.5 ${lsz.date}`}>
                                   {new Date(entry.date).toLocaleDateString('bn-BD', {
                                     day: '2-digit',
                                     month: 'short'
                                   })}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-0.5 shrink-0">
-                                <span className={`font-black font-mono text-emerald-600 ${lsz.amount}`} title={`${currency}${entry.amount.toFixed(2)}`}>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className={`font-black font-mono text-emerald-400 ${lsz.amount}`} title={`${currency}${entry.amount.toFixed(2)}`}>
                                   +{entry.amount.toFixed(0)}
                                 </span>
                                 <button 
                                   onClick={() => setCashbookToDelete(entry)}
-                                  className={`text-slate-350 hover:text-red-500 rounded transition-all cursor-pointer outline-none shrink-0 ${lsz.button}`}
+                                  className={`text-slate-400 hover:text-rose-400 p-1 rounded transition-colors cursor-pointer outline-none shrink-0 ${lsz.button}`}
                                   title="মুছে ফেলুন"
                                 >
-                                  <Trash2 className="w-3 h-3" />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                             </motion.div>
@@ -2931,40 +2912,50 @@ export function MainDashboard({
 
                   {/* Right Column: Cash Out (ক্যাশ আউট) */}
                   <div className="space-y-2 pl-1 text-left">
-                    <div className="sticky top-0 bg-white/95 backdrop-blur-xs py-1 z-10 border-b border-rose-100 flex justify-between items-center px-1 mb-1">
-                      <span className="text-[9.5px] font-black text-rose-700 uppercase tracking-tight flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block" />
+                    <div className="sticky top-0 bg-[#202a3a]/95 backdrop-blur-xs py-1.5 z-10 border-b border-slate-700/70 flex justify-between items-center px-1 mb-1.5">
+                      <span className="text-[10px] font-black text-rose-400 uppercase tracking-tight flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block" />
                         ক্যাশ আউট (ডান)
                       </span>
-                      <span className="text-[9px] font-bold text-rose-605 bg-rose-50 px-1 py-0.5 rounded font-mono">
-                        -{currency}{cashbookBalance.totalOut.toFixed(0)}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[9.5px] font-bold text-rose-300 bg-rose-500/20 border border-rose-500/30 px-1.5 py-0.5 rounded-md font-mono">
+                          -{currency}{cashbookBalance.totalOut.toFixed(0)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onOpenCashbookForm('OUT')}
+                          className="p-1 rounded-md bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 border border-rose-500/30 transition-all cursor-pointer active:scale-95"
+                          title="ডান পাশে ক্যাশ আউট যোগ করুন"
+                        >
+                          <Plus className="w-3 h-3 stroke-[3]" />
+                        </button>
+                      </div>
                     </div>
                     {cashbookEntries.filter(e => e.type === 'OUT').length === 0 ? (
-                      <p className="text-center py-6 text-slate-450 text-[9px] font-medium italic">কোনো ক্যাশ আউট নেই</p>
+                      <p className="text-center py-6 text-slate-400 text-[10px] font-medium italic">কোনো ক্যাশ আউট নেই</p>
                     ) : (
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         {cashbookEntries.filter(e => e.type === 'OUT').map(entry => {
                           const ledgerSizes = {
                             compact: {
-                              card: "p-1 py-0.5",
-                              title: "text-[9.5px]",
-                              date: "text-[7.5px]",
-                              amount: "text-[9px]",
-                              button: "p-0"
-                            },
-                            comfortable: {
-                              card: "p-1.5",
+                              card: "p-1.5 py-1",
                               title: "text-[10.5px]",
                               date: "text-[8px]",
                               amount: "text-[10px]",
                               button: "p-0.5"
                             },
+                            comfortable: {
+                              card: "p-2",
+                              title: "text-xs",
+                              date: "text-[8.5px]",
+                              amount: "text-[11px]",
+                              button: "p-0.5"
+                            },
                             large: {
                               card: "p-2.5",
-                              title: "text-xs sm:text-[12.5px]",
+                              title: "text-xs sm:text-[13px]",
                               date: "text-[9px]",
-                              amount: "text-[11.5px] sm:text-[12px]",
+                              amount: "text-[12px] sm:text-[13px]",
                               button: "p-1"
                             }
                           };
@@ -2973,29 +2964,29 @@ export function MainDashboard({
                           return (
                             <motion.div 
                               key={entry.id} 
-                              whileHover={{ scale: 1.02, x: -1 }}
+                              whileHover={{ scale: 1.015, x: -1 }}
                               whileTap={{ scale: 0.98 }}
-                              className={`border border-rose-105 bg-rose-50/25 hover:bg-rose-50/50 rounded-lg transition-all flex justify-between items-center gap-1 ${lsz.card}`}
+                              className={`border border-rose-500/25 bg-[#17202c] hover:bg-[#202c3d] hover:border-rose-500/40 rounded-xl transition-all flex justify-between items-center gap-1.5 ${lsz.card}`}
                             >
-                              <div className="min-w-0 pr-0.5 text-left">
-                                <p className={`font-bold text-slate-700 truncate leading-tight ${lsz.title}`} title={entry.note}>{entry.note}</p>
-                                <span className={`text-slate-400 font-mono block ${lsz.date}`}>
+                              <div className="min-w-0 pr-1 text-left flex-1">
+                                <p className={`font-black text-white truncate leading-tight ${lsz.title}`} title={entry.note}>{entry.note}</p>
+                                <span className={`text-slate-400 font-mono block mt-0.5 ${lsz.date}`}>
                                   {new Date(entry.date).toLocaleDateString('bn-BD', {
                                     day: '2-digit',
                                     month: 'short'
                                   })}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-0.5 shrink-0">
-                                <span className={`font-black font-mono text-rose-550 ${lsz.amount}`} title={`${currency}${entry.amount.toFixed(2)}`}>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className={`font-black font-mono text-rose-400 ${lsz.amount}`} title={`${currency}${entry.amount.toFixed(2)}`}>
                                   -{entry.amount.toFixed(0)}
                                 </span>
                                 <button 
                                   onClick={() => setCashbookToDelete(entry)}
-                                  className={`text-slate-350 hover:text-red-500 rounded transition-all cursor-pointer outline-none shrink-0 ${lsz.button}`}
+                                  className={`text-slate-400 hover:text-rose-400 p-1 rounded transition-colors cursor-pointer outline-none shrink-0 ${lsz.button}`}
                                   title="মুছে ফেলুন"
                                 >
-                                  <Trash2 className="w-3 h-3" />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                             </motion.div>

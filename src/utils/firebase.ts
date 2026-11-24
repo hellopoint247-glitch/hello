@@ -9,8 +9,9 @@ import {
   initializeFirestore, 
   persistentLocalCache, 
   persistentMultipleTabManager, 
+  memoryLocalCache,
   doc, 
-  getDoc,
+  getDocFromServer,
   disableNetwork,
   enableNetwork,
   setDoc,
@@ -21,13 +22,58 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with Database ID configuration, auto-detect long polling for iframe resilience, and persistent offline cache
-export const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true,
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
-  })
-}, firebaseConfig.firestoreDatabaseId);
+function canUsePersistentMultiTabCache(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    // In cross-origin/sandboxed iframes (such as preview frames), IndexedDB and multi-tab
+    // localStorage lease coordination can stall Firestore watch streams.
+    const isInIframe = window.self !== window.top;
+    if (isInIframe) return false;
+    return typeof window.indexedDB !== 'undefined' && typeof window.localStorage !== 'undefined';
+  } catch {
+    // Accessing window.top throws SecurityError in cross-origin iframes
+    return false;
+  }
+}
+
+// Initialize Firestore with Database ID, forced long-polling for proxy/mobile/iframe reliability,
+// and resilient local cache fallback.
+function createFirestoreInstance() {
+  const baseSettings = {
+    experimentalForceLongPolling: true,
+    experimentalLongPollingOptions: {
+      timeoutSeconds: 20,
+    },
+  };
+
+  if (canUsePersistentMultiTabCache()) {
+    try {
+      return initializeFirestore(
+        app,
+        {
+          ...baseSettings,
+          localCache: persistentLocalCache({
+            tabManager: persistentMultipleTabManager(),
+          }),
+        },
+        firebaseConfig.firestoreDatabaseId
+      );
+    } catch {
+      // Fall through to memoryLocalCache if IndexedDB/persistence is unavailable
+    }
+  }
+
+  return initializeFirestore(
+    app,
+    {
+      ...baseSettings,
+      localCache: memoryLocalCache(),
+    },
+    firebaseConfig.firestoreDatabaseId
+  );
+}
+
+export const db = createFirestoreInstance();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -55,6 +101,22 @@ try {
   }
 } catch (e) {
   // ignore storage errors
+}
+
+// Sync Firestore network state with browser online/offline transitions so watch streams
+// do not time out with "Backend didn't respond within 10 seconds" while offline.
+if (typeof window !== 'undefined') {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    disableNetwork(db).catch(() => {});
+  }
+  window.addEventListener('offline', () => {
+    disableNetwork(db).catch(() => {});
+  });
+  window.addEventListener('online', () => {
+    if (!quotaExceededState) {
+      enableNetwork(db).catch(() => {});
+    }
+  });
 }
 
 const quotaListeners = new Set<(exceeded: boolean) => void>();
@@ -129,6 +191,18 @@ export function isQuotaError(error: unknown): boolean {
   );
 }
 
+export function isTransientNetworkError(error: unknown): boolean {
+  if (!error) return false;
+  const msg = error instanceof Error ? error.message : String(error);
+  const code = (error as any)?.code;
+  return (
+    code === 'unavailable' ||
+    msg.includes('client is offline') ||
+    msg.includes('Could not reach Cloud Firestore backend') ||
+    msg.includes('Failed to get document because the client is offline')
+  );
+}
+
 // Safe Firestore wrappers to prevent network errors when quota is exceeded
 export async function safeSetDoc(docRef: any, data: any, options?: any): Promise<void> {
   if (isQuotaExceeded()) return;
@@ -141,6 +215,10 @@ export async function safeSetDoc(docRef: any, data: any, options?: any): Promise
   } catch (err) {
     if (isQuotaError(err)) {
       await markQuotaExceeded();
+      return;
+    }
+    if (isTransientNetworkError(err)) {
+      console.warn('Firestore write deferred (offline/network unavailable).');
       return;
     }
     throw err;
@@ -156,6 +234,10 @@ export async function safeDeleteDoc(docRef: any): Promise<void> {
       await markQuotaExceeded();
       return;
     }
+    if (isTransientNetworkError(err)) {
+      console.warn('Firestore delete deferred (offline/network unavailable).');
+      return;
+    }
     throw err;
   }
 }
@@ -167,6 +249,10 @@ export async function safeAddDoc(collectionRef: any, data: any): Promise<any> {
   } catch (err) {
     if (isQuotaError(err)) {
       await markQuotaExceeded();
+      return null;
+    }
+    if (isTransientNetworkError(err)) {
+      console.warn('Firestore add deferred (offline/network unavailable).');
       return null;
     }
     throw err;
@@ -192,6 +278,11 @@ export interface FirestoreErrorInfo {
     email?: string | null;
     emailVerified?: boolean | null;
     isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
   }
 }
 
@@ -202,32 +293,45 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     return;
   }
 
+  if (isTransientNetworkError(error)) {
+    console.warn(`Firestore temporarily unreachable during ${operationType} on ${path}. Operating with local cache until reconnected.`);
+    return;
+  }
+
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
       emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
     },
     operationType,
     path
   };
-  console.error('Firestore Error Payload: ', JSON.stringify(errInfo));
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
 // Validate Connection to Firestore on boot gracefully
 async function testConnection() {
   if (isQuotaExceeded()) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
   try {
-    await getDoc(doc(db, 'public', 'owner_config'));
+    await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (isQuotaError(error)) {
       await markQuotaExceeded();
       return;
     }
-    // In iframe or offline environments, Firestore automatically handles caching and fallback
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Firestore client is currently offline; using local cache until connection is restored.');
+    }
   }
 }
 testConnection();

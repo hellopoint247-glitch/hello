@@ -21,7 +21,8 @@ import {
   User,
   Camera,
   Eye,
-  EyeOff
+  EyeOff,
+  Share2
 } from 'lucide-react';
 import { Contact, Transaction, ChatMessage } from '../types';
 import { getContactSummary } from '../utils/storage';
@@ -447,6 +448,64 @@ export function CustomerDetail({
     const message = `প্রিয় ${contact.name}, আপনার কাছে আমাদের পাওনা হিসাব রয়েছে: ${currency} ${absBalance.toFixed(2)} টাকা। - Hello Point`;
     const url = `https://wa.me/${contact.phone ? contact.phone : ''}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
+  };
+
+  const formatAmountClean = (val: number): string => {
+    const absVal = Math.abs(Number(val) || 0);
+    if (Number.isInteger(absVal)) return String(absVal);
+    return String(Number(absVal.toFixed(2)));
+  };
+
+  const formatBengaliFullDateWithWeekday = (dateStr?: string): string => {
+    try {
+      if (!dateStr) return '';
+      let d: Date;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim())) {
+        const [y, m, day] = dateStr.trim().split('-').map(Number);
+        d = new Date(y, m - 1, day);
+      } else {
+        d = new Date(dateStr);
+      }
+      if (isNaN(d.getTime())) return '';
+
+      const monthNamesBn = [
+        'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন',
+        'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
+      ];
+      const weekdayNamesBn = [
+        'রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'
+      ];
+
+      const dayBn = toBengaliNumber(d.getDate());
+      const monthBn = monthNamesBn[d.getMonth()] || '';
+      const yearBn = toBengaliNumber(d.getFullYear());
+      const weekdayBn = weekdayNamesBn[d.getDay()] || '';
+
+      return `${dayBn} ${monthBn} ${yearBn} ${weekdayBn}`;
+    } catch {
+      return '';
+    }
+  };
+
+  const getTransactionWhatsAppUrl = (t: typeof txsWithRunningBalance[0]): string => {
+    const isGaveType = t.type === 'GAVE';
+    const dateLine = formatBengaliFullDateWithWeekday(t.date || t.createdAt);
+    const noteText = (t.note || '').trim() || (isGaveType ? 'দিয়েছি' : 'পেয়েছি');
+    const amountText = formatAmountClean(t.amount);
+    const balanceLabel = t.runningBalance < 0 ? 'মোট জমা আছে' : 'মোট বাকি আছে';
+    const balanceText = formatAmountClean(t.runningBalance);
+
+    const message = `-${dateLine}।\n\n⭕ ${noteText} ${currency} ${amountText}\n⭕ *${balanceLabel} ${currency} ${balanceText}*`;
+
+    const rawDigits = (contact.phone || '').replace(/\D/g, '');
+    let formattedPhone = '';
+    if (rawDigits.length === 11 && rawDigits.startsWith('01')) {
+      formattedPhone = `88${rawDigits}`;
+    } else if (rawDigits.length >= 10) {
+      formattedPhone = rawDigits;
+    }
+
+    return `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
   };
 
   const exportSingleCustomerToGoogleSheet = () => {
@@ -901,7 +960,19 @@ export function CustomerDetail({
                                   </div>
 
                                   {/* Action buttons inside card */}
-                                  <div className="pt-2 border-t border-[#364359] flex items-center justify-end gap-2 text-xs">
+                                  <div className="pt-2 border-t border-[#364359] flex items-center justify-end flex-wrap gap-2 text-xs">
+                                    <a
+                                      href={getTransactionWhatsAppUrl(t)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="px-3 py-1.5 font-bold text-emerald-300 bg-emerald-950/45 hover:bg-emerald-900/55 border border-emerald-500/40 rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+                                      title="হোয়াটসঅ্যাপে শেয়ার করুন"
+                                    >
+                                      <Share2 className="w-3.5 h-3.5 text-emerald-400" />
+                                      <span>শেয়ার</span>
+                                    </a>
+
                                     <button
                                       onClick={() => {
                                         onNavigateToForm(contact.id, isGaveType, t.id);

@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { safeLocalStorage as localStorage } from './utils/safeStorage';
 import { motion, AnimatePresence } from 'motion/react';
-import { Contact, Transaction, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, ChatQuickFAQ, CashInAccount, CashInTransaction, CustomerLoginNotification } from './types';
+import { Contact, Transaction, TransactionType, CashbookEntry, PayBillEntry, ScreenState, SignUpRequest, RechargeRequest, ChatMessage, PayBillRequest, ChatQuickFAQ, CashInAccount, CashInTransaction, CustomerLoginNotification } from './types';
 import { 
   loadContacts, 
   saveContacts, 
@@ -156,6 +156,7 @@ export default function App() {
   // Navigation routing state
   const [screen, setScreen] = useState<ScreenState>({ type: 'dashboard' });
   const [isCashbookOpen, setIsCashbookOpen] = useState(false);
+  const [cashbookInitialType, setCashbookInitialType] = useState<'IN' | 'OUT'>('IN');
 
   // Synchronized Bilingual status
   const [lang, setLang] = useState<'bn' | 'en'>(() => (localStorage.getItem('hellopoint_lang') as 'bn' | 'en') || 'bn');
@@ -435,6 +436,8 @@ export default function App() {
           localStorage.setItem('hellopoint_synced_owner_uid', data.ownerUid);
         }
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'public/owner_config');
     });
     return () => {
       unsubscribe();
@@ -2058,7 +2061,7 @@ export default function App() {
 
     setIsCashbookOpen(false);
 
-    // Instantaneous optimistic update
+    // Instantaneous optimistic update for Cashbook
     setCashbook(prev => {
       const updatedCb = [entry, ...prev];
       setTimeout(() => {
@@ -2080,7 +2083,12 @@ export default function App() {
   };
 
   const handleDeleteCashbookEntry = async (id: string) => {
-    soundEngine.playDeleteSound();
+    try {
+      soundEngine.playDeleteSound();
+    } catch {
+      // ignore
+    }
+
     // Instantaneous local UI updates & local persistent backup update
     setCashbook(prev => {
       const updatedCb = prev.filter(e => e.id !== id);
@@ -2562,7 +2570,7 @@ export default function App() {
   }, [cashInAccounts, user, ownerUid]);
 
   const resolvedCashbook = useMemo(() => {
-    // Pre-compute contact balances
+    // Real-time calculation of live customer balances from transactions
     const contactBalances = new Map<string, number>();
     contacts.forEach(c => {
       contactBalances.set(c.id, 0);
@@ -2571,20 +2579,28 @@ export default function App() {
     const txLen = transactions.length;
     for (let i = 0; i < txLen; i++) {
       const t = transactions[i];
-      const current = contactBalances.get(t.contactId) || 0;
+      const cur = contactBalances.get(t.contactId) || 0;
       if (t.type === 'GAVE') {
-        contactBalances.set(t.contactId, current + t.amount);
+        contactBalances.set(t.contactId, cur + t.amount);
       } else if (t.type === 'GOT') {
-        contactBalances.set(t.contactId, current - t.amount);
+        contactBalances.set(t.contactId, cur - t.amount);
       }
     }
 
+    const contactMap = new Map<string, Contact>();
+    contacts.forEach(c => {
+      contactMap.set(c.id, c);
+    });
+
     return cashbook.map(entry => {
       if (entry.contactId) {
+        const contact = contactMap.get(entry.contactId);
         const liveBal = contactBalances.get(entry.contactId) ?? 0;
         return {
           ...entry,
-          amount: Math.abs(liveBal)
+          note: contact?.name || entry.note || 'কাস্টমার হিসাব',
+          amount: Math.abs(liveBal),
+          type: entry.type // Keeps the user's chosen column ('IN' for বাম, 'OUT' for ডান)
         };
       }
       return entry;
@@ -2884,7 +2900,10 @@ export default function App() {
               onNavigateToForm={(contactId, isGaveMode) => setScreen({ type: 'transaction_form', contactId, isGaveMode })}
               currency={currency}
               setCurrency={handleCurrencyChange}
-              onOpenCashbookForm={() => setIsCashbookOpen(true)}
+              onOpenCashbookForm={(type?: 'IN' | 'OUT') => {
+                setCashbookInitialType(type || 'IN');
+                setIsCashbookOpen(true);
+              }}
               cashbookBalance={cashbookCalculations}
               cashbookEntries={resolvedCashbook}
               onDeleteCashbookEntry={handleDeleteCashbookEntry}
@@ -3003,6 +3022,7 @@ export default function App() {
           currency={currency}
           contacts={contacts}
           transactions={transactions}
+          initialType={cashbookInitialType}
         />
       )}
 
